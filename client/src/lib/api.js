@@ -62,6 +62,10 @@ async function request(path, options) {
   }
 }
 
+/** True when the server is unreachable or still starting (worth retrying), not for real errors. */
+export const isServerStarting = (err) =>
+  err && !(err instanceof AuthError) && (err.status === 0 || [502, 503, 504].includes(err.status));
+
 export const fetchDashboard = () => request("/api/dashboard");
 export const refreshDashboard = () => request("/api/refresh", { method: "POST" });
 export const getMe = () => request("/api/auth/me");

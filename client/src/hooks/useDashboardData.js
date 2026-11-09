@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AuthError, fetchDashboard, refreshDashboard } from "../lib/api";
+import { AuthError, fetchDashboard, isServerStarting, refreshDashboard } from "../lib/api";
 
 // Loads the dashboard from the API, polls on the server's interval, and exposes a
 // manual refresh. Calls onAuthError() when the session has ended.
@@ -29,11 +29,11 @@ export function useDashboardData({ onAuthError }) {
     } catch (err) {
       if (err instanceof AuthError) {
         authErrorRef.current && authErrorRef.current();
-      } else if (!hasData.current && retries.current < 24) {
-        // First load failed: the hosted server may be waking up. Keep trying.
+      } else if (!hasData.current && isServerStarting(err) && retries.current < 24) {
+        // First load: the server is unreachable or restarting. Keep trying quietly.
         retries.current += 1;
         retry = true;
-        setError("Starting the server… this can take up to a minute after a quiet period.");
+        setError("Connecting to the server…");
       } else {
         setError(err.message);
       }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AuthError, getMe, login, logout } from "../lib/api";
+import { AuthError, getMe, isServerStarting, login, logout } from "../lib/api";
 
-const WAKE_MESSAGE = "Starting the server… this can take up to a minute.";
+const WAKE_MESSAGE = "Connecting to the server…";
 
 // Who is signed in. status: "checking" | "authed" | "anon"
 export function useAuth() {
@@ -16,8 +16,8 @@ export function useAuth() {
       if (!alive.current) return;
       if (err instanceof AuthError) {
         setState({ status: "anon", user: null, message: "" });
-      } else if (attempt < 24) {
-        // Server waking up or a network blip: keep trying for ~2 minutes.
+      } else if (isServerStarting(err) && attempt < 24) {
+        // Server restarting (e.g. a deploy) or a network blip: keep trying for ~2 minutes.
         setState((s) => ({ ...s, message: WAKE_MESSAGE }));
         setTimeout(() => check(attempt + 1), 5000);
       } else {
