@@ -40,10 +40,11 @@ const config = {
   refreshTokenDays: num(process.env.REFRESH_TOKEN_DAYS, 30),
   maxFailedLogins: num(process.env.MAX_FAILED_LOGINS, 5),
   lockMinutes: num(process.env.LOCK_MINUTES, 15),
-  // Number of proxies in front of the app (Vercel -> Cloudflare -> Render = 3 in production).
+  // Number of proxies in front of the app in production:
+  // Vercel -> Cloudflare -> Render edge -> Render internal = 4.
   trustProxyHops: process.env.TRUST_PROXY_HOPS
     ? num(process.env.TRUST_PROXY_HOPS, 1)
-    : process.env.NODE_ENV === "production" ? 3 : 0,
+    : process.env.NODE_ENV === "production" ? 4 : 0,
 
   auditRetentionDays: num(process.env.AUDIT_RETENTION_DAYS, 365),
 };
