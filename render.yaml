@@ -18,6 +18,8 @@ services:
         value: "22"
       - key: SHEET_ACCESS
         value: public
+      - key: MONGODB_DB_NAME
+        value: US-Jamaat-Wise-Data
       - key: SYNC_INTERVAL_SECONDS
         value: "120"
       - key: MANUAL_REFRESH_COOLDOWN_SECONDS

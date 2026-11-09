@@ -9,7 +9,9 @@ const num = (v, fallback) => {
 const config = {
   port: num(process.env.PORT, 5000),
   isProduction: process.env.NODE_ENV === "production",
-  mongoUri: process.env.MONGODB_URI || "",
+  mongoUri: (process.env.MONGODB_URI || "").trim(),
+  // Database name; overrides any name inside MONGODB_URI.
+  mongoDbName: (process.env.MONGODB_DB_NAME || "").trim(),
 
   sheetId: process.env.SHEET_ID || "",
   sheetAccess: (process.env.SHEET_ACCESS || "public").toLowerCase(),
