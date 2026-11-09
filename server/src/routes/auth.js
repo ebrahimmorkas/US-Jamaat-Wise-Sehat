@@ -134,7 +134,6 @@ router.post("/logout", async (req, res) => {
 
 // ---------- GET /api/auth/me ----------  (called once when the dashboard opens)
 router.get("/me", requireAuth, (req, res) => {
-  require("../lib/clientIp").logIpHeaders(req);
   audit(req, "dashboard_opened");
   res.set("Cache-Control", "no-store");
   res.json({ user: req.user });
