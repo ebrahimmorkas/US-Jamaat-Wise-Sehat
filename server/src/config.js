@@ -1,5 +1,7 @@
 const path = require("path");
-require("dotenv").config({ path: path.join(__dirname, "..", ".env"), quiet: true });
+// ENV_FILE lets a command use another settings file, e.g. ENV_FILE=.env.atlas to manage users in Atlas.
+const envFile = process.env.ENV_FILE ? path.resolve(__dirname, "..", process.env.ENV_FILE) : path.join(__dirname, "..", ".env");
+require("dotenv").config({ path: envFile, quiet: true });
 
 const num = (v, fallback) => {
   const n = Number(v);
@@ -38,9 +40,6 @@ const config = {
   refreshTokenDays: num(process.env.REFRESH_TOKEN_DAYS, 30),
   maxFailedLogins: num(process.env.MAX_FAILED_LOGINS, 5),
   lockMinutes: num(process.env.LOCK_MINUTES, 15),
-  // Creates this admin on startup if it does not exist yet (remove after first start).
-  bootstrapAdminUsername: (process.env.BOOTSTRAP_ADMIN_USERNAME || "").trim().toLowerCase(),
-  bootstrapAdminPassword: process.env.BOOTSTRAP_ADMIN_PASSWORD || "",
   // Number of proxies in front of the app (Vercel + Render = 2 in production).
   trustProxyHops: process.env.TRUST_PROXY_HOPS
     ? num(process.env.TRUST_PROXY_HOPS, 1)

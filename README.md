@@ -94,11 +94,23 @@ To change the cards, statuses, colours or which sheet columns are read, edit
 **Users** (`users` collection): `username`, `passwordHash`, `role` (`admin` | `viewer`), `isActive`,
 `lastLoginAt`, `failedLoginCount`, `lockUntil`. Admins can also read the audit log.
 
-- First admin: set `BOOTSTRAP_ADMIN_USERNAME` + `BOOTSTRAP_ADMIN_PASSWORD`; it is created on startup if it
-  doesn't exist (an existing user's password is never changed). Remove the password variable afterwards.
-- More users / password reset (with `MONGODB_URI` of the target database in `server/.env`):
-  `npm run user:create --prefix server -- --username ali --password "S3cret!" --role viewer`
-  `npm run user:create --prefix server -- --username ali --password "New-Pass" --reset`
+Users live only in the database. To add a user or reset a password in **Atlas**, put the Atlas
+connection in `server/.env.atlas` (git-ignored):
+
+```
+MONGODB_URI=mongodb+srv://USER:PASSWORD@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority
+MONGODB_DB_NAME=US-Jamaat-Wise-Data
+SHEET_ID=unused
+```
+
+then (PowerShell, in `server/`):
+
+```
+$env:ENV_FILE=".env.atlas"; npm run user:create -- --username ali --password "S3cret!" --role viewer
+$env:ENV_FILE=".env.atlas"; npm run user:create -- --username ali --password "New-Pass" --reset
+```
+
+Without `ENV_FILE` the same command works on the local development database.
 
 **Audit log** (`auditlogs` collection, kept 365 days) — who did what, when, from which IP/browser:
 

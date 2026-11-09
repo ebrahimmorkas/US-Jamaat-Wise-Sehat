@@ -30,10 +30,6 @@ services:
       - key: JWT_REFRESH_SECRET
         generateValue: true
       # Values below are secret / site-specific: Render asks for them when the Blueprint is created.
-      - key: BOOTSTRAP_ADMIN_USERNAME
-        sync: false
-      - key: BOOTSTRAP_ADMIN_PASSWORD
-        sync: false
       - key: SHEET_ID
         sync: false
       - key: MONGODB_URI
