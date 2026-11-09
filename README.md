@@ -79,6 +79,40 @@ If MongoDB is not running, the server still works from memory and logs a warning
 To change the cards, statuses, colours or which sheet columns are read, edit
 **`server/src/dashboardConfig.js`** — the React app picks it up automatically.
 
+## Sign-in, users and audit log
+
+- **JWT** access token (7 days) + refresh token (30 days), both in **HttpOnly, SameSite=Lax** cookies
+  (`Secure` in production). JavaScript in the page can never read them.
+- Every login is a **session** in MongoDB (`sessions`). Logout or an admin can end a session immediately.
+  The refresh token is **rotated** on every use; re-using an old one ends the session (theft protection).
+- Passwords are stored as **bcrypt** hashes (`users.passwordHash`), never in plain text.
+- 5 wrong passwords lock the account for 15 minutes; sign-in is also rate-limited per IP.
+- POST requests must come from the website itself (Origin check + `X-Requested-With` header) — CSRF protection.
+- In production the website calls `/api/...` on its **own domain**; Vercel forwards it to Render
+  (`vercel.json`), so the cookies are first-party and work in Safari/iPhone too.
+
+**Users** (`users` collection): `username`, `passwordHash`, `role` (`admin` | `viewer`), `isActive`,
+`lastLoginAt`, `failedLoginCount`, `lockUntil`. Admins can also read the audit log.
+
+- First admin: set `BOOTSTRAP_ADMIN_USERNAME` + `BOOTSTRAP_ADMIN_PASSWORD`; it is created on startup if it
+  doesn't exist (an existing user's password is never changed). Remove the password variable afterwards.
+- More users / password reset (with `MONGODB_URI` of the target database in `server/.env`):
+  `npm run user:create --prefix server -- --username ali --password "S3cret!" --role viewer`
+  `npm run user:create --prefix server -- --username ali --password "New-Pass" --reset`
+
+**Audit log** (`auditlogs` collection, kept 365 days) — who did what, when, from which IP/browser:
+
+| action | when |
+|---|---|
+| `login_success` / `login_failed` / `login_blocked` / `account_locked` | sign-in attempts |
+| `logout`, `token_refreshed`, `token_reuse_detected` | session events |
+| `dashboard_opened` | the dashboard page was opened |
+| `data_refresh` | the **Refresh** button was clicked (and whether the sheet was re-read) |
+| `list_viewed` | a list of Jamaats was opened from a card (card, status, Jamiat, Jamaat) |
+| `audit_viewed`, `user_created`, `user_password_reset` | admin actions |
+
+Admins can read it at `GET /api/audit?limit=50&action=data_refresh&username=sehhat` (or in Atlas).
+
 ## Making the Google Sheet private (service account)
 
 Today the sheet is shared "Anyone with the link". When you are ready to share it only with specific

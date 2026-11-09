@@ -30,7 +30,38 @@ const config = {
     .filter(Boolean),
 
   clientDist: path.join(__dirname, "..", "..", "client", "dist"),
+
+  // ---- Authentication ----
+  jwtAccessSecret: process.env.JWT_ACCESS_SECRET || "",
+  jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || "",
+  accessTokenDays: num(process.env.ACCESS_TOKEN_DAYS, 7),
+  refreshTokenDays: num(process.env.REFRESH_TOKEN_DAYS, 30),
+  maxFailedLogins: num(process.env.MAX_FAILED_LOGINS, 5),
+  lockMinutes: num(process.env.LOCK_MINUTES, 15),
+  // Creates this admin on startup if it does not exist yet (remove after first start).
+  bootstrapAdminUsername: (process.env.BOOTSTRAP_ADMIN_USERNAME || "").trim().toLowerCase(),
+  bootstrapAdminPassword: process.env.BOOTSTRAP_ADMIN_PASSWORD || "",
+  // Number of proxies in front of the app (Vercel + Render = 2 in production).
+  trustProxyHops: process.env.TRUST_PROXY_HOPS
+    ? num(process.env.TRUST_PROXY_HOPS, 1)
+    : process.env.NODE_ENV === "production" ? 2 : 0,
+
+  auditRetentionDays: num(process.env.AUDIT_RETENTION_DAYS, 365),
 };
+
+// JWT secrets: required in production; a temporary random one is used in development.
+for (const key of ["jwtAccessSecret", "jwtRefreshSecret"]) {
+  if (!config[key]) {
+    if (config.isProduction) {
+      throw new Error("JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be set in production.");
+    }
+    config[key] = require("crypto").randomBytes(48).toString("hex");
+    console.warn(`[auth] ${key === "jwtAccessSecret" ? "JWT_ACCESS_SECRET" : "JWT_REFRESH_SECRET"} not set: using a temporary one (logins reset on restart).`);
+  }
+}
+if (config.jwtAccessSecret === config.jwtRefreshSecret) {
+  throw new Error("JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different.");
+}
 
 if (!config.sheetId) {
   throw new Error("SHEET_ID is missing. Copy server/.env.example to server/.env and set it.");

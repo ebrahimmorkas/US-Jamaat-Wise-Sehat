@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchDashboard, refreshDashboard } from "../lib/api";
+import { AuthError, fetchDashboard, refreshDashboard } from "../lib/api";
 
-// Loads the dashboard from the API, polls on the server's interval,
-// and exposes a manual refresh that asks the server to re-read the sheet.
-export function useDashboardData() {
+// Loads the dashboard from the API, polls on the server's interval, and exposes a
+// manual refresh. Calls onAuthError() when the session has ended.
+export function useDashboardData({ onAuthError }) {
   const [payload, setPayload] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -12,6 +12,8 @@ export function useDashboardData() {
   const busy = useRef(false);
   const hasData = useRef(false);
   const retries = useRef(0);
+  const authErrorRef = useRef(onAuthError);
+  authErrorRef.current = onAuthError;
 
   const run = useCallback(async (fn) => {
     if (busy.current) return;
@@ -25,8 +27,10 @@ export function useDashboardData() {
       hasData.current = true;
       retries.current = 0;
     } catch (err) {
-      // First load failed: the hosted server may be waking up (free plans sleep). Keep trying.
-      if (!hasData.current && retries.current < 24) {
+      if (err instanceof AuthError) {
+        authErrorRef.current && authErrorRef.current();
+      } else if (!hasData.current && retries.current < 24) {
+        // First load failed: the hosted server may be waking up. Keep trying.
         retries.current += 1;
         retry = true;
         setError("Starting the server… this can take up to a minute after a quiet period.");

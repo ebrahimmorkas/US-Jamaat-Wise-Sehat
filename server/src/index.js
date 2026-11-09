@@ -1,9 +1,11 @@
 const config = require("./config");
 const app = require("./app");
-const { connectDb, mongoose } = require("./db");
+const { connectDb, onConnected, mongoose } = require("./db");
 const sync = require("./services/sync");
+const { ensureBootstrapAdmin } = require("./services/bootstrap");
 
 async function main() {
+  onConnected(ensureBootstrapAdmin); // first admin user (runs whenever MongoDB connects)
   await connectDb();
   await sync.loadFromDb(); // serve the last saved data immediately
 

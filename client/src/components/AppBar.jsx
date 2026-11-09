@@ -1,8 +1,8 @@
 import { formatDuration } from "../lib/helpers";
 import { useNow } from "../hooks/useNow";
-import { MoonIcon, RefreshIcon, SunIcon } from "./Icons";
+import { LogoutIcon, MoonIcon, RefreshIcon, SunIcon } from "./Icons";
 
-export default function AppBar({ syncedAt, loading, failed, nextAt, intervalSecs, onRefresh, theme, onToggleTheme }) {
+export default function AppBar({ syncedAt, loading, failed, nextAt, intervalSecs, onRefresh, theme, onToggleTheme, user, onSignOut }) {
   const now = useNow();
   const dark = theme === "dark";
 
@@ -46,6 +46,18 @@ export default function AppBar({ syncedAt, loading, failed, nextAt, intervalSecs
             <RefreshIcon />
             <span>Refresh</span>
           </button>
+          {user && (
+            <div className="user-menu">
+              <span className="avatar" aria-hidden="true">{user.username.slice(0, 1).toUpperCase()}</span>
+              <span className="user-text">
+                <span className="user-name">{user.username}</span>
+                <span className="user-role">{user.role}</span>
+              </span>
+              <button type="button" className="icon-toggle" onClick={onSignOut} aria-label="Sign out" title="Sign out">
+                <LogoutIcon />
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </header>
