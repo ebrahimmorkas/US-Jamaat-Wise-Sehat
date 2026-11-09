@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Builds
+client/dist/
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+server/secrets/
+*service-account*.json
+
+# Spreadsheets / data exports
+*.xlsx
+*.xls
+*.csv
+data/
+
+# Old static prototype (contains the sheet link)
+website/
+
+# Logs & OS / editor files
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
