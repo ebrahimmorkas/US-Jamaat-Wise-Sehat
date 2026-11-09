@@ -1,0 +1,18 @@
+# Keeps the free Render API awake by calling it every 10 minutes
+# (Render's free plan sleeps after 15 minutes without traffic).
+name: Keep API awake
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping /api/health
+        run: |
+          curl --silent --show-error --fail --retry 5 --retry-delay 15 --retry-all-errors \
+            --max-time 90 https://us-jamaat-wise-sehat-api.onrender.com/api/health
