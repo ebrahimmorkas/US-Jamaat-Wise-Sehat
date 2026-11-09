@@ -20,7 +20,12 @@ const config = {
 
   syncIntervalSeconds: num(process.env.SYNC_INTERVAL_SECONDS, 120),
   manualRefreshCooldownSeconds: num(process.env.MANUAL_REFRESH_COOLDOWN_SECONDS, 15),
-  corsOrigin: process.env.CORS_ORIGIN || "http://localhost:5173",
+  // Website address(es) allowed to call the API, comma-separated
+  // (e.g. "https://your-site.vercel.app,https://a.com").
+  corsOrigins: (process.env.CORS_ORIGIN || "http://localhost:5173")
+    .split(",")
+    .map((s) => s.trim().replace(/\/+$/, ""))
+    .filter(Boolean),
 
   clientDist: path.join(__dirname, "..", "..", "client", "dist"),
 };

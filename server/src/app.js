@@ -24,10 +24,12 @@ app.use(
         connectSrc: ["'self'"],
       },
     },
+    // The website (Vercel) lives on a different domain than this API (Render).
+    crossOriginResourcePolicy: { policy: "cross-origin" },
   })
 );
 app.use(compression());
-if (!config.isProduction) app.use(cors({ origin: config.corsOrigin }));
+app.use(cors({ origin: config.corsOrigins, methods: ["GET", "POST"] }));
 app.use(express.json({ limit: "10kb" }));
 
 app.use("/api", rateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: "draft-7", legacyHeaders: false }));

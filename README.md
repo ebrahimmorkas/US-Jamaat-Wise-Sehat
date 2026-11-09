@@ -98,8 +98,33 @@ coordinators:
 On a hosting platform, instead of the file, put the whole JSON key into the
 `GOOGLE_SERVICE_ACCOUNT_KEY_JSON` environment variable.
 
-## Production (later)
+## Hosting: Vercel (website) + Render (API) + MongoDB Atlas (database)
+
+```
+Browser ──► Vercel (React website) ──► Render (Express API) ──► MongoDB Atlas
+                                              └──► Google Sheet
+```
+
+1. **MongoDB Atlas** (<https://cloud.mongodb.com>) – create a free **M0** cluster, a database user,
+   allow network access from `0.0.0.0/0` (Render has no fixed IP), and copy the connection string
+   (`mongodb+srv://USER:PASSWORD@cluster…/umoor_sehhat?retryWrites=true&w=majority`).
+2. **Render** (<https://render.com>) – *New → Blueprint* → pick this repository (uses `render.yaml`).
+   Fill in `SHEET_ID`, `MONGODB_URI`, and `CORS_ORIGIN` (the Vercel address from step 3; you can
+   put a placeholder first and update it afterwards). Note the API address, e.g.
+   `https://us-jamaat-wise-sehat-api.onrender.com`. Check `…/api/health`.
+3. **Vercel** (<https://vercel.com>) – *Add New → Project* → import this repository →
+   **Root Directory: `client`** → environment variable `VITE_API_URL` = the Render address → Deploy.
+4. Put the Vercel address (and later `https://a.com`) into Render's `CORS_ORIGIN`
+   (comma-separated) and save — Render restarts the API.
+
+Every `git push` to `main` redeploys both automatically.
+
+**Free Render plan:** the API sleeps after ~15 minutes without visitors; the next visitor waits
+~30–60 seconds while it wakes (the page shows "Starting the server…" and retries by itself).
+Upgrade the Render service to a paid instance to keep it always on.
+
+## Running everything on one server (alternative)
 
 1. `npm run install:all && npm run build`
-2. Set `NODE_ENV=production`, `MONGODB_URI` (e.g. MongoDB Atlas) and the other variables on the host.
+2. Set `NODE_ENV=production`, `MONGODB_URI` and the other variables on the host.
 3. `npm start` — one Node process serves both the API and the website.

@@ -10,21 +10,34 @@ export function useDashboardData() {
   const [nextAt, setNextAt] = useState(null);
   const timer = useRef(null);
   const busy = useRef(false);
+  const hasData = useRef(false);
+  const retries = useRef(0);
 
   const run = useCallback(async (fn) => {
     if (busy.current) return;
     busy.current = true;
     setLoading(true);
+    let retry = false;
     try {
       const body = await fn();
       setPayload(body);
       setError(body.warning || "");
+      hasData.current = true;
+      retries.current = 0;
     } catch (err) {
-      setError(err.message);
+      // First load failed: the hosted server may be waking up (free plans sleep). Keep trying.
+      if (!hasData.current && retries.current < 24) {
+        retries.current += 1;
+        retry = true;
+        setError("Starting the server… this can take up to a minute after a quiet period.");
+      } else {
+        setError(err.message);
+      }
     } finally {
       busy.current = false;
-      setLoading(false);
+      setLoading(retry);
     }
+    if (retry) setTimeout(() => run(fn), 5000);
   }, []);
 
   const intervalSecs = payload ? payload.config.refreshIntervalSeconds : 0;

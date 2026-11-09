@@ -1,0 +1,31 @@
+# Render Blueprint for the API (Express + MongoDB).
+# Render dashboard -> New -> Blueprint -> pick this repository.
+services:
+  - type: web
+    name: us-jamaat-wise-sehat-api
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: server
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: SHEET_ACCESS
+        value: public
+      - key: SYNC_INTERVAL_SECONDS
+        value: "120"
+      - key: MANUAL_REFRESH_COOLDOWN_SECONDS
+        value: "15"
+      # Values below are secret / site-specific: Render asks for them when the Blueprint is created.
+      - key: SHEET_ID
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
