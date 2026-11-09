@@ -37,8 +37,6 @@ export default function LoginPage({ onSignIn, message, theme, onToggleTheme }) {
 
       <main className="login-card">
         <img className="login-logo" src="/logo.png" alt="Umoor Sehhat logo" />
-        <h1 className="login-title">Sahebo Dashboard</h1>
-        <p className="login-sub">Umoor Sehhat · Monthly Coordination</p>
 
         {(error || message) && (
           <div className={`login-msg${error ? " is-error" : ""}`} role={error ? "alert" : "status"}>{error || message}</div>
@@ -65,7 +63,6 @@ export default function LoginPage({ onSignIn, message, theme, onToggleTheme }) {
             {busy ? "Signing in…" : "Sign in"}
           </button>
         </form>
-        <p className="login-foot">Authorised users only. Activity is logged.</p>
       </main>
     </div>
   );

@@ -476,7 +476,7 @@ td.rmk { color: var(--ink-2); }
   box-shadow: var(--shadow-lg); padding: 32px 28px 24px; text-align: center;
 }
 .login-logo {
-  height: 92px; width: auto; display: block; margin: 0 auto 14px;
+  height: 104px; width: auto; display: block; margin: 0 auto 24px;
   background: var(--logo-bg); border-radius: 14px; padding: 6px 8px;
 }
 .login-title { font-size: 22px; font-weight: 700; }
