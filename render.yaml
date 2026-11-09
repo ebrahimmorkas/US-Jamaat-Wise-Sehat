@@ -7,7 +7,7 @@ services:
     plan: free
     region: singapore
     rootDir: server
-    buildCommand: npm ci
+    buildCommand: npm install --omit=dev
     startCommand: npm start
     healthCheckPath: /api/health
     autoDeploy: true
