@@ -20,6 +20,9 @@ data/
 # Old static prototype (contains the sheet link)
 website/
 
+# Vercel CLI link folder
+.vercel/
+
 # Logs & OS / editor files
 *.log
 npm-debug.log*

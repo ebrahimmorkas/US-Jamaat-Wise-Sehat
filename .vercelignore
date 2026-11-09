@@ -1,0 +1,14 @@
+# Vercel only needs the React app. Never upload the server, secrets or data.
+server/
+website/
+data/
+tools/
+**/node_modules/
+client/dist/
+.env
+.env.*
+**/.env
+**/.env.*
+*.xlsx
+*.xls
+*.csv
