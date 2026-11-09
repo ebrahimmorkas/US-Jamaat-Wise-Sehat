@@ -4,6 +4,7 @@
   "installCommand": "npm ci --prefix client",
   "buildCommand": "npm run build --prefix client",
   "outputDirectory": "client/dist",
+  "ignoreCommand": "node scripts/vercel-skip-outdated.js",
   "rewrites": [
     { "source": "/api/:path*", "destination": "https://us-jamaat-wise-sehat-api.onrender.com/api/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
