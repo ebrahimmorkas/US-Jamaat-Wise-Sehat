@@ -18,7 +18,10 @@ const ACTIONS = [
   "user_updated",
   "user_deleted",
   "user_password_reset",
-  "dropdown_updated",     // a dropdown value was added / renamed / removed / reordered
+  "dropdown_updated",     // a Mauze Type value was added / renamed / removed / reordered
+  "field_created",        // a JC portal question was added
+  "field_updated",        // ... renamed, its answers changed, reordered, (de)activated
+  "field_deleted",
   "entry_submitted",      // a JC saved a Jamaat's monthly form on /jc-portal
   "master_created",       // Jamiat / Jamaat added
   "master_updated",

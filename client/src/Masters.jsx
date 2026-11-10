@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckIcon, CloseIcon } from "./components/Icons";
+import Notice from "./components/Notice";
 import {
   AuthError, createJamaat, createJamiat, deleteJamaat, deleteJamiat, isServerStarting,
   mastersList, updateJamaat, updateJamiat,
@@ -169,11 +170,7 @@ export default function Masters({ onAuthExpired }) {
           </div>
         </section>
 
-        {msg && (
-          <div className={msg.type === "error" ? "alert" : "success"} role={msg.type === "error" ? "alert" : "status"}>
-            {msg.type === "ok" && <CheckIcon />} <span>{msg.text}</span>
-          </div>
-        )}
+        {msg && <Notice type={msg.type} text={msg.text} onClose={() => setMsg(null)} />}
 
         <section className="masters-layout">
           {/* ---- Jamiats ---- */}

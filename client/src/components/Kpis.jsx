@@ -20,9 +20,9 @@ export default function Kpis({ rows, metrics, helpers, scopeSub, submitted, mont
   for (const r of rows) {
     for (const m of metrics) {
       const v = r.values[m.key];
-      if (!v || helpers.isNA(v)) continue;
+      if (!v || helpers.isNA(v, m)) continue;
       applicable++;
-      if (helpers.isDone(v)) done++;
+      if (helpers.isDone(v, m)) done++;
     }
   }
   const rate = pct(done, applicable);

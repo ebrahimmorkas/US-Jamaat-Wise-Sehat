@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { isServerStarting, portalEntry, portalOptions, portalSave } from "./lib/api";
-import { CheckIcon, ChevronRight, MoonIcon, SunIcon } from "./components/Icons";
+import { ChevronRight, MoonIcon, SunIcon } from "./components/Icons";
+import Notice from "./components/Notice";
 
 const LAST_JAMIAT = "jc-portal:jamiat";
 const store = {
@@ -127,15 +128,16 @@ export default function JcPortal({ theme, onToggleTheme }) {
     return out;
   }, [opts]);
 
-  const answered = form && opts ? opts.fields.filter((f) => form.values[f.key]).length : 0;
-  const total = opts ? opts.fields.length : 0;
+  const requiredFields = opts ? opts.fields.filter((f) => f.required) : [];
+  const answered = form ? requiredFields.filter((f) => form.values[f.key]).length : 0;
+  const total = requiredFields.length;
   const index = jamaats.findIndex((x) => x.id === jamaatId);
   const nextJamaat = index > -1 ? jamaats[index + 1] : null;
 
   const submit = useCallback(async (e) => {
     e.preventDefault();
     setError(""); setSuccess("");
-    const missing = opts.fields.filter((f) => !form.values[f.key]);
+    const missing = opts.fields.filter((f) => f.required && !form.values[f.key]);
     if (missing.length) {
       setShowMissing(true);
       setError(`Please answer: ${missing.map((f) => f.label).join(" · ")}`);
@@ -145,8 +147,11 @@ export default function JcPortal({ theme, onToggleTheme }) {
     }
     setSaving(true);
     try {
+      // Send only answers to the questions currently on the form.
+      const values = {};
+      for (const f of opts.fields) if (form.values[f.key]) values[f.key] = form.values[f.key];
       const res = await portalSave({
-        month, jamaatId, values: form.values, remarks: form.remarks,
+        month, jamaatId, values, remarks: form.remarks,
         details: form.details,
       });
       const f = { ...form, details: blankForm(res.details).details };
@@ -215,7 +220,7 @@ export default function JcPortal({ theme, onToggleTheme }) {
               </div>
             </section>
 
-            {error && !form && <div className="alert" role="alert">{error}</div>}
+            {!form && <Notice type="error" text={error} onClose={() => setError("")} />}
 
             {jamaat && entryLoading && <div className="panel portal-empty">Loading {jamaat.name}…</div>}
 
@@ -260,14 +265,21 @@ export default function JcPortal({ theme, onToggleTheme }) {
                         const missing = showMissing && !value;
                         return (
                           <fieldset className={`q${missing ? " is-missing" : ""}`} key={f.key} id={`q-${f.key}`}>
-                            <legend className="q-label">{f.label}{missing && <span className="q-req">Required</span>}</legend>
+                            <legend className="q-label">
+                              {f.label}
+                              {!f.required && <span className="optional">(optional)</span>}
+                              {missing && <span className="q-req">Required</span>}
+                            </legend>
                             <div className="seg-control">
-                              {opts.statusSets[f.statuses].map((s) => (
-                                <label key={s} className={`seg-opt tone-${opts.statusTones[s] || "na"}${value === s ? " is-on" : ""}`}>
-                                  <input type="radio" name={f.key} value={s} checked={value === s} onChange={() => setValue(f.key, s)} />
-                                  <span>{s}</span>
+                              {f.options.map((o) => (
+                                <label key={o.value} className={`seg-opt tone-${o.tone}${value === o.value ? " is-on" : ""}`}>
+                                  <input type="radio" name={f.key} value={o.value} checked={value === o.value} onChange={() => setValue(f.key, o.value)} />
+                                  <span>{o.value}</span>
                                 </label>
                               ))}
+                              {!f.required && value && (
+                                <button type="button" className="seg-clear" onClick={() => setValue(f.key, "")}>Clear</button>
+                              )}
                             </div>
                           </fieldset>
                         );
@@ -284,21 +296,18 @@ export default function JcPortal({ theme, onToggleTheme }) {
                   </label>
                 </section>
 
-                {error && <div className="alert" role="alert">{error}</div>}
-                {success && (
-                  <div className="success" role="status">
-                    <CheckIcon /> <span>{success}</span>
-                    {nextJamaat && (
-                      <button type="button" className="btn btn-ghost" onClick={() => { setJamaatId(nextJamaat.id); setSuccess(""); window.scrollTo({ top: 0, behavior: "smooth" }); }}>
-                        Next: {nextJamaat.name} <ChevronRight size={14} />
-                      </button>
-                    )}
-                  </div>
-                )}
+                <Notice type="error" text={error} onClose={() => setError("")} />
+                <Notice type="ok" text={success} onClose={() => setSuccess("")}>
+                  {nextJamaat && (
+                    <button type="button" className="btn btn-ghost" onClick={() => { setJamaatId(nextJamaat.id); setSuccess(""); window.scrollTo({ top: 0, behavior: "smooth" }); }}>
+                      Next: {nextJamaat.name} <ChevronRight size={14} />
+                    </button>
+                  )}
+                </Notice>
 
                 <div className="save-bar">
                   <div className="save-progress">
-                    <b>{answered}</b> of {total} answered
+                    <b>{answered}</b> of {total} required answered
                     {dirty && <span className="unsaved">· unsaved changes</span>}
                   </div>
                   <button type="submit" className="btn btn-primary" disabled={saving}>

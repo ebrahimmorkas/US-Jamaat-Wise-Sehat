@@ -1,13 +1,9 @@
-// Dropdown values managed by the Super Admin:
-//   progress / yesNo -> answer choices on the JC form (each with a meaning for the dashboard)
-//   mauzeType        -> Mauze Type choices in the Jamaat master
+// Simple dropdown lists managed by the Super Admin (currently: mauzeType).
 const { mongoose } = require("../db");
-
-const MEANINGS = ["done", "progress", "pending", "notdone", "na"];
 
 const valueSchema = new mongoose.Schema({
   value: { type: String, required: true, trim: true, maxlength: 40 },
-  meaning: { type: String, enum: [...MEANINGS, ""], default: "" },
+  meaning: { type: String, default: "" }, // unused for simple lists (kept for older documents)
 });
 
 const optionListSchema = new mongoose.Schema(
@@ -19,4 +15,3 @@ const optionListSchema = new mongoose.Schema(
 );
 
 module.exports = mongoose.model("OptionList", optionListSchema);
-module.exports.MEANINGS = MEANINGS;

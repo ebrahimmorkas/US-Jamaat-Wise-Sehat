@@ -1,6 +1,7 @@
 // Runs every time MongoDB connects. Each step is safe to repeat.
 const User = require("../models/User");
 const { seedLists } = require("./lists");
+const { seedFields } = require("./fields");
 
 async function migrate() {
   // 1) Old roles -> new roles. The old "admin"/"viewer" accounts (e.g. "sehhat") become Sahebs.
@@ -10,8 +11,9 @@ async function migrate() {
   // 2) User indexes: username / Gmail are unique only when present.
   await User.syncIndexes();
 
-  // 3) Dropdown lists.
+  // 3) Mauze Type list, then the JC form questions.
   await seedLists();
+  await seedFields();
 }
 
 module.exports = { migrate };

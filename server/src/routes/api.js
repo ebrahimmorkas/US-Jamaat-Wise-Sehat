@@ -5,18 +5,16 @@ const { isDbReady } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const { audit } = require("../services/audit");
 const { dashboardData } = require("../services/data");
-const { answerConfig } = require("../services/lists");
+const { dashboardMetrics } = require("../services/fields");
 const { isMonth } = require("../lib/month");
 
 const router = express.Router();
 const sahebOnly = [requireAuth, requireRole("saheb")];
 
-// What the React app needs to draw the dashboard (answer values come from the dropdown lists).
+// What the React app needs to draw the dashboard: one card per portal field marked
+// "show on dashboard", each with its own answers, colours and "done" answers.
 const publicConfig = async () => ({
-  metrics: form.fields
-    .filter((f) => f.dashboard !== false)
-    .map(({ key, label, group, statuses }) => ({ key, label, group, statuses })),
-  ...(await answerConfig()),
+  metrics: await dashboardMetrics(),
   showRemarks: form.showRemarks,
   refreshIntervalSeconds: config.refreshIntervalSeconds,
 });

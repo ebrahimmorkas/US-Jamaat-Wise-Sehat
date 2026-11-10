@@ -5,7 +5,7 @@ import StatusPill from "./StatusPill";
 export default function SidePanel({ jamiats, rows, jamiat, jamaat, metrics, helpers, onJamiat, onJamaat }) {
   const activities = plural(metrics.length, "activity", "activities");
   const pendingIn = (list) =>
-    list.reduce((sum, jm) => sum + metrics.filter((m) => helpers.isPending(jm.values[m.key])).length, 0);
+    list.reduce((sum, jm) => sum + metrics.filter((m) => helpers.isPending(jm.values[m.key], m)).length, 0);
 
   const back =
     jamiat === ALL ? null : (
@@ -36,7 +36,7 @@ export default function SidePanel({ jamiats, rows, jamiat, jamaat, metrics, help
             return (
               <li key={m.key}>
                 <span><span className="name">{m.label}</span><span className="grp">{m.group}</span></span>
-                <StatusPill status={v} tone={helpers.toneOf(v)} />
+                <StatusPill status={v} tone={helpers.toneOf(v, m)} />
               </li>
             );
           })}

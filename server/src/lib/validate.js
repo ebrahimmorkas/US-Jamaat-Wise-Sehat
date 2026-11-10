@@ -50,16 +50,24 @@ function parseJamaatDetails(body, mauzeTypes) {
   return out;
 }
 
-/** Every form question must be answered with one of its allowed values (`sets` = current dropdown values). */
-function parseValues(values, sets) {
+/**
+ * Answers for the active portal fields. Each answer must be one of that field's options;
+ * required fields must be answered. Returns { [key]: value } (unanswered optional fields left out).
+ */
+function parseValues(values, fields) {
   if (!values || typeof values !== "object") throw new InputError("Answer all the questions.");
   const out = {};
   const missing = [];
-  for (const f of form.fields) {
-    const allowed = sets[f.statuses] || [];
+  for (const f of fields) {
     const v = values[f.key];
-    if (!allowed.includes(v)) missing.push(f.label);
-    else out[f.key] = v;
+    if (v === undefined || v === null || v === "") {
+      if (f.required) missing.push(f.label);
+      continue;
+    }
+    if (!f.options.some((o) => o.value === v)) {
+      throw new InputError(`"${String(v).slice(0, 40)}" is not a choice for ${f.label}. Reload the page.`);
+    }
+    out[f.key] = v;
   }
   if (missing.length) throw new InputError(`Please answer: ${missing.join(" · ")}`);
   return out;

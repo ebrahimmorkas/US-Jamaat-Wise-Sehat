@@ -14,6 +14,7 @@ const portalRoutes = require("./routes/portal");
 const mastersRoutes = require("./routes/masters");
 const usersRoutes = require("./routes/users");
 const settingsRoutes = require("./routes/settings");
+const fieldsRoutes = require("./routes/fields");
 const { requireSameOrigin } = require("./middleware/auth");
 const { clientIp } = require("./lib/clientIp");
 
@@ -54,6 +55,7 @@ app.use("/api/portal", portalRoutes);
 app.use("/api/masters", mastersRoutes);
 app.use("/api/users", usersRoutes);
 app.use("/api/settings", settingsRoutes);
+app.use("/api/fields", fieldsRoutes);
 app.use("/api", apiRoutes);
 app.use("/api", (req, res) => res.status(404).json({ error: "Not found" }));
 

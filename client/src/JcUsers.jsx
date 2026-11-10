@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { CheckIcon, CloseIcon } from "./components/Icons";
+import Notice from "./components/Notice";
 import { AuthError, createUser, deleteUser, isServerStarting, updateUser, usersList } from "./lib/api";
 import { lower, plural } from "./lib/helpers";
 
@@ -87,11 +88,7 @@ export default function JcUsers({ onAuthExpired }) {
         </div>
       </section>
 
-      {msg && (
-        <div className={msg.type === "error" ? "alert" : "success"} role={msg.type === "error" ? "alert" : "status"}>
-          {msg.type === "ok" && <CheckIcon />} <span>{msg.text}</span>
-        </div>
-      )}
+      {msg && <Notice type={msg.type} text={msg.text} onClose={() => setMsg(null)} />}
 
       <div className="panel">
         <div className="panel-head"><div><h2>Add a JC</h2><p>Only the Gmail address is needed.</p></div></div>

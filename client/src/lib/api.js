@@ -87,7 +87,18 @@ export const createUser = (email) => request("/api/users", { method: "POST", bod
 export const updateUser = (id, body) => request(`/api/users/${id}`, { method: "PATCH", body });
 export const deleteUser = (id) => request(`/api/users/${id}`, { method: "DELETE" });
 
-// ---- Dropdown values (Super Admin) ----
+// ---- Portal fields = JC form questions (Super Admin) ----
+export const fieldsGet = () => request("/api/fields");
+export const fieldCreate = (body) => request("/api/fields", { method: "POST", body });
+export const fieldUpdate = (id, body) => request(`/api/fields/${id}`, { method: "PATCH", body });
+export const fieldDelete = (id) => request(`/api/fields/${id}`, { method: "DELETE" });
+export const fieldsOrder = (ids) => request("/api/fields/order", { method: "PUT", body: { ids } });
+export const optionAdd = (id, body) => request(`/api/fields/${id}/options`, { method: "POST", body });
+export const optionEdit = (id, oid, body) => request(`/api/fields/${id}/options/${oid}`, { method: "PATCH", body });
+export const optionRemove = (id, oid) => request(`/api/fields/${id}/options/${oid}`, { method: "DELETE" });
+export const optionsOrder = (id, ids) => request(`/api/fields/${id}/options/order`, { method: "PUT", body: { ids } });
+
+// ---- Simple lists: Mauze Type (Super Admin) ----
 export const listsGet = () => request("/api/settings/lists");
 export const listAdd = (key, body) => request(`/api/settings/lists/${key}/values`, { method: "POST", body });
 export const listEdit = (key, id, body) => request(`/api/settings/lists/${key}/values/${id}`, { method: "PATCH", body });

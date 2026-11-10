@@ -8,7 +8,8 @@ const Jamiat = require("../models/Jamiat");
 const Entry = require("../models/Entry");
 const { audit } = require("../services/audit");
 const { activeMasters } = require("../services/data");
-const { answerConfig, getValueSets } = require("../services/lists");
+const { getValueSets } = require("../services/lists");
+const { activeFields, portalShape } = require("../services/fields");
 const { clientIp } = require("../lib/clientIp");
 const { monthLabel, recentMonths } = require("../lib/month");
 const { InputError, requireId, parseJamaatDetails, parseValues, parseRemarks, sendError } = require("../lib/validate");
@@ -44,12 +45,10 @@ async function findJamaat(id) {
 // ---------- GET /api/portal/options ----------  form questions + Jamiat/Jamaat lists
 router.get("/options", async (req, res, next) => {
   try {
-    const [masters, answers, sets] = await Promise.all([activeMasters(), answerConfig(), getValueSets()]);
+    const [masters, fields, sets] = await Promise.all([activeMasters(), activeFields(), getValueSets()]);
     res.json({
       months: recentMonths(form.portalMonthsBack).map((key) => ({ key, label: monthLabel(key) })),
-      fields: form.fields.map(({ key, label, group, statuses }) => ({ key, label, group, statuses })),
-      statusSets: answers.statusSets,
-      statusTones: answers.statusTones,
+      fields: fields.map(portalShape),
       mauzeTypes: sets.mauzeType,
       remarksLabel: form.remarksLabel,
       remarksMaxLength: form.remarksMaxLength,
@@ -90,13 +89,19 @@ router.post("/entry", submitLimiter, async (req, res, next) => {
   try {
     const body = req.body || {};
     const month = checkMonth(body.month);
-    const sets = await getValueSets();
-    const values = parseValues(body.values, sets);
+    const [sets, fields] = await Promise.all([getValueSets(), activeFields()]);
+    const answers = parseValues(body.values, fields);
     const remarks = parseRemarks(body.remarks);
     const newDetails = parseJamaatDetails(body.details || {}, sets.mauzeType);
     const { jamaat, jamiat } = await findJamaat(body.jamaatId);
 
     const before = await Entry.findOne({ jamaat: jamaat._id, month }).select("values remarks").lean();
+    // Keep answers of questions that are inactive now; replace the ones on the form.
+    const values = { ...((before && before.values) || {}) };
+    for (const f of fields) {
+      if (f.key in answers) values[f.key] = answers[f.key];
+      else delete values[f.key];
+    }
     const entry = await Entry.findOneAndUpdate(
       { jamaat: jamaat._id, month },
       { $set: { values, remarks, lastIp: clientIp(req) }, $inc: { submitCount: 1 } },
@@ -113,9 +118,9 @@ router.post("/entry", submitLimiter, async (req, res, next) => {
     }
 
     const changed = {};
-    for (const f of form.fields) {
+    for (const f of fields) {
       const old = before && before.values ? before.values[f.key] : undefined;
-      if (old !== values[f.key]) changed[f.key] = { from: old || null, to: values[f.key] };
+      if ((old || null) !== (values[f.key] || null)) changed[f.label] = { from: old || null, to: values[f.key] || null };
     }
     if ((before ? before.remarks || "" : "") !== remarks) changed.remarks = { from: before ? before.remarks || "" : null, to: remarks };
 

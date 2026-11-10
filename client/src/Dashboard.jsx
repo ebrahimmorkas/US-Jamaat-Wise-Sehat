@@ -7,7 +7,8 @@ import SidePanel from "./components/SidePanel";
 import ListDialog from "./components/ListDialog";
 import Skeleton from "./components/Skeleton";
 import { useDashboardData } from "./hooks/useDashboardData";
-import { ALL, makeStatusHelpers, plural, scopeRows } from "./lib/helpers";
+import Notice from "./components/Notice";
+import { ALL, NOT_FILLED, makeStatusHelpers, plural, scopeRows } from "./lib/helpers";
 import { logEvent } from "./lib/api";
 
 export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onToggleTheme }) {
@@ -19,12 +20,13 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
   const [selected, setSelected] = useState({}); // metricKey -> status picked in the card
   const [dialog, setDialog] = useState(null);   // { key, status }
   const [tip, setTip] = useState(null);         // { x, y, content }
+  const [hiddenError, setHiddenError] = useState(""); // error message the user closed
 
   const config = payload && payload.config;
   const data = payload && payload.data;
   const jamiats = useMemo(() => (data ? data.jamiats : []), [data]);
   const metrics = useMemo(() => (config ? config.metrics : []), [config]);
-  const helpers = useMemo(() => (config ? makeStatusHelpers(config) : null), [config]);
+  const helpers = useMemo(() => (config ? makeStatusHelpers() : null), [config]);
 
   // Default each card's dropdown once the config arrives.
   useEffect(() => {
@@ -32,8 +34,8 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
     setSelected((prev) => {
       const next = { ...prev };
       for (const m of config.metrics) {
-        const opts = helpers.statusesFor(m);
-        if (!opts.includes(next[m.key])) next[m.key] = opts.includes(config.defaultStatus) ? config.defaultStatus : opts[0];
+        const opts = [...helpers.statusesFor(m), NOT_FILLED];
+        if (!opts.includes(next[m.key])) next[m.key] = m.defaultStatus || opts[0];
       }
       return next;
     });
@@ -63,7 +65,7 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
       view = {
         metric,
         status: dialog.status,
-        tone: helpers.toneOf(dialog.status),
+        tone: helpers.toneOf(dialog.status, metric),
         list,
         scopeText: currentJamiat === ALL ? "All Jamiats" : currentJamaat === ALL ? currentJamiat : `${currentJamaat} · ${currentJamiat}`,
         showJamiat: currentJamiat === ALL,
@@ -99,7 +101,7 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
           onJamaat={setJamaat}
         />
 
-        {error && <div className="alert" role="status">{error}</div>}
+        {error && error !== hiddenError && <Notice type="error" text={error} onClose={() => setHiddenError(error)} />}
 
         {!payload || !helpers ? (
           <Skeleton />
@@ -122,7 +124,7 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
                       metric={m}
                       rows={rows}
                       helpers={helpers}
-                      status={selected[m.key] || config.defaultStatus}
+                      status={selected[m.key] || m.defaultStatus}
                       onStatus={(s) => setSelected((prev) => ({ ...prev, [m.key]: s }))}
                       onOpen={(s) => {
                         setDialog({ key: m.key, status: s });
