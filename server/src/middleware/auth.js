@@ -1,7 +1,6 @@
 const config = require("../config");
 const { isDbReady } = require("../db");
 const User = require("../models/User");
-const { PASSWORD_ROLES } = require("../models/User");
 const Session = require("../models/Session");
 const { ACCESS_COOKIE, verifyAccess } = require("../services/auth");
 
@@ -23,16 +22,17 @@ async function requireAuth(req, res, next) {
   try {
     const [session, user] = await Promise.all([
       Session.findById(payload.sid).select("revokedAt expiresAt user").lean(),
-      User.findById(payload.sub).select("username role isActive").lean(),
+      User.findById(payload.sub).select("username email name role isActive").lean(),
     ]);
     if (!session || session.revokedAt || session.expiresAt < new Date() || String(session.user) !== payload.sub) {
       return res.status(401).json({ error: "Session ended.", code: "SESSION_ENDED" });
     }
-    if (!user || !user.isActive || !PASSWORD_ROLES.includes(user.role)) {
+    // Accounts without a Gmail (old username/password accounts) can no longer use the site.
+    if (!user || !user.isActive || !user.email) {
       return res.status(401).json({ error: "Account disabled.", code: "USER_INACTIVE" });
     }
 
-    req.user = { id: String(user._id), username: user.username, role: user.role };
+    req.user = { id: String(user._id), username: user.email, email: user.email, name: user.name || "", role: user.role };
     req.sessionId = payload.sid;
     next();
   } catch (err) {
@@ -46,7 +46,9 @@ const requireRole = (...roles) => (req, res, next) =>
 // CSRF protection for state-changing requests: must come from our own website.
 function requireSameOrigin(req, res, next) {
   if (["GET", "HEAD", "OPTIONS"].includes(req.method)) return next();
-  const allowed = config.corsOrigins;
+  // The website addresses in CORS_ORIGIN, plus this server's own address
+  // (e.g. http://localhost:5000 when the server shows the website itself).
+  const allowed = [...config.corsOrigins, `${req.protocol}://${req.get("host")}`];
   const origin = (req.get("origin") || "").replace(/\/+$/, "");
   const referer = req.get("referer") || "";
   const okOrigin = origin ? allowed.includes(origin) : allowed.some((o) => referer === o || referer.startsWith(o + "/"));

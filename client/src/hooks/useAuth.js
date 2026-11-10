@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AuthError, getMe, isServerStarting, login, logout } from "../lib/api";
+import { AuthError, devLogin, getMe, googleLogin, isServerStarting, logout } from "../lib/api";
 
 const WAKE_MESSAGE = "Connecting to the server…";
 
@@ -32,13 +32,20 @@ export function useAuth() {
     return () => { alive.current = false; };
   }, [check]);
 
-  const signIn = useCallback(async (username, password) => {
-    const { user } = await login(username, password);
+  // Google: `credential` is the ID token from the "Sign in with Google" button.
+  const signInGoogle = useCallback(async (credential) => {
+    const { user } = await googleLogin(credential);
+    setState({ status: "authed", user, message: "" });
+  }, []);
+  // Local testing only (server must have DEV_LOGIN=true).
+  const signInDev = useCallback(async (email) => {
+    const { user } = await devLogin(email);
     setState({ status: "authed", user, message: "" });
   }, []);
 
   const signOut = useCallback(async () => {
     await logout();
+    try { window.google && window.google.accounts.id.disableAutoSelect(); } catch { /* not loaded */ }
     setState({ status: "anon", user: null, message: "You have signed out." });
   }, []);
 
@@ -46,5 +53,5 @@ export function useAuth() {
     setState({ status: "anon", user: null, message: "Your session has ended. Please sign in again." });
   }, []);
 
-  return { ...state, signIn, signOut, expire };
+  return { ...state, signInGoogle, signInDev, signOut, expire };
 }

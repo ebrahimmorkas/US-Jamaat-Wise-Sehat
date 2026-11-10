@@ -70,16 +70,18 @@ const monthQuery = (month) => (month ? `?month=${encodeURIComponent(month)}` : "
 export const fetchDashboard = (month) => request("/api/dashboard" + monthQuery(month));
 export const refreshDashboard = (month) => request("/api/refresh" + monthQuery(month), { method: "POST" });
 export const getMe = () => request("/api/auth/me");
-export const login = (username, password) => raw("/api/auth/login", { method: "POST", body: { username, password } });
+export const authConfig = () => raw("/api/auth/config");
+export const googleLogin = (credential) => raw("/api/auth/google", { method: "POST", body: { credential } });
+export const devLogin = (email) => raw("/api/auth/dev-login", { method: "POST", body: { email } });
 export const logout = () => raw("/api/auth/logout", { method: "POST" }).catch(() => null);
 export const logEvent = (action, details) =>
   request("/api/audit/event", { method: "POST", body: { action, details } }).catch(() => null);
 
-// ---- JC portal (no sign-in) ----
-export const portalOptions = () => raw("/api/portal/options");
+// ---- JC portal (signed-in JCs) ----
+export const portalOptions = () => request("/api/portal/options");
 export const portalEntry = (jamaatId, month) =>
-  raw(`/api/portal/entry?jamaat=${encodeURIComponent(jamaatId)}&month=${encodeURIComponent(month)}`);
-export const portalSave = (body) => raw("/api/portal/entry", { method: "POST", body });
+  request(`/api/portal/entry?jamaat=${encodeURIComponent(jamaatId)}&month=${encodeURIComponent(month)}`);
+export const portalSave = (body) => request("/api/portal/entry", { method: "POST", body });
 
 // ---- JC users (Super Admin) ----
 export const usersList = () => request("/api/users");

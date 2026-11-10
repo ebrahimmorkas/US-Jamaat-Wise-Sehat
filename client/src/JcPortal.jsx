@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { isServerStarting, portalEntry, portalOptions, portalSave } from "./lib/api";
-import { ChevronRight, MoonIcon, SunIcon } from "./components/Icons";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AuthError, isServerStarting, portalEntry, portalOptions, portalSave } from "./lib/api";
+import { ChevronRight } from "./components/Icons";
+import AppBar from "./components/AppBar";
 import Notice from "./components/Notice";
 
 const LAST_JAMIAT = "jc-portal:jamiat";
@@ -23,7 +24,9 @@ const fmtTime = (d) =>
   new Date(d).toLocaleString([], { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
 // Public form where a JC fills one Jamaat's monthly follow-up.
-export default function JcPortal({ theme, onToggleTheme }) {
+export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onToggleTheme }) {
+  const expiredRef = useRef(onAuthExpired);
+  expiredRef.current = onAuthExpired;
   const [opts, setOpts] = useState(null);
   const [loadMsg, setLoadMsg] = useState("Loading…");
   const [month, setMonth] = useState("");
@@ -60,6 +63,7 @@ export default function JcPortal({ theme, onToggleTheme }) {
         })
         .catch((err) => {
           if (!alive) return;
+          if (err instanceof AuthError) return expiredRef.current();
           if (isServerStarting(err) && tries++ < 24) {
             setLoadMsg("Connecting to the server…");
             setTimeout(load, 5000);
@@ -91,7 +95,12 @@ export default function JcPortal({ theme, onToggleTheme }) {
         setBaseline(JSON.stringify(f));
         setSavedAt(entry ? entry.updatedAt : null);
       })
-      .catch((err) => { if (alive) { setForm(null); setError(err.message); } })
+      .catch((err) => {
+        if (!alive) return;
+        if (err instanceof AuthError) return expiredRef.current();
+        setForm(null);
+        setError(err.message);
+      })
       .finally(() => { if (alive) setEntryLoading(false); });
     return () => { alive = false; };
   }, [jamaatId, month]);
@@ -161,39 +170,25 @@ export default function JcPortal({ theme, onToggleTheme }) {
       setShowMissing(false);
       setSuccess(`${res.firstSubmission ? "Saved" : "Updated"} ${jamaat.name} for ${monthLabel}.`);
     } catch (err) {
+      if (err instanceof AuthError) return expiredRef.current();
       setError(err.message);
     } finally {
       setSaving(false);
     }
   }, [opts, form, month, jamaatId, jamaat, monthLabel]);
 
-  const dark = theme === "dark";
-
   return (
     <div className="portal">
-      <header className="appbar">
-        <div className="container appbar-inner portal-bar">
-          <div className="brand">
-            <img className="brand-logo" src="/logo.png" alt="Umoor Sehhat logo" />
-            <span className="brand-divider" aria-hidden="true" />
-            <div>
-              <div className="brand-name">JC Portal</div>
-              <div className="brand-sub">Monthly Jamaat follow-up</div>
-            </div>
-          </div>
-          <button type="button" className={`icon-toggle${dark ? " is-dark" : ""}`} onClick={onToggleTheme}
-            aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}>
-            <span className="sun"><SunIcon /></span>
-            <span className="moon"><MoonIcon /></span>
-          </button>
-        </div>
-      </header>
+      <AppBar title="JC Portal" subtitle="Monthly Jamaat follow-up" theme={theme} onToggleTheme={onToggleTheme} user={user} onSignOut={onSignOut} />
 
       <main className="container portal-main">
         {!opts ? (
           <div className="panel portal-empty">{loadMsg}</div>
         ) : (
           <>
+            {!opts.jamiats.length && (
+              <div className="panel portal-empty">No Jamaats are assigned to you yet. Please contact the Super Admin.</div>
+            )}
             <section className="panel portal-pick" aria-label="Choose the Jamaat">
               <div className="portal-step"><span className="step-no">1</span> Choose the Jamaat</div>
               <div className="pick-grid">

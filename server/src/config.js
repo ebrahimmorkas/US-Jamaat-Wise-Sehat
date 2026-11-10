@@ -31,8 +31,11 @@ const config = {
   jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || "",
   accessTokenDays: num(process.env.ACCESS_TOKEN_DAYS, 7),
   refreshTokenDays: num(process.env.REFRESH_TOKEN_DAYS, 30),
-  maxFailedLogins: num(process.env.MAX_FAILED_LOGINS, 5),
-  lockMinutes: num(process.env.LOCK_MINUTES, 15),
+  // Google sign-in: the OAuth "Web application" Client ID from Google Cloud (not a secret).
+  googleClientId: (process.env.GOOGLE_CLIENT_ID || "").trim(),
+  // Local testing without Google: DEV_LOGIN=true shows "sign in as <Gmail>" on the sign-in page.
+  // Never available when NODE_ENV=production.
+  devLogin: process.env.NODE_ENV !== "production" && process.env.DEV_LOGIN === "true",
   // Number of proxies in front of the app in production:
   // Vercel -> Cloudflare -> Render edge -> Render internal = 4.
   trustProxyHops: process.env.TRUST_PROXY_HOPS

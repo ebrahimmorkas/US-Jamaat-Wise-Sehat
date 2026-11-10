@@ -1,12 +1,10 @@
-// Passwords (bcrypt), JWT access/refresh tokens, sessions and HttpOnly cookies.
+// JWT access/refresh tokens, sessions and HttpOnly cookies (sign-in itself is done with Google).
 const crypto = require("crypto");
-const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const config = require("../config");
 const Session = require("../models/Session");
 const { clientIp } = require("../lib/clientIp");
 
-const BCRYPT_ROUNDS = 12;
 const ISSUER = "us-sehhat-api";
 const AUDIENCE = "us-sehhat-web";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -15,19 +13,13 @@ const REFRESH_GRACE_MS = 30 * 1000;
 const ACCESS_COOKIE = "us_access";
 const REFRESH_COOKIE = "us_refresh";
 
-// ---------- passwords ----------
-const hashPassword = (plain) => bcrypt.hash(plain, BCRYPT_ROUNDS);
-const verifyPassword = (plain, hash) => bcrypt.compare(plain, hash);
-// Compared against when the username does not exist, so response time doesn't reveal valid usernames.
-const DUMMY_HASH = bcrypt.hashSync("no-such-user-" + crypto.randomBytes(8).toString("hex"), BCRYPT_ROUNDS);
-
 // ---------- tokens ----------
 const sha256 = (s) => crypto.createHash("sha256").update(s).digest("hex");
 const newJti = () => crypto.randomBytes(32).toString("hex");
 
 function signAccess(user, sessionId) {
   return jwt.sign(
-    { typ: "access", sid: String(sessionId), role: user.role, username: user.username },
+    { typ: "access", sid: String(sessionId), role: user.role, username: user.email || user.username },
     config.jwtAccessSecret,
     { subject: String(user._id || user.id), expiresIn: `${config.accessTokenDays}d`, issuer: ISSUER, audience: AUDIENCE, algorithm: "HS256" }
   );
@@ -116,9 +108,6 @@ async function revokeSession(sessionId, reason) {
 module.exports = {
   ACCESS_COOKIE,
   REFRESH_COOKIE,
-  DUMMY_HASH,
-  hashPassword,
-  verifyPassword,
   verifyAccess,
   verifyRefresh,
   startSession,

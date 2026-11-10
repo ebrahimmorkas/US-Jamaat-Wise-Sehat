@@ -1,32 +1,26 @@
 const { mongoose } = require("../db");
 
-// saheb      -> Sahebo dashboard            (username + password)
-// superadmin -> Super Admin portal          (username + password)
-// jc         -> JC portal (sign-in later)   (Gmail only, added by the Super Admin)
+// Everyone signs in with Google. Only Gmail addresses added by a Super Admin can sign in.
+//   saheb      -> Sahebo dashboard
+//   superadmin -> Super Admin portal (users, masters, portal fields)
+//   jc         -> JC portal, only for the Jamiats / Jamaats assigned to them
 const ROLES = ["saheb", "superadmin", "jc"];
-const PASSWORD_ROLES = ["saheb", "superadmin"];
 
 const userSchema = new mongoose.Schema(
   {
     role: { type: String, enum: ROLES, required: true },
 
-    // Saheb / Super Admin sign-in name. Not used by JCs.
-    username: {
-      type: String,
-      lowercase: true,
-      trim: true,
-      minlength: 3,
-      maxlength: 64,
-      match: /^[a-z0-9._-]+$/,
-      required() { return PASSWORD_ROLES.includes(this.role); },
-    },
-    // bcrypt hash — the real password is never stored. Not returned by queries unless asked for.
-    passwordHash: { type: String, select: false, required() { return PASSWORD_ROLES.includes(this.role); } },
-
-    // JC Gmail address as typed (lowercase) and its canonical form used to block duplicates:
+    // Gmail address as typed (lowercase) and its canonical form used for sign-in and to block duplicates:
     // Gmail ignores dots and "+anything", so a.b+x@gmail.com and ab@gmail.com are the same inbox.
-    email: { type: String, lowercase: true, trim: true, maxlength: 120, required() { return this.role === "jc"; } },
+    email: { type: String, lowercase: true, trim: true, maxlength: 120 },
     emailKey: { type: String, select: false },
+
+    // Filled from the Google account at sign-in (shown in the top bar).
+    name: { type: String, trim: true, maxlength: 120 },
+    googleSub: { type: String, select: false }, // Google's permanent account id, remembered at first sign-in
+
+    // Old username of accounts created before Google sign-in (shown until a Gmail is added).
+    username: { type: String, lowercase: true, trim: true, maxlength: 64 },
 
     // JC access: the Jamiats and, inside them, the Jamaats this JC may fill.
     // Saved as explicit lists ("All" in the form ticks everything that exists at that moment).
@@ -35,22 +29,23 @@ const userSchema = new mongoose.Schema(
 
     isActive: { type: Boolean, default: true },
     createdBy: String,
-
-    failedLoginCount: { type: Number, default: 0 },
-    lockUntil: Date,
     lastLoginAt: Date,
-    passwordChangedAt: Date,
   },
   { timestamps: true }
 );
-// Unique only when present (JCs have no username, Sahebs have no email).
+// Unique only when present.
 userSchema.index({ username: 1 }, { unique: true, partialFilterExpression: { username: { $type: "string" } } });
 userSchema.index({ emailKey: 1 }, { unique: true, partialFilterExpression: { emailKey: { $type: "string" } } });
 
 userSchema.methods.toPublic = function () {
-  return { id: this._id.toString(), username: this.username || this.email, role: this.role };
+  return {
+    id: this._id.toString(),
+    email: this.email || "",
+    name: this.name || "",
+    username: this.name || this.email || this.username || "",
+    role: this.role,
+  };
 };
 
 module.exports = mongoose.model("User", userSchema);
 module.exports.ROLES = ROLES;
-module.exports.PASSWORD_ROLES = PASSWORD_ROLES;

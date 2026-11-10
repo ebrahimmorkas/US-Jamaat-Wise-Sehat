@@ -24,14 +24,18 @@ app.disable("x-powered-by");
 
 app.use(
   helmet({
+    // Google sign-in popups need to talk back to this page.
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        // accounts.google.com = the "Sign in with Google" button
+        scriptSrc: ["'self'", "https://accounts.google.com/gsi/client"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://accounts.google.com/gsi/style"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         imgSrc: ["'self'", "data:"],
-        connectSrc: ["'self'"],
+        connectSrc: ["'self'", "https://accounts.google.com/gsi/"],
+        frameSrc: ["https://accounts.google.com/gsi/"],
       },
     },
   })
