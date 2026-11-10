@@ -46,7 +46,9 @@ const requireRole = (...roles) => (req, res, next) =>
 // CSRF protection for state-changing requests: must come from our own website.
 function requireSameOrigin(req, res, next) {
   if (["GET", "HEAD", "OPTIONS"].includes(req.method)) return next();
-  const allowed = config.corsOrigins;
+  // The website addresses in CORS_ORIGIN, plus this server's own address
+  // (e.g. http://localhost:5000 when the server shows the website itself).
+  const allowed = [...config.corsOrigins, `${req.protocol}://${req.get("host")}`];
   const origin = (req.get("origin") || "").replace(/\/+$/, "");
   const referer = req.get("referer") || "";
   const okOrigin = origin ? allowed.includes(origin) : allowed.some((o) => referer === o || referer.startsWith(o + "/"));
