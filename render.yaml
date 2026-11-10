@@ -29,5 +29,8 @@ services:
       # Values below are secret / site-specific: Render asks for them when the Blueprint is created.
       - key: MONGODB_URI
         sync: false
+      # Google sign-in Client ID (not a secret)
+      - key: GOOGLE_CLIENT_ID
+        sync: false
       - key: CORS_ORIGIN
         sync: false

@@ -3,7 +3,8 @@ const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const config = require("../config");
 const { isDbReady } = require("../db");
 const User = require("../models/User");
-const { PASSWORD_ROLES } = require("../models/User");
+const { parseGmail } = require("../lib/gmail");
+const { verifyGoogleCredential } = require("../lib/google");
 const auth = require("../services/auth");
 const { audit } = require("../services/audit");
 const { requireAuth } = require("../middleware/auth");
@@ -26,52 +27,59 @@ const refreshLimiter = rateLimit({
 const dbGuard = (req, res, next) =>
   isDbReady() ? next() : res.status(503).json({ error: "Database is starting, please try again in a moment.", code: "DB_UNAVAILABLE" });
 
-// ---------- POST /api/auth/login ----------
-router.post("/login", loginLimiter, dbGuard, async (req, res, next) => {
+// ---------- GET /api/auth/config ----------  what the sign-in page needs
+router.get("/config", (req, res) => {
+  res.json({ googleClientId: config.googleClientId, devLogin: config.devLogin });
+});
+
+// Signs in the user registered with this Gmail (any role). Only Gmails added by a Super Admin get in.
+async function signIn(req, res, { email, sub, name, method }) {
+  const g = parseGmail(email);
+  const user = g.error ? null : await User.findOne({ emailKey: g.emailKey }).select("+googleSub");
+
+  const refuse = (reason, message, code) => {
+    audit(req, "login_failed", { user: user ? user.toPublic() : null, username: email, success: false, details: { reason, method } });
+    return res.status(403).json({ error: message, code });
+  };
+  if (!user) {
+    return refuse("not_registered", `${email} is not registered. Ask the Super Admin to add this Google account.`, "NOT_REGISTERED");
+  }
+  if (!user.isActive) return refuse("inactive", "This account has been deactivated. Contact the Super Admin.", "USER_INACTIVE");
+  // The Gmail address was given to someone else's Google account? (Google ids never change.)
+  if (sub && user.googleSub && user.googleSub !== sub) return refuse("google_account_mismatch", "This Google account does not match the registered one. Contact the Super Admin.", "ACCOUNT_MISMATCH");
+
+  if (sub && !user.googleSub) user.googleSub = sub;
+  if (name) user.name = name.slice(0, 120);
+  user.lastLoginAt = new Date();
+  await user.save();
+
+  const session = await auth.startSession(req, res, user);
+  audit(req, "login_success", { user: user.toPublic(), details: { sessionId: String(session._id), method } });
+  res.json({ user: user.toPublic() });
+}
+
+// ---------- POST /api/auth/google  { credential } ----------  "Sign in with Google"
+router.post("/google", loginLimiter, dbGuard, async (req, res, next) => {
   try {
-    const username = String((req.body && req.body.username) || "").trim().toLowerCase().slice(0, 64);
-    const password = String((req.body && req.body.password) || "").slice(0, 200);
-    if (!username || !password) return res.status(400).json({ error: "Enter your username and password.", code: "MISSING_FIELDS" });
-
-    // Only Sahebs and Super Admins sign in with a password (JC sign-in comes later).
-    const found = await User.findOne({ username }).select("+passwordHash");
-    const user = found && PASSWORD_ROLES.includes(found.role) && found.passwordHash ? found : null;
-
-    if (user && user.lockUntil && user.lockUntil > new Date()) {
-      const mins = Math.ceil((user.lockUntil - Date.now()) / 60000);
-      audit(req, "login_blocked", { user: user.toPublic(), success: false, details: { minutesLeft: mins } });
-      return res.status(429).json({ error: `Too many wrong attempts. Try again in ${mins} minute${mins === 1 ? "" : "s"}.`, code: "LOCKED" });
+    let google;
+    try {
+      google = await verifyGoogleCredential((req.body || {}).credential);
+    } catch (err) {
+      audit(req, "login_failed", { success: false, details: { reason: "google_verify_failed", method: "google" } });
+      return res.status(err.status || 401).json({ error: err.message, code: "GOOGLE_INVALID" });
     }
+    await signIn(req, res, { ...google, method: "google" });
+  } catch (err) {
+    next(err);
+  }
+});
 
-    const passwordOk = await auth.verifyPassword(password, user ? user.passwordHash : auth.DUMMY_HASH);
-
-    if (!user || !passwordOk || !user.isActive) {
-      if (user && !passwordOk) {
-        user.failedLoginCount = (user.failedLoginCount || 0) + 1;
-        if (user.failedLoginCount >= config.maxFailedLogins) {
-          user.lockUntil = new Date(Date.now() + config.lockMinutes * 60000);
-          user.failedLoginCount = 0;
-          audit(req, "account_locked", { user: user.toPublic(), success: false, details: { minutes: config.lockMinutes } });
-        }
-        await user.save();
-      }
-      audit(req, "login_failed", {
-        user: user ? user.toPublic() : null,
-        username,
-        success: false,
-        details: { reason: !user ? "unknown_user" : !passwordOk ? "wrong_password" : "inactive" },
-      });
-      return res.status(401).json({ error: "Wrong username or password.", code: "BAD_CREDENTIALS" });
-    }
-
-    user.failedLoginCount = 0;
-    user.lockUntil = undefined;
-    user.lastLoginAt = new Date();
-    await user.save();
-
-    const session = await auth.startSession(req, res, user);
-    audit(req, "login_success", { user: user.toPublic(), details: { sessionId: String(session._id) } });
-    res.json({ user: user.toPublic() });
+// ---------- POST /api/auth/dev-login  { email } ----------  local testing only (DEV_LOGIN=true, never in production)
+router.post("/dev-login", loginLimiter, dbGuard, async (req, res, next) => {
+  try {
+    if (!config.devLogin) return res.status(404).json({ error: "Not found" });
+    const email = String((req.body || {}).email || "").trim().toLowerCase().slice(0, 120);
+    await signIn(req, res, { email, method: "dev" });
   } catch (err) {
     next(err);
   }
@@ -92,7 +100,7 @@ router.post("/refresh", refreshLimiter, dbGuard, async (req, res, next) => {
     }
 
     const user = await User.findById(payload.sub);
-    if (!user || !user.isActive || !PASSWORD_ROLES.includes(user.role)) {
+    if (!user || !user.isActive || !user.email) {
       auth.clearAuthCookies(res);
       return res.status(401).json({ error: "Account disabled.", code: "USER_INACTIVE" });
     }
@@ -127,7 +135,7 @@ router.post("/logout", async (req, res) => {
     await auth.revokeSession(sid, "logout").catch(() => {});
     if (!who.username) {
       const u = await User.findById(who.id).lean().catch(() => null);
-      if (u) who = { id: String(u._id), username: u.username, role: u.role };
+      if (u) who = { id: String(u._id), username: u.email || u.username, role: u.role };
     }
     audit(req, "logout", { user: who, details: { sessionId: sid } });
   }
@@ -137,7 +145,7 @@ router.post("/logout", async (req, res) => {
 
 // ---------- GET /api/auth/me ----------  (called once when the website opens)
 router.get("/me", requireAuth, (req, res) => {
-  audit(req, req.user.role === "superadmin" ? "admin_opened" : "dashboard_opened");
+  audit(req, { superadmin: "admin_opened", jc: "portal_opened" }[req.user.role] || "dashboard_opened");
   res.set("Cache-Control", "no-store");
   res.json({ user: req.user });
 });

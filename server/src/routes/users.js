@@ -1,8 +1,13 @@
-// JC users (Super Admin only). A JC is just a Gmail address for now; JC sign-in comes later.
+// Users (Super Admin only). Every user = a Gmail address + a role; they sign in with that Google account.
+//   jc         also has the Jamiats / Jamaats they may fill
+//   saheb      dashboard
+//   superadmin this portal
+// Safety: a Super Admin can't deactivate, delete or demote themselves, and the last active Super Admin stays.
 const express = require("express");
 const { isDbReady } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const User = require("../models/User");
+const { ROLES } = require("../models/User");
 const Session = require("../models/Session");
 const { audit } = require("../services/audit");
 const { parseGmail } = require("../lib/gmail");
@@ -19,10 +24,14 @@ router.use(requireAuth, requireRole("superadmin"), (req, res, next) => {
 const DUPLICATE = "This Gmail is already added (Gmail ignores dots and “+…”, so it may be written differently).";
 const out = (u) => ({
   id: String(u._id),
-  email: u.email,
+  role: u.role,
+  email: u.email || "",
+  name: u.name || "",
+  username: u.username || "",
   isActive: u.isActive,
   jamiats: (u.jamiats || []).map(String),
   jamaats: (u.jamaats || []).map(String),
+  lastLoginAt: u.lastLoginAt || null,
   createdAt: u.createdAt,
   createdBy: u.createdBy || "",
 });
@@ -33,18 +42,30 @@ function gmailOrThrow(input) {
   if (g.error) throw new InputError(g.error);
   return g;
 }
-
-async function findJc(id) {
-  const u = await User.findOne({ _id: requireId(id, "user"), role: "jc" });
+function roleOrThrow(role) {
+  if (!ROLES.includes(role)) throw new InputError("Choose a role.");
+  return role;
+}
+async function findUser(id) {
+  const u = await User.findById(requireId(id, "user"));
   if (!u) throw new InputError("User not found.", 404);
   return u;
+}
+// Refuse changes that would leave nobody able to manage the site.
+async function guardSuperAdmin(req, u, { deactivate, demote, remove }) {
+  if (u.role !== "superadmin" || !(deactivate || demote || remove)) return;
+  if (String(u._id) === req.user.id) {
+    throw new InputError(remove ? "You can't delete your own account." : deactivate ? "You can't deactivate your own account." : "You can't change your own role.", 409);
+  }
+  const others = await User.countDocuments({ role: "superadmin", isActive: true, _id: { $ne: u._id } });
+  if (!others) throw new InputError("At least one active Super Admin must remain.", 409);
 }
 
 // ---------- GET /api/users ----------
 router.get("/", async (req, res, next) => {
   try {
-    const users = await User.find({ role: "jc" }).sort({ email: 1 }).lean();
-    res.json({ users: users.map(out) });
+    const users = await User.find().sort({ role: 1, email: 1 }).lean();
+    res.json({ users: users.map(out), me: req.user.id });
   } catch (err) {
     next(err);
   }
@@ -75,47 +96,64 @@ router.post("/all-access", async (req, res, next) => {
   }
 });
 
-// ---------- POST /api/users  { email, jamiats: [ids], jamaats: [ids] } ----------
+// ---------- POST /api/users  { email, role, jamiats?, jamaats? } ----------
 router.post("/", async (req, res, next) => {
   try {
     const body = req.body || {};
+    const role = roleOrThrow(body.role || "jc");
     const { email, emailKey } = gmailOrThrow(body.email);
     if (await User.exists({ emailKey })) throw new InputError(DUPLICATE, 409);
-    const access = await parseAssignment(body);
-    const u = await User.create({ role: "jc", email, emailKey, ...access, createdBy: req.user.username });
-    audit(req, "user_created", { details: { role: "jc", email, jamiats: access.jamiats.length, jamaats: access.jamaats.length } });
+    const access = role === "jc" ? await parseAssignment(body) : {};
+    const u = await User.create({ role, email, emailKey, ...access, createdBy: req.user.email });
+    audit(req, "user_created", { details: { role, email, ...(role === "jc" ? { jamiats: access.jamiats.length, jamaats: access.jamaats.length } : {}) } });
     res.status(201).json({ user: out(u) });
   } catch (err) {
     sendError(err, res, next, DUPLICATE);
   }
 });
 
-// ---------- PATCH /api/users/:id  { email?, isActive?, jamiats?, jamaats? } ----------
+// ---------- PATCH /api/users/:id  { email?, role?, isActive?, jamiats?, jamaats? } ----------
 router.patch("/:id", async (req, res, next) => {
   try {
     const body = req.body || {};
-    const u = await findJc(req.params.id);
+    const u = await findUser(req.params.id);
     const changes = {};
+    const newRole = "role" in body ? roleOrThrow(body.role) : u.role;
+    await guardSuperAdmin(req, u, {
+      deactivate: "isActive" in body && body.isActive === false && u.isActive,
+      demote: newRole !== u.role,
+    });
+
     if ("email" in body) {
       const { email, emailKey } = gmailOrThrow(body.email);
       if (email !== u.email) {
         if (await User.exists({ emailKey, _id: { $ne: u._id } })) throw new InputError(DUPLICATE, 409);
-        changes.email = { from: u.email, to: email };
+        changes.email = { from: u.email || null, to: email };
         u.email = email;
         u.emailKey = emailKey;
+        u.googleSub = undefined; // a different Google account will sign in now
       }
     }
-    if ("jamiats" in body || "jamaats" in body) {
-      const access = await parseAssignment({
-        jamiats: "jamiats" in body ? body.jamiats : u.jamiats,
-        jamaats: "jamaats" in body ? body.jamaats : u.jamaats,
-      });
-      const before = { jamiats: (u.jamiats || []).map(String), jamaats: (u.jamaats || []).map(String) };
-      if (!sameSet(before.jamiats, access.jamiats) || !sameSet(before.jamaats, access.jamaats)) {
-        changes.access = { from: { jamiats: before.jamiats.length, jamaats: before.jamaats.length }, to: { jamiats: access.jamiats.length, jamaats: access.jamaats.length } };
+    if (newRole !== u.role) {
+      changes.role = { from: u.role, to: newRole };
+      u.role = newRole;
+    }
+    if (u.role === "jc") {
+      if ("jamiats" in body || "jamaats" in body || changes.role) {
+        const access = await parseAssignment({
+          jamiats: "jamiats" in body ? body.jamiats : u.jamiats,
+          jamaats: "jamaats" in body ? body.jamaats : u.jamaats,
+        });
+        const before = { jamiats: (u.jamiats || []).map(String), jamaats: (u.jamaats || []).map(String) };
+        if (!sameSet(before.jamiats, access.jamiats) || !sameSet(before.jamaats, access.jamaats)) {
+          changes.access = { from: { jamiats: before.jamiats.length, jamaats: before.jamaats.length }, to: { jamiats: access.jamiats.length, jamaats: access.jamaats.length } };
+        }
+        u.jamiats = access.jamiats;
+        u.jamaats = access.jamaats;
       }
-      u.jamiats = access.jamiats;
-      u.jamaats = access.jamaats;
+    } else {
+      u.jamiats = undefined;
+      u.jamaats = undefined;
     }
     if ("isActive" in body) {
       if (typeof body.isActive !== "boolean") throw new InputError("isActive must be true or false.");
@@ -123,10 +161,11 @@ router.patch("/:id", async (req, res, next) => {
       u.isActive = body.isActive;
     }
     await u.save();
-    if (changes.isActive && !u.isActive) {
-      await Session.updateMany({ user: u._id, revokedAt: null }, { $set: { revokedAt: new Date(), revokeReason: "deactivated" } });
+    // Role, Gmail or status changed: sign this user out everywhere.
+    if (changes.role || changes.email || (changes.isActive && !u.isActive)) {
+      await Session.updateMany({ user: u._id, revokedAt: null }, { $set: { revokedAt: new Date(), revokeReason: "changed_by_superadmin" } });
     }
-    if (Object.keys(changes).length) audit(req, "user_updated", { details: { email: u.email, changes } });
+    if (Object.keys(changes).length) audit(req, "user_updated", { details: { email: u.email, role: u.role, changes } });
     res.json({ user: out(u) });
   } catch (err) {
     sendError(err, res, next, DUPLICATE);
@@ -136,10 +175,11 @@ router.patch("/:id", async (req, res, next) => {
 // ---------- DELETE /api/users/:id ----------
 router.delete("/:id", async (req, res, next) => {
   try {
-    const u = await findJc(req.params.id);
+    const u = await findUser(req.params.id);
+    await guardSuperAdmin(req, u, { remove: true });
     await Session.deleteMany({ user: u._id });
     await u.deleteOne();
-    audit(req, "user_deleted", { details: { role: "jc", email: u.email } });
+    audit(req, "user_deleted", { details: { role: u.role, email: u.email || u.username } });
     res.status(204).end();
   } catch (err) {
     sendError(err, res, next);

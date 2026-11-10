@@ -13,9 +13,9 @@ JC portal (/jc-portal) ──► Express API ──► MongoDB ──► Sahebo 
 
 | Role | Signs in with | Opens |
 |---|---|---|
-| **Saheb** | username + password | `/` Sahebo dashboard (only this role) |
-| **Super Admin** | username + password | `/admin/users` JC users · `/admin/masters` Jamiat/Jamaat masters · `/admin/fields` Portal Fields |
-| **JC** | added by the Super Admin with a **Gmail address only** | `/jc-portal` (open to everyone until JC sign-in is built) |
+| **Saheb** | Google (Gmail added by the Super Admin) | `/` Sahebo dashboard (only this role) |
+| **Super Admin** | Google | `/admin/users` JC users · `/admin/masters` Jamiat/Jamaat masters · `/admin/fields` Portal Fields |
+| **JC** | Google | `/jc-portal`, only the Jamiats / Jamaats assigned to them |
 
 - **JC users**: Gmail + the **Jamiats and Jamaats** they look after (searchable pickers, "All" selected by default; saved as explicit lists in `users.jamiats` / `users.jamaats`). When a new Jamiat/Jamaat is added in Masters, the Super Admin is asked whether to give it to the JCs who had access to everything. Deleting a Jamiat/Jamaat removes it from every JC. Gmail only. Gmail ignores dots and `+…`, so `a.b+x@gmail.com` and `ab@gmail.com` count as the same person and can't be added twice.
 - **Portal Fields**: the dropdown questions of the JC portal (collection `portalfields`). The Super Admin adds, renames, reorders,
@@ -27,7 +27,7 @@ JC portal (/jc-portal) ──► Express API ──► MongoDB ──► Sahebo 
 
 | Page | Who | What |
 |---|---|---|
-| `/jc-portal` | anyone with the link (no sign-in for now) | pick Month → Jamiat → Jamaat, fill the form, Submit |
+| `/jc-portal` | **JC** (signed in) | pick Month → Jamiat → Jamaat, fill the form, Submit |
 | `/` | **Saheb** | dashboard for a chosen month; refreshes every 2 minutes |
 | `/admin/...` | **Super Admin** | JC users, masters, Portal Fields |
 
@@ -105,39 +105,36 @@ npm run dev                             # API on :5000 + React on http://localho
 |---|---|
 | `MONGODB_URI`, `MONGODB_DB_NAME` | MongoDB connection and database name |
 | `DASHBOARD_REFRESH_SECONDS` | how often an open dashboard reloads (default 120) |
-| `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | sign-in secrets (required in production) |
+| `GOOGLE_CLIENT_ID` | Google sign-in Client ID (see below) |
+| `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | session secrets (required in production) |
+| `DEV_LOGIN` | `true` = local test sign-in without Google (ignored in production) |
 | `PORT`, `NODE_ENV`, `CORS_ORIGIN` | server port, `production` in production, website address(es) |
 
-## Sign-in, users and audit log
+## Sign-in (Google only), users and audit log
 
-- **JWT** access token (7 days) + refresh token (30 days), both in **HttpOnly, SameSite=Lax** cookies
-  (`Secure` in production). JavaScript in the page can never read them.
-- Every login is a **session** in MongoDB (`sessions`). Logout ends it immediately.
-  The refresh token is **rotated** on every use; re-using an old one ends the session (theft protection).
-- Passwords are stored as **bcrypt** hashes, never in plain text.
-- 5 wrong passwords lock the account for 15 minutes; sign-in is also rate-limited per IP.
+- **Everyone signs in with Google** ("Sign in with Google" button). There are no usernames or passwords.
+- **Only Gmail addresses added by a Super Admin can sign in** (Super Admin portal → Users, with a role:
+  JC / Saheb / Super Admin). Any other Google account is refused. Deactivating a user signs them out at once.
+- The server verifies Google's ID token (signature, our Client ID, expiry, verified email), then starts its own session:
+  **JWT** access token (7 days) + refresh token (30 days) in **HttpOnly, SameSite=Lax** cookies (`Secure` in production),
+  stored as a **session** in MongoDB; refresh tokens are rotated and re-use ends the session.
+- A Super Admin can't deactivate, delete or change the role of their own account, and the last active Super Admin can't be removed.
 - POST / PATCH / DELETE requests must come from the website itself (Origin check + `X-Requested-With` header) — CSRF protection.
-- In production the website calls `/api/...` on its **own domain**; Vercel forwards it to Render
-  (`vercel.json`), so the cookies are first-party and work in Safari/iPhone too.
+- In production the website calls `/api/...` on its **own domain**; Vercel forwards it to Render (`vercel.json`).
 
-**Users** (`users` collection): `role` (`saheb` | `superadmin` | `jc`), `username` + `passwordHash` (Saheb, Super Admin) or `email` (JC), `isActive`.
-The Super Admin can read the audit log.
-
-To add a user or reset a password in **Atlas**, put the Atlas connection in `server/.env.atlas` (git-ignored):
+**First Super Admin** (once per database; after that use the Users page). PowerShell, in `server/`:
 
 ```
-MONGODB_URI=mongodb+srv://USER:PASSWORD@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority
-MONGODB_DB_NAME=US-Jamaat-Wise-Data
+npm run user:create -- --email name@gmail.com --role superadmin                      # local database
+$env:ENV_FILE=".env.atlas"; npm run user:create -- --email name@gmail.com --role superadmin   # Atlas
 ```
 
-then (PowerShell, in `server/`):
+**Google Client ID** (`GOOGLE_CLIENT_ID` in `server/.env` and on Render): Google Cloud Console → APIs & Services →
+OAuth consent screen (External) → Credentials → Create credentials → OAuth client ID → *Web application* →
+Authorized JavaScript origins: `http://localhost:5173`, `http://localhost:5000`, `https://us-jamaat-wise-sehhat.vercel.app`.
 
-```
-$env:ENV_FILE=".env.atlas"; npm run user:create -- --username ali --password "S3cret!" --role saheb
-$env:ENV_FILE=".env.atlas"; npm run user:create -- --username superadmin --password "S3cret!" --role superadmin
-$env:ENV_FILE=".env.atlas"; npm run user:create -- --username ali --password "New-Pass" --reset
-```
-
+**Local testing without Google:** `DEV_LOGIN=true` in `server/.env` adds "Local testing only — Sign in as <Gmail>" to the
+sign-in page (still only registered Gmails). It is ignored when `NODE_ENV=production`.
 **Audit log** (`auditlogs` collection, kept 365 days) — who did what, when, from which IP/browser:
 
 | action | when |

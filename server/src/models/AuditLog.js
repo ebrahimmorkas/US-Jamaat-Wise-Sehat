@@ -11,6 +11,7 @@ const ACTIONS = [
   "token_reuse_detected", // an old refresh token was used again -> session ended
   "dashboard_opened",     // a Saheb opened the dashboard
   "admin_opened",         // a Super Admin opened the Super Admin portal
+  "portal_opened",        // a JC opened the JC portal
   "data_refresh",         // clicked the Refresh button
   "list_viewed",          // opened a list of Jamaats from a card
   "audit_viewed",

@@ -1,8 +1,11 @@
-// JC portal (/jc-portal): public for now, no sign-in. Every submission is audit-logged with the IP.
+// JC portal (/jc-portal): signed-in JCs only, and only for the Jamiats / Jamaats assigned to them.
+// Every submission is audit-logged with the JC's Gmail and IP.
 const express = require("express");
 const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const form = require("../formConfig");
 const { isDbReady } = require("../db");
+const { requireAuth, requireRole } = require("../middleware/auth");
+const User = require("../models/User");
 const Jamaat = require("../models/Jamaat");
 const Jamiat = require("../models/Jamiat");
 const Entry = require("../models/Entry");
@@ -15,13 +18,19 @@ const { monthLabel, recentMonths } = require("../lib/month");
 const { InputError, requireId, parseJamaatDetails, parseValues, parseRemarks, sendError } = require("../lib/validate");
 
 const router = express.Router();
-const PORTAL_USER = "jc-portal";
 
 router.use((req, res, next) => {
   res.set("Cache-Control", "no-store");
   if (!isDbReady()) return res.status(503).json({ error: "Database is starting, please try again in a moment." });
   next();
-});
+}, requireAuth, requireRole("jc"));
+
+// The JC's assignment as two Sets of ids. A Jamaat counts only if its Jamiat is assigned too.
+async function accessOf(req) {
+  const u = await User.findById(req.user.id).select("jamiats jamaats").lean();
+  return { jamiats: new Set((u.jamiats || []).map(String)), jamaats: new Set((u.jamaats || []).map(String)) };
+}
+const canFill = (access, jamaat) => access.jamiats.has(String(jamaat.jamiat)) && access.jamaats.has(String(jamaat._id));
 
 const details = (jm) => ({
   mauzeType: jm.mauzeType || "",
@@ -34,29 +43,34 @@ function checkMonth(month) {
   return month;
 }
 
-// An active Jamaat inside an active Jamiat.
-async function findJamaat(id) {
+// An active Jamaat inside an active Jamiat, assigned to this JC.
+async function findJamaat(req, id) {
   const jm = await Jamaat.findOne({ _id: requireId(id, "Jamaat"), isActive: true });
   const jt = jm && (await Jamiat.findOne({ _id: jm.jamiat, isActive: true }).select("name").lean());
   if (!jm || !jt) throw new InputError("This Jamaat is not available. Reload the page.", 404);
+  if (!canFill(await accessOf(req), jm)) throw new InputError("This Jamaat is not assigned to you.", 403);
   return { jamaat: jm, jamiat: jt };
 }
 
 // ---------- GET /api/portal/options ----------  form questions + Jamiat/Jamaat lists
 router.get("/options", async (req, res, next) => {
   try {
-    const [masters, fields, sets] = await Promise.all([activeMasters(), activeFields(), getValueSets()]);
+    const [masters, fields, sets, access] = await Promise.all([activeMasters(), activeFields(), getValueSets(), accessOf(req)]);
     res.json({
       months: recentMonths(form.portalMonthsBack).map((key) => ({ key, label: monthLabel(key) })),
       fields: fields.map(portalShape),
       mauzeTypes: sets.mauzeType,
       remarksLabel: form.remarksLabel,
       remarksMaxLength: form.remarksMaxLength,
-      jamiats: masters.map((j) => ({
-        id: String(j._id),
-        name: j.name,
-        jamaats: j.jamaats.map((jm) => ({ id: String(jm._id), name: jm.name })),
-      })),
+      // Only what is assigned to this JC.
+      jamiats: masters
+        .filter((j) => access.jamiats.has(String(j._id)))
+        .map((j) => ({
+          id: String(j._id),
+          name: j.name,
+          jamaats: j.jamaats.filter((jm) => access.jamaats.has(String(jm._id))).map((jm) => ({ id: String(jm._id), name: jm.name })),
+        }))
+        .filter((j) => j.jamaats.length),
     });
   } catch (err) {
     next(err);
@@ -67,7 +81,7 @@ router.get("/options", async (req, res, next) => {
 router.get("/entry", async (req, res, next) => {
   try {
     const month = checkMonth(req.query.month);
-    const { jamaat } = await findJamaat(req.query.jamaat);
+    const { jamaat } = await findJamaat(req, req.query.jamaat);
     const entry = await Entry.findOne({ jamaat: jamaat._id, month }).select("values remarks updatedAt").lean();
     res.json({
       details: details(jamaat),
@@ -93,7 +107,7 @@ router.post("/entry", submitLimiter, async (req, res, next) => {
     const answers = parseValues(body.values, fields);
     const remarks = parseRemarks(body.remarks);
     const newDetails = parseJamaatDetails(body.details || {}, sets.mauzeType);
-    const { jamaat, jamiat } = await findJamaat(body.jamaatId);
+    const { jamaat, jamiat } = await findJamaat(req, body.jamaatId);
 
     const before = await Entry.findOne({ jamaat: jamaat._id, month }).select("values remarks").lean();
     // Keep answers of questions that are inactive now; replace the ones on the form.
@@ -125,7 +139,6 @@ router.post("/entry", submitLimiter, async (req, res, next) => {
     if ((before ? before.remarks || "" : "") !== remarks) changed.remarks = { from: before ? before.remarks || "" : null, to: remarks };
 
     audit(req, "entry_submitted", {
-      username: PORTAL_USER,
       details: {
         month, jamiat: jamiat.name, jamaat: jamaat.name,
         firstSubmission: !before, changed,

@@ -701,6 +701,26 @@ select:disabled { opacity: .6; cursor: not-allowed; }
 .users-list .users-tools { padding-top: 16px; }
 .users-table td.access { color: var(--ink-2); max-width: 320px; }
 
+.user-form { grid-template-columns: minmax(220px, 1.3fr) minmax(130px, .6fr) minmax(180px, 1fr) minmax(180px, 1fr) auto; }
+.user-form.no-access { grid-template-columns: minmax(220px, 2fr) minmax(160px, 1fr) auto; max-width: 820px; }
+@media (max-width: 1100px) { .user-form, .user-form.no-access { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 600px) { .user-form, .user-form.no-access { grid-template-columns: 1fr; } }
+.role-filter { width: 170px; flex: none; }
+.user-sub { display: block; color: var(--muted); font-size: 12px; }
+.no-gmail { color: var(--t-warn); font-size: 13px; }
+.pill.role-superadmin { background: var(--brand-soft); color: var(--brand); }
+.pill.role-saheb { background: var(--soft-info); color: var(--t-info); }
+.pill.role-jc { background: var(--soft-na); color: var(--ink-2); }
+
+/* ---------- sign-in page ---------- */
+.login-hint { margin: 0 0 18px; color: var(--ink-2); font-size: 14px; }
+.google-slot { display: flex; flex-direction: column; align-items: center; gap: 10px; min-height: 44px; justify-content: center; }
+.google-slot.is-busy > div:first-child { opacity: .5; pointer-events: none; }
+.dev-login { margin-top: 22px; padding-top: 16px; border-top: 1px dashed var(--border-strong); text-align: left; }
+.dev-login .eyebrow { margin-bottom: 8px; color: var(--t-warn); }
+.dev-row { display: flex; gap: 8px; }
+.dev-row .input { flex: 1; }
+
 .multi { position: relative; }
 .multi-btn {
   width: 100%; text-align: left; cursor: pointer;
