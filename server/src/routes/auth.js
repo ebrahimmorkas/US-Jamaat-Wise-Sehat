@@ -28,8 +28,12 @@ const dbGuard = (req, res, next) =>
   isDbReady() ? next() : res.status(503).json({ error: "Database is starting, please try again in a moment.", code: "DB_UNAVAILABLE" });
 
 // ---------- GET /api/auth/config ----------  what the sign-in page needs
+// Local test sign-in: only when DEV_LOGIN=true, never in production, and only from this computer itself.
+const LOOPBACK = new Set(["127.0.0.1", "::1", "localhost"]);
+const devLoginAllowed = (req) => config.devLogin && LOOPBACK.has(clientIp(req));
+
 router.get("/config", (req, res) => {
-  res.json({ googleClientId: config.googleClientId, devLogin: config.devLogin });
+  res.json({ googleClientId: config.googleClientId, devLogin: devLoginAllowed(req) });
 });
 
 // Signs in the user registered with this Gmail (any role). Only Gmails added by a Super Admin get in.
@@ -77,7 +81,7 @@ router.post("/google", loginLimiter, dbGuard, async (req, res, next) => {
 // ---------- POST /api/auth/dev-login  { email } ----------  local testing only (DEV_LOGIN=true, never in production)
 router.post("/dev-login", loginLimiter, dbGuard, async (req, res, next) => {
   try {
-    if (!config.devLogin) return res.status(404).json({ error: "Not found" });
+    if (!devLoginAllowed(req)) return res.status(404).json({ error: "Not found" });
     const email = String((req.body || {}).email || "").trim().toLowerCase().slice(0, 120);
     await signIn(req, res, { email, method: "dev" });
   } catch (err) {

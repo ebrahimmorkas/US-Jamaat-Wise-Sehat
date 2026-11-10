@@ -17,6 +17,9 @@ const settingsRoutes = require("./routes/settings");
 const fieldsRoutes = require("./routes/fields");
 const { requireSameOrigin } = require("./middleware/auth");
 const { clientIp } = require("./lib/clientIp");
+const { logError } = require("./services/audit");
+const { ACCESS_COOKIE, verifyAccess } = require("./services/auth");
+const logsRoutes = require("./routes/logs");
 
 const app = express();
 app.set("trust proxy", config.trustProxyHops); // real visitor IP behind Vercel + Render
@@ -33,9 +36,13 @@ app.use(
         scriptSrc: ["'self'", "https://accounts.google.com/gsi/client"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://accounts.google.com/gsi/style"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
-        imgSrc: ["'self'", "data:"],
+        imgSrc: ["'self'", "data:", "https://*.googleusercontent.com"],
         connectSrc: ["'self'", "https://accounts.google.com/gsi/"],
         frameSrc: ["https://accounts.google.com/gsi/"],
+        frameAncestors: ["'none'"], // nobody may show this site inside a frame (clickjacking)
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        objectSrc: ["'none'"],
       },
     },
   })
@@ -55,6 +62,7 @@ app.use(
 app.use("/api", requireSameOrigin); // CSRF protection for POST requests
 app.use("/api/auth", authRoutes);
 app.use("/api/audit", auditRoutes);
+app.use("/api/logs", logsRoutes);
 app.use("/api/portal", portalRoutes);
 app.use("/api/masters", mastersRoutes);
 app.use("/api/users", usersRoutes);
@@ -69,10 +77,25 @@ if (fs.existsSync(config.clientDist)) {
   app.get(/^(?!\/api).*/, (req, res) => res.sendFile(path.join(config.clientDist, "index.html")));
 }
 
+// Errors: bad requests (e.g. broken JSON, too large) get their own status; anything else is a
+// server error -> saved in the error log, and the reference is sent so the Error page can show it.
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
+  const status = err.status || err.statusCode;
+  if (status >= 400 && status < 500 && err.expose !== false) {
+    return res.status(status).json({ error: status === 413 ? "The request is too large." : "The request could not be read.", code: "BAD_REQUEST" });
+  }
   console.error("[http]", err);
-  res.status(500).json({ error: "Something went wrong" });
+  if (!req.user) {
+    // Record who was signed in, even on routes that don't require sign-in.
+    try {
+      const p = verifyAccess(req.cookies && req.cookies[ACCESS_COOKIE]);
+      req.user = { id: p.sub, username: p.username, role: p.role };
+    } catch { /* not signed in */ }
+  }
+  const ref = logError({ req, message: err.message, stack: err.stack, status: 500 });
+  if (res.headersSent) return;
+  res.status(500).json({ error: "Something went wrong on the server.", code: "SERVER_ERROR", ref });
 });
 
 module.exports = app;

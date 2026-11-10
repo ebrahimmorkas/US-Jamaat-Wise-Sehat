@@ -3,11 +3,13 @@ import AppBar from "./components/AppBar";
 import Users from "./Users";
 import Masters from "./Masters";
 import PortalFields from "./PortalFields";
+import Logs from "./Logs";
 
 const NAV = [
   { to: "/admin/users", label: "Users" },
   { to: "/admin/masters", label: "Masters" },
   { to: "/admin/fields", label: "Portal Fields" },
+  { to: "/admin/logs", label: "Logs" },
 ];
 
 // Super Admin portal: users, Jamiat/Jamaat masters, portal fields (JC form questions).
@@ -28,6 +30,7 @@ export default function AdminPortal({ path, user, onSignOut, onAuthExpired, them
         {page === "/admin/users" && <Users onAuthExpired={onAuthExpired} />}
         {page === "/admin/masters" && <Masters onAuthExpired={onAuthExpired} />}
         {page === "/admin/fields" && <PortalFields onAuthExpired={onAuthExpired} />}
+        {page === "/admin/logs" && <Logs onAuthExpired={onAuthExpired} />}
       </main>
     </>
   );

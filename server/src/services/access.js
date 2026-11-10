@@ -74,4 +74,26 @@ async function removeFromAccess(type, id) {
   await User.updateMany({ [field]: id }, { $pull: { [field]: id } });
 }
 
-module.exports = { parseAssignment, countAllAccess, grantToAllAccess, removeFromAccess };
+/**
+ * Audit trail for an assignment change: counts before/after and the names added / removed.
+ * before / after = { jamiats: [ids], jamaats: [ids] } (missing = empty).
+ */
+async function accessChanges(before, after) {
+  const out = [];
+  const listNames = (names) => (names.length > 40 ? [...names.slice(0, 40), `… and ${names.length - 40} more`] : names);
+  for (const [field, Model, label] of [["jamiats", Jamiat, "Jamiats"], ["jamaats", Jamaat, "Jamaats"]]) {
+    const a = ((before && before[field]) || []).map(String);
+    const b = ((after && after[field]) || []).map(String);
+    const added = b.filter((id) => !a.includes(id));
+    const removed = a.filter((id) => !b.includes(id));
+    if (!added.length && !removed.length) continue;
+    const docs = await Model.find({ _id: { $in: [...added, ...removed] } }).select("name").lean();
+    const nameOf = new Map(docs.map((d) => [String(d._id), d.name]));
+    out.push({ field, label: `${label} (count)`, from: a.length, to: b.length });
+    if (added.length) out.push({ field: `${field}.added`, label: `${label} added`, from: null, to: listNames(added.map((id) => nameOf.get(id) || id)) });
+    if (removed.length) out.push({ field: `${field}.removed`, label: `${label} removed`, from: listNames(removed.map((id) => nameOf.get(id) || id)), to: null });
+  }
+  return out;
+}
+
+module.exports = { parseAssignment, countAllAccess, grantToAllAccess, removeFromAccess, accessChanges };

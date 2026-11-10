@@ -135,20 +135,21 @@ Authorized JavaScript origins: `http://localhost:5173`, `http://localhost:5000`,
 
 **Local testing without Google:** `DEV_LOGIN=true` in `server/.env` adds "Local testing only — Sign in as <Gmail>" to the
 sign-in page (still only registered Gmails). It is ignored when `NODE_ENV=production`.
-**Audit log** (`auditlogs` collection, kept 365 days) — who did what, when, from which IP/browser:
+### Logs (Super Admin portal → Logs)
 
-| action | when |
+| Tab | What it shows |
 |---|---|
-| `entry_submitted` | a JC saved a Jamaat's month on the portal (what changed, IP) |
-| `master_created` / `master_updated` / `master_deleted` | Jamiat / Jamaat changes on the Masters page |
-| `login_success` / `login_failed` / `login_blocked` / `account_locked` | sign-in attempts |
-| `logout`, `token_refreshed`, `token_reuse_detected` | session events |
-| `dashboard_opened`, `data_refresh`, `list_viewed` | dashboard use |
-| `admin_opened`, `user_created` / `user_updated` / `user_deleted`, `field_created` / `field_updated` / `field_deleted`, `dropdown_updated` | Super Admin actions |
-| `audit_viewed`, `user_password_reset` | admin actions |
+| **All activity** | every action: who, when, IP / browser |
+| **Changes (audit trail)** | every data change with **only the fields that changed**, their **previous** and **new** value (users, Jamiats/Jamaats, portal fields & answers, Mauze Type list, JC form saves, Jamaat details changed by a JC) |
+| **Sign-ins** | successful and refused sign-ins (with the reason, e.g. "Gmail not registered"), sign-outs, stolen-session blocks |
+| **Access denied** | a role opening a page or calling something it may not use, a JC opening a Jamaat not assigned to them, requests coming from another website |
+| **Errors** | server errors and website crashes, with a **reference** (also shown to the user on the Error page), message, page, user and stack trace |
 
-The Super Admin can read it at `GET /api/audit?limit=50&action=entry_submitted` (or in Atlas).
+Stored in MongoDB: `auditlogs` (actions + `target` + `changes: [{ field, label, from, to }]`) and `errorlogs`; both kept 365 days
+(`AUDIT_RETENTION_DAYS`). Filters: user, text (Jamaat, question, reference…), date range.
 
+**Error page:** any server error or website crash sends the user to `/error` with the reference.
+**Access denied page:** a signed-in user opening another role's page (`/admin/...`, `/jc-portal`) sees it, and the attempt is logged.
 ## Hosting: Vercel (website) + Render (API) + MongoDB Atlas (database)
 
 ```

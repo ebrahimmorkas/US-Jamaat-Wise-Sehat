@@ -12,7 +12,7 @@ const { requireAuth, requireRole } = require("../middleware/auth");
 const PortalField = require("../models/PortalField");
 const { MEANINGS } = require("../models/PortalField");
 const Entry = require("../models/Entry");
-const { audit } = require("../services/audit");
+const { audit, diff } = require("../services/audit");
 const { answerUsage, invalidate } = require("../services/fields");
 const { InputError, isId, sendError } = require("../lib/validate");
 
@@ -22,6 +22,12 @@ router.use(requireAuth, requireRole("superadmin"), (req, res, next) => {
   if (!isDbReady()) return res.status(503).json({ error: "Database is starting, please try again in a moment." });
   next();
 });
+
+// Audit trail labels.
+const FIELD_SPEC = [["label", "Question"], ["section", "Section"], ["required", "Required"], ["showOnDashboard", "Show on dashboard"], ["isActive", "Active"]];
+const meaningLabel = (m) => (form.meanings[m] || {}).label || m;
+const answerText = (o) => `${o.value} (${meaningLabel(o.meaning)})`;
+const fieldTarget = (f) => ({ type: "field", id: String(f._id), label: f.label });
 
 const RESERVED = ["not filled", "other", "all"]; // words the dashboard uses itself
 const MIN_OPTIONS = 2;
@@ -125,7 +131,7 @@ router.post("/", async (req, res, next) => {
       order: last ? last.order + 1 : 0,
       options,
     });
-    audit(req, "field_created", { details: { label, section: f.section, options: options.map((o) => o.value) } });
+    audit(req, "field_created", { target: fieldTarget(f), changes: [...diff(null, f, FIELD_SPEC), { field: "options", label: "Answers", from: null, to: options.map(answerText) }] });
     res.status(201).json({ ...(await payload()), createdId: String(f._id) });
   } catch (err) {
     sendError(err, res, next);
@@ -148,9 +154,8 @@ router.patch("/:id", async (req, res, next) => {
     if ("showOnDashboard" in b) f.showOnDashboard = cleanBool(b.showOnDashboard, "Show on dashboard");
     if ("isActive" in b) f.isActive = cleanBool(b.isActive, "Active");
     await f.save();
-    const changes = {};
-    for (const k of Object.keys(before)) if (before[k] !== f[k]) changes[k] = { from: before[k], to: f[k] };
-    if (Object.keys(changes).length) audit(req, "field_updated", { details: { label: f.label, changes } });
+    const changes = diff(before, f, FIELD_SPEC);
+    if (changes.length) audit(req, "field_updated", { target: fieldTarget(f), changes });
     res.json(await payload());
   } catch (err) {
     sendError(err, res, next);
@@ -164,7 +169,7 @@ router.delete("/:id", async (req, res, next) => {
     const n = await Entry.countDocuments({ [`values.${f.key}`]: { $exists: true } });
     if (n) throw new InputError(`"${f.label}" is answered in ${n} saved form${n === 1 ? "" : "s"}, so it can't be deleted. Mark it inactive instead.`, 409);
     await f.deleteOne();
-    audit(req, "field_deleted", { details: { label: f.label } });
+    audit(req, "field_deleted", { target: fieldTarget(f), changes: [...diff(f, null, FIELD_SPEC), { field: "options", label: "Answers", from: f.options.map(answerText), to: null }] });
     res.json(await payload());
   } catch (err) {
     sendError(err, res, next);
@@ -179,8 +184,10 @@ router.put("/order", async (req, res, next) => {
     if (ids.length !== all.length || new Set(ids).size !== ids.length || !ids.every((id) => all.includes(id))) {
       throw new InputError("The questions changed meanwhile. Reload the page.", 409);
     }
+    const beforeOrder = (await PortalField.find().sort({ order: 1, createdAt: 1 }).select("label").lean()).map((x) => x.label);
     await PortalField.bulkWrite(ids.map((id, i) => ({ updateOne: { filter: { _id: id }, update: { $set: { order: i } } } })));
-    audit(req, "field_updated", { details: { op: "reorder" } });
+    const afterOrder = (await PortalField.find().sort({ order: 1, createdAt: 1 }).select("label").lean()).map((x) => x.label);
+    audit(req, "field_updated", { target: { type: "fields", id: "order", label: "Question order" }, changes: [{ field: "order", label: "Question order", from: beforeOrder, to: afterOrder }] });
     res.json(await payload());
   } catch (err) {
     sendError(err, res, next);
@@ -196,7 +203,7 @@ router.post("/:id/options", async (req, res, next) => {
     if (f.options.some((o) => norm(o.value) === norm(value))) throw new InputError(`"${value}" is already an answer of this question.`, 409);
     f.options.push({ value, meaning });
     await f.save();
-    audit(req, "field_updated", { details: { label: f.label, op: "add answer", value, meaning } });
+    audit(req, "field_updated", { target: fieldTarget(f), changes: [{ field: "options", label: "Answer added", from: null, to: answerText({ value, meaning }) }] });
     res.status(201).json(await payload());
   } catch (err) {
     sendError(err, res, next);
@@ -222,7 +229,11 @@ router.patch("/:id/options/:oid", async (req, res, next) => {
     o.meaning = meaning;
     await f.save();
     if (value !== before.value || meaning !== before.meaning) {
-      audit(req, "field_updated", { details: { label: f.label, op: "edit answer", before, after: { value, meaning }, renamedIn: renamed } });
+      audit(req, "field_updated", {
+        target: fieldTarget(f),
+        changes: diff(before, { value, meaning }, [["value", "Answer"], ["meaning", `Meaning of "${value}"`, meaningLabel]]),
+        details: renamed ? { savedFormsRenamed: renamed } : undefined,
+      });
     }
     res.json(await payload());
   } catch (err) {
@@ -239,7 +250,7 @@ router.delete("/:id/options/:oid", async (req, res, next) => {
     if (n) throw new InputError(`"${o.value}" is used in ${n} saved form${n === 1 ? "" : "s"}, so it can't be removed. Rename it instead.`, 409);
     f.options.pull(o._id);
     await f.save();
-    audit(req, "field_updated", { details: { label: f.label, op: "remove answer", value: o.value } });
+    audit(req, "field_updated", { target: fieldTarget(f), changes: [{ field: "options", label: "Answer removed", from: answerText(o), to: null }] });
     res.json(await payload());
   } catch (err) {
     sendError(err, res, next);
@@ -255,9 +266,10 @@ router.put("/:id/options/order", async (req, res, next) => {
       throw new InputError("The answers changed meanwhile. Reload the page.", 409);
     }
     const byId = new Map(f.options.map((o) => [String(o._id), o.toObject()]));
+    const beforeOrder = f.options.map((o) => o.value);
     f.options = ids.map((id) => byId.get(id));
     await f.save();
-    audit(req, "field_updated", { details: { label: f.label, op: "reorder answers" } });
+    audit(req, "field_updated", { target: fieldTarget(f), changes: [{ field: "options.order", label: "Answer order", from: beforeOrder, to: f.options.map((o) => o.value) }] });
     res.json(await payload());
   } catch (err) {
     sendError(err, res, next);
