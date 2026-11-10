@@ -1,6 +1,7 @@
 const config = require("../config");
 const { isDbReady } = require("../db");
 const User = require("../models/User");
+const { PASSWORD_ROLES } = require("../models/User");
 const Session = require("../models/Session");
 const { ACCESS_COOKIE, verifyAccess } = require("../services/auth");
 
@@ -27,7 +28,9 @@ async function requireAuth(req, res, next) {
     if (!session || session.revokedAt || session.expiresAt < new Date() || String(session.user) !== payload.sub) {
       return res.status(401).json({ error: "Session ended.", code: "SESSION_ENDED" });
     }
-    if (!user || !user.isActive) return res.status(401).json({ error: "Account disabled.", code: "USER_INACTIVE" });
+    if (!user || !user.isActive || !PASSWORD_ROLES.includes(user.role)) {
+      return res.status(401).json({ error: "Account disabled.", code: "USER_INACTIVE" });
+    }
 
     req.user = { id: String(user._id), username: user.username, role: user.role };
     req.sessionId = payload.sid;

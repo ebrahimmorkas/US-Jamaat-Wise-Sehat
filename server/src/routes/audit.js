@@ -11,7 +11,7 @@ const CLIENT_EVENTS = new Set(["list_viewed"]);
 const clean = (v) => (v == null ? undefined : String(v).slice(0, 120));
 
 // ---------- POST /api/audit/event ----------
-router.post("/event", requireAuth, (req, res) => {
+router.post("/event", requireAuth, requireRole("saheb"), (req, res) => {
   const { action, details = {} } = req.body || {};
   if (!CLIENT_EVENTS.has(action)) return res.status(400).json({ error: "Unknown event." });
   audit(req, action, {
@@ -26,9 +26,9 @@ router.post("/event", requireAuth, (req, res) => {
   res.status(204).end();
 });
 
-// ---------- GET /api/audit ----------  (admins only)
+// ---------- GET /api/audit ----------  (Super Admin only)
 // ?limit=50 (max 200) &before=<ISO date> &action=login_failed &username=sehhat
-router.get("/", requireAuth, requireRole("admin"), async (req, res, next) => {
+router.get("/", requireAuth, requireRole("superadmin"), async (req, res, next) => {
   try {
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
     const filter = {};

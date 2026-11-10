@@ -1,5 +1,5 @@
 // Reads the masters and the monthly entries from MongoDB.
-const form = require("../formConfig");
+const { dashboardMetrics } = require("./fields");
 const Jamiat = require("../models/Jamiat");
 const Jamaat = require("../models/Jamaat");
 const Entry = require("../models/Entry");
@@ -34,7 +34,7 @@ async function dashboardData(month) {
   const entries = await Entry.find({ month: m, jamaat: { $in: ids } }).select("jamaat values remarks updatedAt").lean();
   const byJamaat = new Map(entries.map((e) => [String(e.jamaat), e]));
 
-  const keys = form.fields.filter((f) => f.dashboard !== false).map((f) => f.key);
+  const keys = (await dashboardMetrics()).map((m) => m.key);
   const jamiats = masters.map((j) => ({
     name: j.name,
     jamaats: j.jamaats.map((jm) => {

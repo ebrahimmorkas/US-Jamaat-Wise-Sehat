@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import AppBar from "./components/AppBar";
 import { CheckIcon, CloseIcon } from "./components/Icons";
+import Notice from "./components/Notice";
 import {
   AuthError, createJamaat, createJamiat, deleteJamaat, deleteJamiat, isServerStarting,
   mastersList, updateJamaat, updateJamiat,
@@ -17,8 +17,8 @@ const toForm = (jm) => ({
   children: jm.children == null ? "" : String(jm.children),
 });
 
-// Jamiat / Jamaat masters (admins only).
-export default function Masters({ user, onSignOut, onAuthExpired, theme, onToggleTheme }) {
+// Jamiat / Jamaat masters (a section of the Super Admin portal).
+export default function Masters({ onAuthExpired }) {
   const [data, setData] = useState(null);
   const [loadMsg, setLoadMsg] = useState("Loading…");
   const [selectedId, setSelectedId] = useState("");
@@ -71,12 +71,7 @@ export default function Masters({ user, onSignOut, onAuthExpired, theme, onToggl
   }, [data]);
 
   if (!data) {
-    return (
-      <>
-        <AppBar page="masters" theme={theme} onToggleTheme={onToggleTheme} user={user} onSignOut={onSignOut} />
-        <main className="container"><div className="panel portal-empty" style={{ marginTop: 28 }}>{loadMsg}</div></main>
-      </>
-    );
+    return <div className="panel portal-empty" style={{ marginTop: 28 }}>{loadMsg}</div>;
   }
 
   const selected = data.jamiats.find((j) => j.id === selectedId) || null;
@@ -168,8 +163,6 @@ export default function Masters({ user, onSignOut, onAuthExpired, theme, onToggl
 
   return (
     <>
-      <AppBar page="masters" theme={theme} onToggleTheme={onToggleTheme} user={user} onSignOut={onSignOut} />
-      <main className="container">
         <section className="page-head">
           <div className="page-title">
             <h1>Masters</h1>
@@ -177,11 +170,7 @@ export default function Masters({ user, onSignOut, onAuthExpired, theme, onToggl
           </div>
         </section>
 
-        {msg && (
-          <div className={msg.type === "error" ? "alert" : "success"} role={msg.type === "error" ? "alert" : "status"}>
-            {msg.type === "ok" && <CheckIcon />} <span>{msg.text}</span>
-          </div>
-        )}
+        {msg && <Notice type={msg.type} text={msg.text} onClose={() => setMsg(null)} />}
 
         <section className="masters-layout">
           {/* ---- Jamiats ---- */}
@@ -280,7 +269,6 @@ export default function Masters({ user, onSignOut, onAuthExpired, theme, onToggl
             )}
           </div>
         </section>
-      </main>
     </>
   );
 }

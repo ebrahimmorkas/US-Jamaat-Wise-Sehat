@@ -21,7 +21,7 @@ export default function MetricCard({ metric, rows, helpers, status, onStatus, on
   const total = rows.length;
   const segs = distribution(metric, rows, helpers);
   const n = (segs.find((s) => s.status === status) || { count: 0 }).count;
-  const tone = helpers.toneOf(status);
+  const tone = helpers.toneOf(status, metric);
   const summary = segs.map((s) => `${s.status} ${s.count}`).join(", ");
 
   const pick = (seg) => {
@@ -50,7 +50,7 @@ export default function MetricCard({ metric, rows, helpers, status, onStatus, on
 
       <div className="stack" role="img" aria-label={`${metric.label} status split: ${summary}`} onPointerLeave={onTipHide}>
         {segs.filter((s) => s.count > 0).map((s) => (
-          <span key={s.status} className={`seg tone-${helpers.toneOf(s.status)}`} style={{ flex: s.count }}
+          <span key={s.status} className={`seg tone-${helpers.toneOf(s.status, metric)}`} style={{ flex: s.count }}
             onClick={() => pick(s)}
             onPointerMove={(e) => onTip(e, <>{s.status}: <b>{s.count}</b> ({pct(s.count, total)}%)</>)} />
         ))}
@@ -59,7 +59,7 @@ export default function MetricCard({ metric, rows, helpers, status, onStatus, on
       <div className="legend">
         {segs.map((s) => (
           <button type="button" key={s.status} className={`lg-item${s.status === status ? " is-sel" : ""}`} onClick={() => pick(s)}>
-            <span className={`dot tone-${helpers.toneOf(s.status)}`} />
+            <span className={`dot tone-${helpers.toneOf(s.status, metric)}`} />
             {s.status} <b>{s.count}</b>
           </button>
         ))}

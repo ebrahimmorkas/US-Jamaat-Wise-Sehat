@@ -1,9 +1,9 @@
 // Create a user, or reset a user's password.
-//   npm run user:create -- --username ali --password "S3cret!" --role viewer
+//   npm run user:create -- --username ali --password "S3cret!" --role saheb      (or superadmin)
 //   npm run user:create -- --username ali --password "New-Pass" --reset
 const { connectDb, mongoose } = require("../db");
 const User = require("../models/User");
-const { ROLES } = require("../models/User");
+const { PASSWORD_ROLES } = require("../models/User");
 const AuditLog = require("../models/AuditLog");
 const { hashPassword } = require("../services/auth");
 
@@ -15,15 +15,15 @@ function arg(name) {
 (async () => {
   const username = String(arg("username") || "").trim().toLowerCase();
   const password = arg("password");
-  const role = arg("role") || "viewer";
+  const role = arg("role") || "saheb";
   const reset = process.argv.includes("--reset");
 
   if (!username || !password) {
-    console.error('Usage: npm run user:create -- --username <name> --password <password> [--role admin|viewer] [--reset]');
+    console.error('Usage: npm run user:create -- --username <name> --password <password> [--role saheb|superadmin] [--reset]');
     process.exit(1);
   }
-  if (!ROLES.includes(role)) {
-    console.error(`Role must be one of: ${ROLES.join(", ")}`);
+  if (!PASSWORD_ROLES.includes(role)) {
+    console.error(`Role must be one of: ${PASSWORD_ROLES.join(", ")} (JC users are added by Gmail in the Super Admin portal)`);
     process.exit(1);
   }
   if (!(await connectDb())) process.exit(1);

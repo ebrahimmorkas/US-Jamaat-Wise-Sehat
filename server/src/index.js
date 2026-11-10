@@ -1,8 +1,10 @@
 const config = require("./config");
 const app = require("./app");
-const { connectDb, mongoose } = require("./db");
+const { connectDb, onConnected, mongoose } = require("./db");
+const { migrate } = require("./services/migrate");
 
 async function main() {
+  onConnected(migrate); // role changes, indexes, default dropdown values
   await connectDb(); // keeps retrying in the background if MongoDB is not reachable yet
 
   const server = app.listen(config.port, () => {

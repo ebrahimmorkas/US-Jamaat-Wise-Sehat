@@ -7,22 +7,21 @@ export const same = (a, b) => lower(a) === lower(b);
 export const pct = (n, d) => (d ? Math.round((n / d) * 100) : 0);
 export const plural = (n, word, many) => `${n} ${n === 1 ? word : many || word + "s"}`;
 
-// Status helpers that depend on the server-provided config.
-export function makeStatusHelpers(config) {
-  const done = (config.doneStatuses || []).map(lower);
-  const tones = config.statusTones || {};
-  const statusesFor = (metric) => config.statusSets[metric.statuses] || [];
-  const toneOf = (s) => {
+// Answer helpers. Every question (metric) has its own answers:
+//   metric.options = [{ value, tone }]   metric.done = ["Completed", ...]
+// Tones: good | info | warn (pending) | bad | na (not applicable).
+export function makeStatusHelpers() {
+  const toneOf = (s, metric) => {
     if (s === NOT_FILLED) return "empty";
-    const key = Object.keys(tones).find((k) => same(k, s));
-    return key ? tones[key] : "na";
+    const o = metric && (metric.options || []).find((x) => same(x.value, s));
+    return o ? o.tone : "na";
   };
   return {
-    statusesFor,
+    statusesFor: (metric) => (metric.options || []).map((o) => o.value),
     toneOf,
-    isDone: (v) => done.includes(lower(v)),
-    isNA: (v) => same(v, "Not Applicable"),
-    isPending: (v) => same(v, "Pending"),
+    isDone: (v, metric) => (metric.done || []).some((d) => same(d, v)),
+    isNA: (v, metric) => !!norm(v) && toneOf(v, metric) === "na",
+    isPending: (v, metric) => !!norm(v) && toneOf(v, metric) === "warn",
     matchesStatus: (v, status) => (status === NOT_FILLED ? !norm(v) : same(v, status)),
   };
 }
