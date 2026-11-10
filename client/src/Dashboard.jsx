@@ -89,7 +89,7 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
       <main className="container">
         <PageHead
           month={data ? data.month : month}
-          months={data ? data.months : []}
+          months={(data && data.months) || []}
           onMonth={setMonth}
           jamiat={currentJamiat}
           jamaat={currentJamaat}
