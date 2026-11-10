@@ -17,7 +17,7 @@ JC portal (/jc-portal) ──► Express API ──► MongoDB ──► Sahebo 
 | **Super Admin** | username + password | `/admin/users` JC users · `/admin/masters` Jamiat/Jamaat masters · `/admin/fields` Portal Fields |
 | **JC** | added by the Super Admin with a **Gmail address only** | `/jc-portal` (open to everyone until JC sign-in is built) |
 
-- **JC users**: Gmail only. Gmail ignores dots and `+…`, so `a.b+x@gmail.com` and `ab@gmail.com` count as the same person and can't be added twice.
+- **JC users**: Gmail + the **Jamiats and Jamaats** they look after (searchable pickers, "All" selected by default; saved as explicit lists in `users.jamiats` / `users.jamaats`). When a new Jamiat/Jamaat is added in Masters, the Super Admin is asked whether to give it to the JCs who had access to everything. Deleting a Jamiat/Jamaat removes it from every JC. Gmail only. Gmail ignores dots and `+…`, so `a.b+x@gmail.com` and `ab@gmail.com` count as the same person and can't be added twice.
 - **Portal Fields**: the dropdown questions of the JC portal (collection `portalfields`). The Super Admin adds, renames, reorders,
   deactivates or deletes questions; sets each one's section heading, *required*, and *show a card on the dashboard*; and manages
   **each question's own answers**. Every answer has a **meaning** (Done / In progress / Pending / Not done / Not applicable) that

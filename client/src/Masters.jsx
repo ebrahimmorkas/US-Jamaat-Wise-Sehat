@@ -3,7 +3,7 @@ import { CheckIcon, CloseIcon } from "./components/Icons";
 import Notice from "./components/Notice";
 import {
   AuthError, createJamaat, createJamiat, deleteJamaat, deleteJamiat, isServerStarting,
-  mastersList, updateJamaat, updateJamiat,
+  allAccessCount, grantAllAccess, mastersList, updateJamaat, updateJamiat,
 } from "./lib/api";
 import { lower, plural } from "./lib/helpers";
 
@@ -64,6 +64,20 @@ export default function Masters({ onAuthExpired }) {
     }
   };
 
+  // After adding a Jamiat / Jamaat: offer it to the JCs who had access to everything until now.
+  const offerAccess = async (type, id, name, everything) => {
+    try {
+      const { count } = await allAccessCount(type, id);
+      if (!count) return;
+      if (!window.confirm(`${plural(count, "JC")} currently ${count === 1 ? "has" : "have"} access to ${everything}.\n\nGive ${count === 1 ? "this JC" : "them"} access to ${name} too?`)) return;
+      const r = await grantAllAccess(type, id);
+      setMsg({ type: "ok", text: `Added ${name}. ${plural(r.updated, "JC")} now ${r.updated === 1 ? "has" : "have"} access to it.` });
+    } catch (err) {
+      if (err instanceof AuthError) return onAuthExpired();
+      setMsg({ type: "error", text: `Added ${name}, but could not update JC access: ${err.message}` });
+    }
+  };
+
   const counts = useMemo(() => {
     const m = new Map();
     for (const jm of data ? data.jamaats : []) m.set(jm.jamiatId, (m.get(jm.jamiatId) || 0) + 1);
@@ -86,7 +100,7 @@ export default function Masters({ onAuthExpired }) {
     const name = cleanName(newJamiat);
     if (name.length < 2) return setMsg({ type: "error", text: "Enter the Jamiat name." });
     const res = await act(() => createJamiat({ name }), `Added Jamiat ${name}.`);
-    if (res) { setNewJamiat(""); setSelectedId(res.jamiat.id); }
+    if (res) { setNewJamiat(""); setSelectedId(res.jamiat.id); await offerAccess("jamiat", res.jamiat.id, name, "all Jamiats"); }
   };
 
   const saveRename = async (e) => {
@@ -120,6 +134,7 @@ export default function Masters({ onAuthExpired }) {
       ? await act(() => createJamaat({ ...body, jamiatId: selected.id }), `Added Jamaat ${name}.`)
       : await act(() => updateJamaat(editId, { ...body, jamiatId: edit.jamiatId }), `Saved ${name}.`);
     if (ok) cancelEdit();
+    if (ok && editId === "new" && ok.jamaat) await offerAccess("jamaat", ok.jamaat.id, name, `all Jamaats of ${selected.name}`);
   };
 
   const toggleJamaat = (jm) => {

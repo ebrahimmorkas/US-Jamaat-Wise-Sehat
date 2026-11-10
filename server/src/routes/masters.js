@@ -10,6 +10,7 @@ const Jamiat = require("../models/Jamiat");
 const Jamaat = require("../models/Jamaat");
 const Entry = require("../models/Entry");
 const { audit } = require("../services/audit");
+const { removeFromAccess } = require("../services/access");
 const { InputError, requireId, parseName, parseJamaatDetails, sendError } = require("../lib/validate");
 
 const router = express.Router();
@@ -101,6 +102,7 @@ router.delete("/jamiats/:id", async (req, res, next) => {
     const n = await Jamaat.countDocuments({ jamiat: j._id });
     if (n) throw new InputError(`${j.name} still has ${n} Jamaat${n === 1 ? "" : "s"}. Delete or move them first, or mark the Jamiat inactive.`, 409);
     await j.deleteOne();
+    await removeFromAccess("jamiat", j._id);
     audit(req, "master_deleted", { details: { type: "jamiat", name: j.name } });
     res.status(204).end();
   } catch (err) {
@@ -155,6 +157,7 @@ router.delete("/jamaats/:id", async (req, res, next) => {
     const n = await Entry.countDocuments({ jamaat: jm._id });
     if (n) throw new InputError(`${jm.name} has ${n} monthly entr${n === 1 ? "y" : "ies"}, so it can't be deleted. Mark it inactive instead.`, 409);
     await jm.deleteOne();
+    await removeFromAccess("jamaat", jm._id);
     audit(req, "master_deleted", { details: { type: "jamaat", name: jm.name } });
     res.status(204).end();
   } catch (err) {
