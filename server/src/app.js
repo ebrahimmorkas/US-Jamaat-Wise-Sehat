@@ -12,6 +12,8 @@ const authRoutes = require("./routes/auth");
 const auditRoutes = require("./routes/audit");
 const portalRoutes = require("./routes/portal");
 const mastersRoutes = require("./routes/masters");
+const usersRoutes = require("./routes/users");
+const settingsRoutes = require("./routes/settings");
 const { requireSameOrigin } = require("./middleware/auth");
 const { clientIp } = require("./lib/clientIp");
 
@@ -34,7 +36,7 @@ app.use(
   })
 );
 app.use(compression());
-app.use(cors({ origin: config.corsOrigins, methods: ["GET", "POST", "PATCH", "DELETE"], credentials: true }));
+app.use(cors({ origin: config.corsOrigins, methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], credentials: true }));
 app.use(express.json({ limit: "10kb" }));
 app.use(cookieParser());
 
@@ -50,6 +52,8 @@ app.use("/api/auth", authRoutes);
 app.use("/api/audit", auditRoutes);
 app.use("/api/portal", portalRoutes);
 app.use("/api/masters", mastersRoutes);
+app.use("/api/users", usersRoutes);
+app.use("/api/settings", settingsRoutes);
 app.use("/api", apiRoutes);
 app.use("/api", (req, res) => res.status(404).json({ error: "Not found" }));
 

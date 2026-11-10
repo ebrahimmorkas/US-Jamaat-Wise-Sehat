@@ -6,14 +6,28 @@ results live on the **dashboard**. Everything is stored in MongoDB (there is no 
 ```
 JC portal (/jc-portal) ──► Express API ──► MongoDB ──► Sahebo dashboard (/)
                                               ▲
-                     Masters (/masters, admins: Jamiat & Jamaat lists)
+        Super Admin portal (/admin: JC users, masters, dropdown values)
 ```
+
+### Roles
+
+| Role | Signs in with | Opens |
+|---|---|---|
+| **Saheb** | username + password | `/` Sahebo dashboard (only this role) |
+| **Super Admin** | username + password | `/admin/users` JC users · `/admin/masters` Jamiat/Jamaat masters · `/admin/dropdowns` dropdown values |
+| **JC** | added by the Super Admin with a **Gmail address only** | `/jc-portal` (open to everyone until JC sign-in is built) |
+
+- **JC users**: Gmail only. Gmail ignores dots and `+…`, so `a.b+x@gmail.com` and `ab@gmail.com` count as the same person and can't be added twice.
+- **Dropdown values**: the answer choices of the JC form (Progress and Yes/No lists) and the Mauze Type list.
+  Each answer has a **meaning** (Done / In progress / Pending / Not done / Not applicable) that sets its dashboard colour
+  and whether it counts as done. Renaming a value renames it in all saved entries; a value in use can't be removed.
+- Saheb and Super Admin accounts are created from the command line (below). On first start, old `admin`/`viewer` accounts become **Saheb**.
 
 | Page | Who | What |
 |---|---|---|
 | `/jc-portal` | anyone with the link (no sign-in for now) | pick Month → Jamiat → Jamaat, fill the form, Submit |
-| `/` | signed-in users | dashboard for a chosen month; refreshes every 2 minutes |
-| `/masters` | signed-in **admins** | add / rename / deactivate / delete Jamiats and Jamaats |
+| `/` | **Saheb** | dashboard for a chosen month; refreshes every 2 minutes |
+| `/admin/...` | **Super Admin** | JC users, masters, dropdown values |
 
 ## Data (MongoDB collections)
 
@@ -57,7 +71,9 @@ server/src/
   config.js            reads server/.env
   models/              Jamiat, Jamaat, Entry, User, Session, AuditLog
   routes/portal.js     /api/portal/*   (public JC portal)
-  routes/masters.js    /api/masters/*  (admins)
+  routes/masters.js    /api/masters/*  (Super Admin)
+  routes/users.js      /api/users/*    (Super Admin: JC Gmails)
+  routes/settings.js   /api/settings/* (Super Admin: dropdown values)
   routes/api.js        /api/dashboard, /api/refresh, /api/health
   routes/auth.js       /api/auth/*  ·  routes/audit.js  /api/audit
   services/data.js     builds the dashboard from masters + entries
@@ -100,8 +116,8 @@ npm run dev                             # API on :5000 + React on http://localho
 - In production the website calls `/api/...` on its **own domain**; Vercel forwards it to Render
   (`vercel.json`), so the cookies are first-party and work in Safari/iPhone too.
 
-**Users** (`users` collection): `username`, `passwordHash`, `role` (`admin` | `viewer`), `isActive`.
-Admins see the **Masters** page and can read the audit log.
+**Users** (`users` collection): `role` (`saheb` | `superadmin` | `jc`), `username` + `passwordHash` (Saheb, Super Admin) or `email` (JC), `isActive`.
+The Super Admin can read the audit log.
 
 To add a user or reset a password in **Atlas**, put the Atlas connection in `server/.env.atlas` (git-ignored):
 
@@ -113,7 +129,8 @@ MONGODB_DB_NAME=US-Jamaat-Wise-Data
 then (PowerShell, in `server/`):
 
 ```
-$env:ENV_FILE=".env.atlas"; npm run user:create -- --username ali --password "S3cret!" --role viewer
+$env:ENV_FILE=".env.atlas"; npm run user:create -- --username ali --password "S3cret!" --role saheb
+$env:ENV_FILE=".env.atlas"; npm run user:create -- --username superadmin --password "S3cret!" --role superadmin
 $env:ENV_FILE=".env.atlas"; npm run user:create -- --username ali --password "New-Pass" --reset
 ```
 
@@ -126,9 +143,10 @@ $env:ENV_FILE=".env.atlas"; npm run user:create -- --username ali --password "Ne
 | `login_success` / `login_failed` / `login_blocked` / `account_locked` | sign-in attempts |
 | `logout`, `token_refreshed`, `token_reuse_detected` | session events |
 | `dashboard_opened`, `data_refresh`, `list_viewed` | dashboard use |
-| `audit_viewed`, `user_created`, `user_password_reset` | admin actions |
+| `admin_opened`, `user_created` / `user_updated` / `user_deleted`, `dropdown_updated` | Super Admin actions |
+| `audit_viewed`, `user_password_reset` | admin actions |
 
-Admins can read it at `GET /api/audit?limit=50&action=entry_submitted` (or in Atlas).
+The Super Admin can read it at `GET /api/audit?limit=50&action=entry_submitted` (or in Atlas).
 
 ## Hosting: Vercel (website) + Render (API) + MongoDB Atlas (database)
 

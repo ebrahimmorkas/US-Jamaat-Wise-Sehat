@@ -81,7 +81,20 @@ export const portalEntry = (jamaatId, month) =>
   raw(`/api/portal/entry?jamaat=${encodeURIComponent(jamaatId)}&month=${encodeURIComponent(month)}`);
 export const portalSave = (body) => raw("/api/portal/entry", { method: "POST", body });
 
-// ---- Masters (admins) ----
+// ---- JC users (Super Admin) ----
+export const usersList = () => request("/api/users");
+export const createUser = (email) => request("/api/users", { method: "POST", body: { email } });
+export const updateUser = (id, body) => request(`/api/users/${id}`, { method: "PATCH", body });
+export const deleteUser = (id) => request(`/api/users/${id}`, { method: "DELETE" });
+
+// ---- Dropdown values (Super Admin) ----
+export const listsGet = () => request("/api/settings/lists");
+export const listAdd = (key, body) => request(`/api/settings/lists/${key}/values`, { method: "POST", body });
+export const listEdit = (key, id, body) => request(`/api/settings/lists/${key}/values/${id}`, { method: "PATCH", body });
+export const listRemove = (key, id) => request(`/api/settings/lists/${key}/values/${id}`, { method: "DELETE" });
+export const listOrder = (key, ids) => request(`/api/settings/lists/${key}/order`, { method: "PUT", body: { ids } });
+
+// ---- Masters (Super Admin) ----
 export const mastersList = () => request("/api/masters");
 export const createJamiat = (body) => request("/api/masters/jamiats", { method: "POST", body });
 export const updateJamiat = (id, body) => request(`/api/masters/jamiats/${id}`, { method: "PATCH", body });

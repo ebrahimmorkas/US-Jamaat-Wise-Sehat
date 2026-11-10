@@ -1,11 +1,12 @@
 // One JC submission: the answers for one Jamaat for one month.
 // Submitting again for the same Jamaat + month updates the same entry.
+// Allowed answers are checked by the API against the dropdown lists (they can change).
 const { mongoose } = require("../db");
 const form = require("../formConfig");
 
 const valuesShape = {};
 for (const f of form.fields) {
-  valuesShape[f.key] = { type: String, enum: form.statusSets[f.statuses], required: true };
+  valuesShape[f.key] = { type: String, required: true, trim: true, maxlength: 40 };
 }
 
 const entrySchema = new mongoose.Schema(

@@ -9,31 +9,41 @@ module.exports = {
   // On /jc-portal a JC can fill the current month and this many months before it.
   portalMonthsBack: 2,
 
-  // Answer sets (the same values as the old Excel dropdowns).
-  statusSets: {
-    progress: ["Completed", "Pending", "In Progress", "Not Applicable"],
-    yesNo: ["Yes", "No", "Pending", "Not Applicable"],
+  // Dropdown lists. The Super Admin edits the values in the portal (stored in MongoDB,
+  // collection "optionlists"); "defaults" are only used the first time the server starts.
+  //   kind "answers": answer choices of the JC form; every value has a meaning.
+  //   kind "plain":   a simple list.
+  lists: {
+    progress: {
+      label: "Progress answers",
+      kind: "answers",
+      defaults: [["Completed", "done"], ["Pending", "pending"], ["In Progress", "progress"], ["Not Applicable", "na"]],
+    },
+    yesNo: {
+      label: "Yes / No answers",
+      kind: "answers",
+      defaults: [["Yes", "done"], ["No", "notdone"], ["Pending", "pending"], ["Not Applicable", "na"]],
+    },
+    mauzeType: {
+      label: "Mauze Type",
+      kind: "plain",
+      usedBy: ["Jamaat master"],
+      defaults: [["UMMAL"], ["MASOOL UL MAUZE"]],
+    },
   },
-  defaultStatus: "Pending",
 
-  // Chart colour for each answer: good | info | warn | bad | na
-  statusTones: {
-    Completed: "good",
-    Yes: "good",
-    "In Progress": "info",
-    Pending: "warn",
-    No: "bad",
-    "Not Applicable": "na",
+  // What each meaning does on the dashboard.
+  //   tone: chart colour   done: counted as done in the completion rate   na: left out of it
+  meanings: {
+    done: { label: "Done", tone: "good" },
+    progress: { label: "In progress", tone: "info" },
+    pending: { label: "Pending", tone: "warn" },
+    notdone: { label: "Not done", tone: "bad" },
+    na: { label: "Not applicable", tone: "na" },
   },
 
-  // Answers counted as "done" in the completion rate ("Not Applicable" is excluded).
-  doneStatuses: ["Completed", "Yes"],
-
-  // Jamaat details kept in the Jamaat master.
-  mauzeTypes: ["UMMAL", "MASOOL UL MAUZE"],
-
-  // Every question on the JC form, in the same order as the Excel sheet.
-  // dashboard: false = asked on the form, but no card on the dashboard.
+  // Every question on the JC form, in the same order as the old Excel sheet.
+  // statuses = which answer list it uses. dashboard: false = on the form, but no dashboard card.
   fields: [
     { key: "tibb", label: "Tibb", group: "Regular Khidmat", statuses: "progress" },
     { key: "riyadah", label: "Riyadah", group: "Regular Khidmat", statuses: "progress" },

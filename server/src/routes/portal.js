@@ -8,6 +8,7 @@ const Jamiat = require("../models/Jamiat");
 const Entry = require("../models/Entry");
 const { audit } = require("../services/audit");
 const { activeMasters } = require("../services/data");
+const { answerConfig, getValueSets } = require("../services/lists");
 const { clientIp } = require("../lib/clientIp");
 const { monthLabel, recentMonths } = require("../lib/month");
 const { InputError, requireId, parseJamaatDetails, parseValues, parseRemarks, sendError } = require("../lib/validate");
@@ -43,13 +44,13 @@ async function findJamaat(id) {
 // ---------- GET /api/portal/options ----------  form questions + Jamiat/Jamaat lists
 router.get("/options", async (req, res, next) => {
   try {
-    const masters = await activeMasters();
+    const [masters, answers, sets] = await Promise.all([activeMasters(), answerConfig(), getValueSets()]);
     res.json({
       months: recentMonths(form.portalMonthsBack).map((key) => ({ key, label: monthLabel(key) })),
       fields: form.fields.map(({ key, label, group, statuses }) => ({ key, label, group, statuses })),
-      statusSets: form.statusSets,
-      statusTones: form.statusTones,
-      mauzeTypes: form.mauzeTypes,
+      statusSets: answers.statusSets,
+      statusTones: answers.statusTones,
+      mauzeTypes: sets.mauzeType,
       remarksLabel: form.remarksLabel,
       remarksMaxLength: form.remarksMaxLength,
       jamiats: masters.map((j) => ({
@@ -89,9 +90,10 @@ router.post("/entry", submitLimiter, async (req, res, next) => {
   try {
     const body = req.body || {};
     const month = checkMonth(body.month);
-    const values = parseValues(body.values);
+    const sets = await getValueSets();
+    const values = parseValues(body.values, sets);
     const remarks = parseRemarks(body.remarks);
-    const newDetails = parseJamaatDetails(body.details || {});
+    const newDetails = parseJamaatDetails(body.details || {}, sets.mauzeType);
     const { jamaat, jamiat } = await findJamaat(body.jamaatId);
 
     const before = await Entry.findOne({ jamaat: jamaat._id, month }).select("values remarks").lean();

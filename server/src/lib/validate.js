@@ -32,28 +32,31 @@ function parseCount(v, label) {
   return n;
 }
 
-function parseMauzeType(v) {
-  const s = String(v == null ? "" : v).trim().toUpperCase();
-  if (s && !form.mauzeTypes.includes(s)) throw new InputError(`Mauze Type must be one of: ${form.mauzeTypes.join(", ")}.`);
-  return s;
+// `allowed` = current Mauze Type dropdown values. Returns the list's spelling, or "".
+function parseMauzeType(v, allowed) {
+  const s = String(v == null ? "" : v).trim().toLowerCase();
+  if (!s) return "";
+  const hit = allowed.find((a) => a.toLowerCase() === s);
+  if (!hit) throw new InputError(`Mauze Type must be one of: ${allowed.join(", ")}.`);
+  return hit;
 }
 
 /** Mauze Type / House Count / Children; only the keys present in `body` are returned. */
-function parseJamaatDetails(body) {
+function parseJamaatDetails(body, mauzeTypes) {
   const out = {};
-  if ("mauzeType" in body) out.mauzeType = parseMauzeType(body.mauzeType);
+  if ("mauzeType" in body) out.mauzeType = parseMauzeType(body.mauzeType, mauzeTypes);
   if ("houseCount" in body) out.houseCount = parseCount(body.houseCount, "House Count");
   if ("children" in body) out.children = parseCount(body.children, "Children");
   return out;
 }
 
-/** Every form question must be answered with one of its allowed values. */
-function parseValues(values) {
+/** Every form question must be answered with one of its allowed values (`sets` = current dropdown values). */
+function parseValues(values, sets) {
   if (!values || typeof values !== "object") throw new InputError("Answer all the questions.");
   const out = {};
   const missing = [];
   for (const f of form.fields) {
-    const allowed = form.statusSets[f.statuses];
+    const allowed = sets[f.statuses] || [];
     const v = values[f.key];
     if (!allowed.includes(v)) missing.push(f.label);
     else out[f.key] = v;

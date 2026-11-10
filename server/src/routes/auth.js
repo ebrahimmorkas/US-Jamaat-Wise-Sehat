@@ -3,6 +3,7 @@ const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const config = require("../config");
 const { isDbReady } = require("../db");
 const User = require("../models/User");
+const { PASSWORD_ROLES } = require("../models/User");
 const auth = require("../services/auth");
 const { audit } = require("../services/audit");
 const { requireAuth } = require("../middleware/auth");
@@ -32,7 +33,9 @@ router.post("/login", loginLimiter, dbGuard, async (req, res, next) => {
     const password = String((req.body && req.body.password) || "").slice(0, 200);
     if (!username || !password) return res.status(400).json({ error: "Enter your username and password.", code: "MISSING_FIELDS" });
 
-    const user = await User.findOne({ username }).select("+passwordHash");
+    // Only Sahebs and Super Admins sign in with a password (JC sign-in comes later).
+    const found = await User.findOne({ username }).select("+passwordHash");
+    const user = found && PASSWORD_ROLES.includes(found.role) && found.passwordHash ? found : null;
 
     if (user && user.lockUntil && user.lockUntil > new Date()) {
       const mins = Math.ceil((user.lockUntil - Date.now()) / 60000);
@@ -89,7 +92,7 @@ router.post("/refresh", refreshLimiter, dbGuard, async (req, res, next) => {
     }
 
     const user = await User.findById(payload.sub);
-    if (!user || !user.isActive) {
+    if (!user || !user.isActive || !PASSWORD_ROLES.includes(user.role)) {
       auth.clearAuthCookies(res);
       return res.status(401).json({ error: "Account disabled.", code: "USER_INACTIVE" });
     }
@@ -132,9 +135,9 @@ router.post("/logout", async (req, res) => {
   res.json({ ok: true });
 });
 
-// ---------- GET /api/auth/me ----------  (called once when the dashboard opens)
+// ---------- GET /api/auth/me ----------  (called once when the website opens)
 router.get("/me", requireAuth, (req, res) => {
-  audit(req, "dashboard_opened");
+  audit(req, req.user.role === "superadmin" ? "admin_opened" : "dashboard_opened");
   res.set("Cache-Control", "no-store");
   res.json({ user: req.user });
 });

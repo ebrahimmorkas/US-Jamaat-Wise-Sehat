@@ -1,9 +1,9 @@
-// Jamiat and Jamaat masters (admins only).
+// Jamiat and Jamaat masters (Super Admin only).
 //  - Names are saved in capitals with single spaces; duplicates are refused.
 //  - Something in use cannot be deleted: a Jamiat with Jamaats, or a Jamaat with monthly entries.
 //    Mark it inactive instead (it disappears from the portal and the dashboard, history is kept).
 const express = require("express");
-const form = require("../formConfig");
+const { getValueSets } = require("../services/lists");
 const { isDbReady } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const Jamiat = require("../models/Jamiat");
@@ -13,7 +13,7 @@ const { audit } = require("../services/audit");
 const { InputError, requireId, parseName, parseJamaatDetails, sendError } = require("../lib/validate");
 
 const router = express.Router();
-router.use(requireAuth, requireRole("admin"), (req, res, next) => {
+router.use(requireAuth, requireRole("superadmin"), (req, res, next) => {
   res.set("Cache-Control", "no-store");
   if (!isDbReady()) return res.status(503).json({ error: "Database is starting, please try again in a moment." });
   next();
@@ -56,7 +56,7 @@ router.get("/", async (req, res, next) => {
     ]);
     const countOf = new Map(counts.map((c) => [String(c._id), c.n]));
     res.json({
-      mauzeTypes: form.mauzeTypes,
+      mauzeTypes: (await getValueSets()).mauzeType,
       jamiats: jamiats.map(jamiatOut),
       jamaats: jamaats.map((jm) => jamaatOut(jm, countOf.get(String(jm._id)) || 0)),
     });
@@ -120,7 +120,7 @@ router.post("/jamaats", async (req, res, next) => {
     const body = req.body || {};
     const jamiat = await findJamiat(body.jamiatId);
     const name = parseName(body.name, "Jamaat", 120);
-    const jm = await Jamaat.create({ jamiat: jamiat._id, name, ...parseJamaatDetails(body) });
+    const jm = await Jamaat.create({ jamiat: jamiat._id, name, ...parseJamaatDetails(body, (await getValueSets()).mauzeType) });
     audit(req, "master_created", { details: { type: "jamaat", jamiat: jamiat.name, name } });
     res.status(201).json({ jamaat: jamaatOut(jm) });
   } catch (err) {
@@ -137,7 +137,7 @@ router.patch("/jamaats/:id", async (req, res, next) => {
     if ("jamiatId" in body) jm.jamiat = (await findJamiat(body.jamiatId))._id;
     if ("name" in body) jm.name = parseName(body.name, "Jamaat", 120);
     if ("isActive" in body) jm.isActive = parseActive(body.isActive);
-    Object.assign(jm, parseJamaatDetails(body));
+    Object.assign(jm, parseJamaatDetails(body, (await getValueSets()).mauzeType));
     await jm.save();
     const changes = diff(before, jm, ["jamiat", "name", "mauzeType", "houseCount", "children", "isActive"]);
     if (Object.keys(changes).length) audit(req, "master_updated", { details: { type: "jamaat", name: jm.name, changes } });

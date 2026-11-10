@@ -20,9 +20,10 @@ export function makeStatusHelpers(config) {
   return {
     statusesFor,
     toneOf,
+    // Meanings come from the Super Admin's dropdown settings (via the colour of each answer).
     isDone: (v) => done.includes(lower(v)),
-    isNA: (v) => same(v, "Not Applicable"),
-    isPending: (v) => same(v, "Pending"),
+    isNA: (v) => !!norm(v) && toneOf(v) === "na",
+    isPending: (v) => !!norm(v) && toneOf(v) === "warn",
     matchesStatus: (v, status) => (status === NOT_FILLED ? !norm(v) : same(v, status)),
   };
 }

@@ -9,12 +9,16 @@ const ACTIONS = [
   "logout",
   "token_refreshed",
   "token_reuse_detected", // an old refresh token was used again -> session ended
-  "dashboard_opened",
+  "dashboard_opened",     // a Saheb opened the dashboard
+  "admin_opened",         // a Super Admin opened the Super Admin portal
   "data_refresh",         // clicked the Refresh button
   "list_viewed",          // opened a list of Jamaats from a card
   "audit_viewed",
-  "user_created",
+  "user_created",         // incl. JC Gmails added by the Super Admin
+  "user_updated",
+  "user_deleted",
   "user_password_reset",
+  "dropdown_updated",     // a dropdown value was added / renamed / removed / reordered
   "entry_submitted",      // a JC saved a Jamaat's monthly form on /jc-portal
   "master_created",       // Jamiat / Jamaat added
   "master_updated",

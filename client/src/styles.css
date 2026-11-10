@@ -581,7 +581,7 @@ select:disabled { opacity: .6; cursor: not-allowed; }
 .q-req { font-size: 11px; font-weight: 600; color: var(--t-bad); background: var(--soft-bad); padding: 1px 8px; border-radius: 999px; }
 .q.is-missing .seg-control { box-shadow: 0 0 0 2px color-mix(in srgb, var(--s-bad) 55%, transparent); border-radius: 11px; }
 
-.seg-control { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.seg-control { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; }
 @media (max-width: 560px) { .seg-control { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .seg-opt { position: relative; cursor: pointer; }
 .seg-opt input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
@@ -666,3 +666,22 @@ select:disabled { opacity: .6; cursor: not-allowed; }
 .master-table .input.num { width: 96px; }
 .edit-row td { background: var(--surface-2); }
 .move-select { margin-top: 6px; font-size: 12px !important; color: var(--ink-2); }
+
+/* ---------- Super Admin: users & dropdowns ---------- */
+.users-add { padding-top: 14px; max-width: 560px; }
+.users-tools { padding-bottom: 12px; max-width: 560px; }
+.users-table { min-width: 560px; }
+.dd-grid { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); align-items: start; }
+.dd-panel { padding-bottom: 16px; }
+.dd-preview { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 20px 12px; }
+.dd-table { min-width: 0; }
+.dd-panel .table-wrap { padding-bottom: 8px; }
+.order-cell { white-space: nowrap; width: 72px; }
+.mini-btn.icon { padding: 4px 5px; }
+.mini-btn.icon + .mini-btn.icon { margin-left: 2px; }
+.rot { display: inline-flex; transform: rotate(90deg); }
+.meaning { display: inline-flex; align-items: center; gap: 6px; }
+.dd-add { padding: 4px 20px 0; flex-wrap: wrap; }
+.dd-add .input { flex: 1 1 200px; width: auto; }
+.dd-add select { width: auto; flex: 0 0 170px; }
+.dd-note { color: var(--muted); font-size: 13px; margin: 20px 2px 0; max-width: 820px; }
