@@ -1,80 +1,60 @@
 const express = require("express");
-const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const config = require("../config");
-const dash = require("../dashboardConfig");
-const sync = require("../services/sync");
+const form = require("../formConfig");
 const { isDbReady } = require("../db");
 const { requireAuth } = require("../middleware/auth");
 const { audit } = require("../services/audit");
-const { clientIp } = require("../lib/clientIp");
+const { dashboardData } = require("../services/data");
+const { isMonth } = require("../lib/month");
 
 const router = express.Router();
 
-// What the React app needs to draw the dashboard (sheet layout details stay on the server).
+// What the React app needs to draw the dashboard.
 const publicConfig = () => ({
-  metrics: dash.metrics.map(({ key, label, group, statuses }) => ({ key, label, group, statuses })),
-  statusSets: dash.statusSets,
-  statusTones: dash.statusTones,
-  doneStatuses: dash.doneStatuses,
-  defaultStatus: dash.defaultStatus,
-  showRemarks: dash.showRemarks,
-  refreshIntervalSeconds: config.syncIntervalSeconds,
+  metrics: form.fields
+    .filter((f) => f.dashboard !== false)
+    .map(({ key, label, group, statuses }) => ({ key, label, group, statuses })),
+  statusSets: form.statusSets,
+  statusTones: form.statusTones,
+  doneStatuses: form.doneStatuses,
+  defaultStatus: form.defaultStatus,
+  showRemarks: form.showRemarks,
+  refreshIntervalSeconds: config.refreshIntervalSeconds,
 });
 
-function payload() {
-  const snap = sync.getCurrent();
-  const status = sync.getStatus();
-  return {
-    config: publicConfig(),
-    data: {
-      month: snap.month,
-      jamiats: snap.jamiats,
-      failedSheets: snap.failed.map((f) => f.sheet),
-      syncedAt: snap.syncedAt,
-    },
-    sync: { nextSyncAt: status.nextSyncAt, lastError: status.lastError },
-  };
+async function payload(req) {
+  const month = isMonth(req.query.month) ? req.query.month : undefined;
+  return { config: publicConfig(), data: await dashboardData(month) };
 }
 
-router.get("/dashboard", requireAuth, (req, res) => {
-  if (!sync.getCurrent()) {
-    const { lastError } = sync.getStatus();
-    return res.status(503).json({ error: lastError || "Data is still loading, try again in a few seconds." });
+const needDb = (req, res, next) =>
+  isDbReady() ? next() : res.status(503).json({ error: "Database is starting, please try again in a moment." });
+
+// GET /api/dashboard?month=YYYY-MM  (defaults to the current month)
+router.get("/dashboard", requireAuth, needDb, async (req, res, next) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    res.json(await payload(req));
+  } catch (err) {
+    next(err);
   }
-  res.set("Cache-Control", "no-store");
-  res.json(payload());
 });
 
-// "Refresh" button: re-read the sheet now (with a cooldown so the Google quota is safe).
-const refreshLimiter = rateLimit({
-  windowMs: 60 * 1000, limit: 10, standardHeaders: "draft-7", legacyHeaders: false,
-  keyGenerator: (req) => ipKeyGenerator(clientIp(req)),
-});
-router.post("/refresh", requireAuth, refreshLimiter, async (req, res) => {
-  const { lastAttemptAt } = sync.getStatus();
-  const cooledDown = Date.now() - lastAttemptAt >= config.manualRefreshCooldownSeconds * 1000;
+// "Refresh" button: same data, but logged in the audit trail.
+router.post("/refresh", requireAuth, needDb, async (req, res, next) => {
   try {
-    if (cooledDown || !sync.getCurrent()) await sync.syncNow("manual");
-    audit(req, "data_refresh", { details: { synced: cooledDown, syncedAt: sync.getCurrent()?.syncedAt } });
+    const body = await payload(req);
+    audit(req, "data_refresh", { details: { month: body.data.month } });
     res.set("Cache-Control", "no-store");
-    res.json({ ...payload(), refreshed: cooledDown });
+    res.json(body);
   } catch (err) {
-    audit(req, "data_refresh", { success: false, details: { error: err.message } });
-    if (sync.getCurrent()) return res.json({ ...payload(), refreshed: false, warning: err.message });
-    res.status(502).json({ error: err.message });
+    next(err);
   }
 });
 
 router.get("/health", (req, res) => {
-  const snap = sync.getCurrent();
-  const status = sync.getStatus();
-  res.json({
-    ok: !!snap,
-    mongo: isDbReady() ? "connected" : "not connected",
-    sheetAccess: config.sheetAccess,
-    syncedAt: snap ? snap.syncedAt : null,
-    lastError: status.lastError,
-  });
+  const ok = isDbReady();
+  res.json({ ok, mongo: ok ? "connected" : "not connected" });
 });
 
 module.exports = router;

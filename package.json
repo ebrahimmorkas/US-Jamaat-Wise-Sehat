@@ -2,13 +2,12 @@
   "name": "us-jamaat-wise-sehat",
   "version": "1.0.0",
   "private": true,
-  "description": "Umoor Sehhat – Sahebo dashboard (MERN): Google Sheet -> Express/MongoDB -> React",
+  "description": "Umoor Sehhat (MERN): JC portal -> Express/MongoDB -> Sahebo dashboard (React)",
   "scripts": {
     "install:all": "npm install && npm install --prefix server && npm install --prefix client",
     "dev": "concurrently -n server,client -c green,cyan \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
     "build": "npm run build --prefix client",
-    "start": "npm start --prefix server",
-    "sync": "npm run sync --prefix server"
+    "start": "npm start --prefix server"
   },
   "engines": {
     "node": ">=20"

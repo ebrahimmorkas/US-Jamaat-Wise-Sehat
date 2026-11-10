@@ -2,12 +2,11 @@
   "name": "umoor-sehhat-server",
   "version": "1.0.0",
   "private": true,
-  "description": "API for the Umoor Sehhat Sahebo dashboard: syncs the Google Sheet into MongoDB and serves it.",
+  "description": "API for Umoor Sehhat: JC portal entries, Jamiat/Jamaat masters and the Sahebo dashboard (MongoDB).",
   "main": "src/index.js",
   "scripts": {
     "dev": "nodemon --watch src src/index.js",
     "start": "node src/index.js",
-    "sync": "node src/scripts/syncOnce.js",
     "user:create": "node src/scripts/createUser.js"
   },
   "engines": {
@@ -21,7 +20,6 @@
     "dotenv": "^18.0.10",
     "express": "^5.3.0",
     "express-rate-limit": "^8.7.3",
-    "googleapis": "^189.0.0",
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.12.0"

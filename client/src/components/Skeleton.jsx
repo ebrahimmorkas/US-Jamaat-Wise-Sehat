@@ -4,7 +4,7 @@ export default function Skeleton() {
   return (
     <>
       <section className="kpis">
-        {[0, 1, 2, 3].map((i) => (
+        {[0, 1].map((i) => (
           <div className="kpi" key={i}><Bar w="40%" /><Bar w="55%" h={30} /><Bar w="70%" /></div>
         ))}
       </section>

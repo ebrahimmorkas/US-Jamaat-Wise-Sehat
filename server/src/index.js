@@ -1,18 +1,13 @@
 const config = require("./config");
 const app = require("./app");
 const { connectDb, mongoose } = require("./db");
-const sync = require("./services/sync");
 
 async function main() {
-  await connectDb();
-  await sync.loadFromDb(); // serve the last saved data immediately
+  await connectDb(); // keeps retrying in the background if MongoDB is not reachable yet
 
   const server = app.listen(config.port, () => {
-    console.log(`[http] API listening on http://localhost:${config.port} (sheet access: ${config.sheetAccess})`);
+    console.log(`[http] API listening on http://localhost:${config.port}`);
   });
-
-  sync.syncNow("startup").catch(() => {}); // fresh pull in the background
-  sync.startSchedule();
 
   const shutdown = (signal) => {
     console.log(`[app] ${signal} received, shutting down`);

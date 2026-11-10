@@ -1,29 +1,33 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AuthError, fetchDashboard, isServerStarting, refreshDashboard } from "../lib/api";
 
-// Loads the dashboard from the API, polls on the server's interval, and exposes a
-// manual refresh. Calls onAuthError() when the session has ended.
-export function useDashboardData({ onAuthError }) {
+// Loads the dashboard for one month, polls on the server's interval, and exposes a
+// manual refresh. `month` = "YYYY-MM" or "" for the current month.
+// Calls onAuthError() when the session has ended.
+export function useDashboardData({ month, onAuthError }) {
   const [payload, setPayload] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [nextAt, setNextAt] = useState(null);
   const timer = useRef(null);
   const busy = useRef(false);
+  const queued = useRef(null);   // a request asked for while another was running
   const hasData = useRef(false);
   const retries = useRef(0);
+  const monthRef = useRef(month);
+  monthRef.current = month;
   const authErrorRef = useRef(onAuthError);
   authErrorRef.current = onAuthError;
 
   const run = useCallback(async (fn) => {
-    if (busy.current) return;
+    if (busy.current) { queued.current = fn; return; }
     busy.current = true;
     setLoading(true);
     let retry = false;
     try {
-      const body = await fn();
+      const body = await fn(monthRef.current);
       setPayload(body);
-      setError(body.warning || "");
+      setError("");
       hasData.current = true;
       retries.current = 0;
     } catch (err) {
@@ -39,8 +43,14 @@ export function useDashboardData({ onAuthError }) {
       }
     } finally {
       busy.current = false;
-      setLoading(retry);
     }
+    if (queued.current) {
+      const next = queued.current;
+      queued.current = null;
+      run(next);
+      return;
+    }
+    setLoading(retry);
     if (retry) setTimeout(() => run(fn), 5000);
   }, []);
 
@@ -59,7 +69,7 @@ export function useDashboardData({ onAuthError }) {
     [run]
   );
 
-  useEffect(() => { run(fetchDashboard); }, [run]);
+  useEffect(() => { run(fetchDashboard); }, [run, month]);
   useEffect(() => { schedule(intervalSecs); return () => clearInterval(timer.current); }, [intervalSecs, schedule]);
 
   const refresh = useCallback(() => {

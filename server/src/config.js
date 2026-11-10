@@ -15,15 +15,8 @@ const config = {
   // Database name; overrides any name inside MONGODB_URI.
   mongoDbName: (process.env.MONGODB_DB_NAME || "").trim(),
 
-  sheetId: process.env.SHEET_ID || "",
-  sheetAccess: (process.env.SHEET_ACCESS || "public").toLowerCase(),
-  serviceAccountKeyFile: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE
-    ? path.resolve(__dirname, "..", process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE)
-    : "",
-  serviceAccountKeyJson: process.env.GOOGLE_SERVICE_ACCOUNT_KEY_JSON || "",
-
-  syncIntervalSeconds: num(process.env.SYNC_INTERVAL_SECONDS, 120),
-  manualRefreshCooldownSeconds: num(process.env.MANUAL_REFRESH_COOLDOWN_SECONDS, 15),
+  // How often an open dashboard reloads its data (seconds, 0 = never).
+  refreshIntervalSeconds: num(process.env.DASHBOARD_REFRESH_SECONDS ?? process.env.SYNC_INTERVAL_SECONDS, 120),
   // Website address(es) allowed to call the API, comma-separated
   // (e.g. "https://your-site.vercel.app,https://a.com").
   corsOrigins: (process.env.CORS_ORIGIN || "http://localhost:5173")
@@ -61,13 +54,6 @@ for (const key of ["jwtAccessSecret", "jwtRefreshSecret"]) {
 }
 if (config.jwtAccessSecret === config.jwtRefreshSecret) {
   throw new Error("JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be different.");
-}
-
-if (!config.sheetId) {
-  throw new Error("SHEET_ID is missing. Copy server/.env.example to server/.env and set it.");
-}
-if (!["public", "service-account"].includes(config.sheetAccess)) {
-  throw new Error('SHEET_ACCESS must be "public" or "service-account".');
 }
 
 module.exports = config;

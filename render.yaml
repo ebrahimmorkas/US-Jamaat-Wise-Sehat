@@ -16,22 +16,17 @@ services:
         value: production
       - key: NODE_VERSION
         value: "22"
-      - key: SHEET_ACCESS
-        value: public
       - key: MONGODB_DB_NAME
         value: US-Jamaat-Wise-Data
-      - key: SYNC_INTERVAL_SECONDS
+      # How often an open dashboard reloads its data (seconds).
+      - key: DASHBOARD_REFRESH_SECONDS
         value: "120"
-      - key: MANUAL_REFRESH_COOLDOWN_SECONDS
-        value: "15"
       # Sign-in: two random secrets (Render generates them).
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET
         generateValue: true
       # Values below are secret / site-specific: Render asks for them when the Blueprint is created.
-      - key: SHEET_ID
-        sync: false
       - key: MONGODB_URI
         sync: false
       - key: CORS_ORIGIN

@@ -1,9 +1,8 @@
 const mongoose = require("mongoose");
 const config = require("./config");
 
-// MongoDB stores users, sessions, audit logs and the data snapshot.
-// If it is unavailable the dashboard data still comes from memory, sign-in waits,
-// and the server keeps retrying in the background until it connects.
+// MongoDB stores everything: masters, monthly entries, users, sessions and audit logs.
+// If it is unavailable the API answers "starting" and keeps retrying in the background.
 const RETRY_MS = 60 * 1000;
 let retryTimer = null;
 const onConnectedHooks = [];

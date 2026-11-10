@@ -12,7 +12,7 @@ function distribution(metric, rows, helpers) {
     else other++;
   }
   const segs = set.map((s) => ({ status: s, count: counts.get(s), selectable: true }));
-  if (empty) segs.push({ status: NOT_FILLED, count: empty, selectable: false });
+  segs.push({ status: NOT_FILLED, count: empty, selectable: true }); // no form submitted yet
   if (other) segs.push({ status: "Other", count: other, selectable: false });
   return segs;
 }
@@ -44,7 +44,7 @@ export default function MetricCard({ metric, rows, helpers, status, onStatus, on
         </button>
         <select className="status-select" value={status} onChange={(e) => onStatus(e.target.value)}
           aria-label={`${metric.label}: status to count`}>
-          {helpers.statusesFor(metric).map((s) => <option key={s} value={s}>{s}</option>)}
+          {[...helpers.statusesFor(metric), NOT_FILLED].map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
       </div>
 

@@ -11,7 +11,8 @@ import { ALL, makeStatusHelpers, plural, scopeRows } from "./lib/helpers";
 import { logEvent } from "./lib/api";
 
 export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onToggleTheme }) {
-  const { payload, error, loading, nextAt, intervalSecs, refresh } = useDashboardData({ onAuthError: onAuthExpired });
+  const [month, setMonth] = useState(""); // "" = current month (chosen by the server)
+  const { payload, error, loading, nextAt, intervalSecs, refresh } = useDashboardData({ month, onAuthError: onAuthExpired });
 
   const [jamiat, setJamiat] = useState(ALL);
   const [jamaat, setJamaat] = useState(ALL);
@@ -72,18 +73,13 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
     }
   }
 
-  const failedSheets = data ? data.failedSheets : [];
-  const message = error || (failedSheets.length ? `Could not load: ${failedSheets.join(", ")}. Check that these sheet names match exactly.` : "");
+  const submittedInScope = rows.filter((r) => r.submittedAt).length;
 
   return (
     <>
       <AppBar
-        syncedAt={data && data.syncedAt}
-        loading={loading}
-        failed={!!error && !data}
-        nextAt={nextAt}
-        intervalSecs={intervalSecs}
-        onRefresh={refresh}
+        page="dashboard"
+        sync={{ syncedAt: data && data.loadedAt, loading, failed: !!error && !data, nextAt, intervalSecs, onRefresh: refresh }}
         theme={theme}
         onToggleTheme={onToggleTheme}
         user={user}
@@ -92,7 +88,9 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
 
       <main className="container">
         <PageHead
-          month={data && data.month}
+          month={data ? data.month : month}
+          months={data ? data.months : []}
+          onMonth={setMonth}
           jamiat={currentJamiat}
           jamaat={currentJamaat}
           jamiatNames={jamiatNames}
@@ -101,13 +99,14 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
           onJamaat={setJamaat}
         />
 
-        {message && <div className="alert" role="status">{message}</div>}
+        {error && <div className="alert" role="status">{error}</div>}
 
         {!payload || !helpers ? (
           <Skeleton />
         ) : (
           <>
-            <Kpis rows={rows} metrics={metrics} helpers={helpers} scopeSub={scopeSub} />
+            <Kpis rows={rows} metrics={metrics} helpers={helpers} scopeSub={scopeSub}
+              submitted={submittedInScope} monthLabel={data.monthLabel} />
             <section className="layout">
               <div className="panel">
                 <div className="panel-head">

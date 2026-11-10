@@ -1,44 +1,66 @@
-# Umoor Sehhat – Sahebo Dashboard
+# Umoor Sehhat – JC Portal & Sahebo Dashboard
 
-A live, view-only dashboard of the monthly Jamaat follow-up tracker.
-Coordinators fill in the Google Sheet; the dashboard on the website shows pending work by Jamiat and Jamaat.
+Jamaat Coordinators (JCs) fill each Jamaat's monthly follow-up on the **JC portal**; Sahebo see the
+results live on the **dashboard**. Everything is stored in MongoDB (there is no Excel / Google Sheet any more).
 
 ```
-Google Sheet ──► Express API (Node) ──► MongoDB (saved copy)
-                      │
-                      ▼  /api/dashboard  (only the fields the dashboard needs)
-                 React app (website)
+JC portal (/jc-portal) ──► Express API ──► MongoDB ──► Sahebo dashboard (/)
+                                              ▲
+                     Masters (/masters, admins: Jamiat & Jamaat lists)
 ```
 
-- The browser **never sees the Google Sheet link** — only the server knows it.
-- The server re-reads the sheet every **2 minutes** (configurable) and keeps a copy in MongoDB, so the page loads instantly and keeps working if Google is slow.
-- No personal data (names, mobile numbers, house counts) is ever sent to the browser.
+| Page | Who | What |
+|---|---|---|
+| `/jc-portal` | anyone with the link (no sign-in for now) | pick Month → Jamiat → Jamaat, fill the form, Submit |
+| `/` | signed-in users | dashboard for a chosen month; refreshes every 2 minutes |
+| `/masters` | signed-in **admins** | add / rename / deactivate / delete Jamiats and Jamaats |
+
+## Data (MongoDB collections)
+
+| Collection | Holds |
+|---|---|
+| `jamiats` | Jamiat master: `name` (unique, stored in capitals), `isActive` |
+| `jamaats` | Jamaat master: `jamiat`, `name` (unique inside its Jamiat), `mauzeType`, `houseCount`, `children`, `isActive` |
+| `entries` | one per Jamaat per month (`month` = `"YYYY-MM"`): the 9 answers + remarks. Submitting again updates it |
+| `users`, `sessions`, `auditlogs` | sign-in and audit trail |
+
+Rules that keep the masters clean:
+
+- Names are saved in capitals with single spaces, so `Ahmedabad`, `AHMEDABAD ` and `ahmedabad` are the same name; duplicates are refused.
+- A Jamiat that still has Jamaats, or a Jamaat that has monthly entries, **cannot be deleted** — mark it **inactive** instead.
+  Inactive items disappear from the portal and the dashboard; their saved entries are kept.
+- Entries point to the Jamaat by ID, so renaming or moving a Jamaat keeps its history.
+
+The JC form questions, answer choices, colours and dashboard cards are defined in
+**`server/src/formConfig.js`** (the React app picks them up automatically).
+JCs can fill the current month and the 2 months before it (`portalMonthsBack`).
 
 ## Tech stack (MERN)
 
 | Part | Used for |
 |---|---|
-| **MongoDB** + Mongoose | latest synced snapshot + sync log (30 days) |
+| **MongoDB** + Mongoose | masters, entries, users, sessions, audit log |
 | **Express** | API, security headers (helmet), rate limits, serves the built React app |
-| **React** + Vite | the dashboard UI |
-| **Node.js** ≥ 20 | runtime, Google Sheets access (`googleapis`) |
+| **React** + Vite | portal, dashboard and masters UI |
+| **Node.js** ≥ 20 | runtime |
 
 ## Project structure
 
 ```
-client/                 React app
-  src/components/       AppBar, PageHead, Kpis, MetricCard, SidePanel, ListDialog …
-  src/hooks/            data loading/polling, theme, clock
-  src/lib/              API calls and helpers
-  public/               logo, favicon
-server/
-  src/dashboardConfig.js  WHAT the dashboard shows (cards, columns, statuses, colours)
-  src/config.js           reads server/.env
-  src/services/sheetReader.js  reads the Google Sheet (public link or service account)
-  src/services/sync.js         scheduled sync + MongoDB persistence
-  src/routes/api.js            /api/dashboard, /api/refresh, /api/health
-  src/models/                  Snapshot, SyncLog
-tools/make_dummy.py      fills an Excel copy with dummy dropdown values
+client/src/
+  JcPortal.jsx  Dashboard.jsx  Masters.jsx   the three pages (App.jsx picks one by URL)
+  components/   AppBar, PageHead, Kpis, MetricCard, SidePanel, ListDialog …
+  hooks/        sign-in, dashboard loading/polling, theme, clock
+  lib/          API calls, router, helpers
+server/src/
+  formConfig.js        form questions, answer sets, colours
+  config.js            reads server/.env
+  models/              Jamiat, Jamaat, Entry, User, Session, AuditLog
+  routes/portal.js     /api/portal/*   (public JC portal)
+  routes/masters.js    /api/masters/*  (admins)
+  routes/api.js        /api/dashboard, /api/refresh, /api/health
+  routes/auth.js       /api/auth/*  ·  routes/audit.js  /api/audit
+  services/data.js     builds the dashboard from masters + entries
 ```
 
 ## First-time setup (development)
@@ -46,61 +68,46 @@ tools/make_dummy.py      fills an Excel copy with dummy dropdown values
 Requirements: **Node.js 20+**, **MongoDB** (local) and **Git**.
 
 ```bash
-npm run install:all                 # installs root, server and client packages
-copy server\.env.example server\.env   # then edit server/.env (SHEET_ID etc.)
-npm run dev                         # API on :5000 + React on http://localhost:5173
+npm run install:all                     # installs root, server and client packages
+copy server\.env.example server\.env    # then edit server/.env
+npm run dev                             # API on :5000 + React on http://localhost:5173
 ```
-
-Open **http://localhost:5173**.
-
-Other commands:
 
 | Command | What it does |
 |---|---|
 | `npm run dev` | server (auto-restart) + React dev server |
 | `npm run build` | builds the React app into `client/dist` |
 | `npm start` | runs the server; it also serves `client/dist` (production mode) |
-| `npm run sync` | one manual sync from the sheet (prints counts) |
-
-If MongoDB is not running, the server still works from memory and logs a warning.
 
 ## Settings (`server/.env`)
 
 | Variable | Meaning |
 |---|---|
-| `SHEET_ID` | ID of the Google Sheet (between `/d/` and `/edit` in its URL) |
-| `SHEET_ACCESS` | `public` (sheet shared "Anyone with the link") or `service-account` (private sheet) |
-| `GOOGLE_SERVICE_ACCOUNT_KEY_FILE` / `_JSON` | service-account key (only for `service-account`) |
-| `MONGODB_URI` | MongoDB connection string |
-| `SYNC_INTERVAL_SECONDS` | how often the sheet is re-read and the page refreshes (default 120) |
-| `MANUAL_REFRESH_COOLDOWN_SECONDS` | minimum gap between Refresh-button syncs (default 15) |
-| `PORT`, `NODE_ENV`, `CORS_ORIGIN` | server port, `production` in production, dev frontend URL |
-
-To change the cards, statuses, colours or which sheet columns are read, edit
-**`server/src/dashboardConfig.js`** — the React app picks it up automatically.
+| `MONGODB_URI`, `MONGODB_DB_NAME` | MongoDB connection and database name |
+| `DASHBOARD_REFRESH_SECONDS` | how often an open dashboard reloads (default 120) |
+| `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | sign-in secrets (required in production) |
+| `PORT`, `NODE_ENV`, `CORS_ORIGIN` | server port, `production` in production, website address(es) |
 
 ## Sign-in, users and audit log
 
 - **JWT** access token (7 days) + refresh token (30 days), both in **HttpOnly, SameSite=Lax** cookies
   (`Secure` in production). JavaScript in the page can never read them.
-- Every login is a **session** in MongoDB (`sessions`). Logout or an admin can end a session immediately.
+- Every login is a **session** in MongoDB (`sessions`). Logout ends it immediately.
   The refresh token is **rotated** on every use; re-using an old one ends the session (theft protection).
-- Passwords are stored as **bcrypt** hashes (`users.passwordHash`), never in plain text.
+- Passwords are stored as **bcrypt** hashes, never in plain text.
 - 5 wrong passwords lock the account for 15 minutes; sign-in is also rate-limited per IP.
-- POST requests must come from the website itself (Origin check + `X-Requested-With` header) — CSRF protection.
+- POST / PATCH / DELETE requests must come from the website itself (Origin check + `X-Requested-With` header) — CSRF protection.
 - In production the website calls `/api/...` on its **own domain**; Vercel forwards it to Render
   (`vercel.json`), so the cookies are first-party and work in Safari/iPhone too.
 
-**Users** (`users` collection): `username`, `passwordHash`, `role` (`admin` | `viewer`), `isActive`,
-`lastLoginAt`, `failedLoginCount`, `lockUntil`. Admins can also read the audit log.
+**Users** (`users` collection): `username`, `passwordHash`, `role` (`admin` | `viewer`), `isActive`.
+Admins see the **Masters** page and can read the audit log.
 
-Users live only in the database. To add a user or reset a password in **Atlas**, put the Atlas
-connection in `server/.env.atlas` (git-ignored):
+To add a user or reset a password in **Atlas**, put the Atlas connection in `server/.env.atlas` (git-ignored):
 
 ```
 MONGODB_URI=mongodb+srv://USER:PASSWORD@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority
 MONGODB_DB_NAME=US-Jamaat-Wise-Data
-SHEET_ID=unused
 ```
 
 then (PowerShell, in `server/`):
@@ -110,67 +117,28 @@ $env:ENV_FILE=".env.atlas"; npm run user:create -- --username ali --password "S3
 $env:ENV_FILE=".env.atlas"; npm run user:create -- --username ali --password "New-Pass" --reset
 ```
 
-Without `ENV_FILE` the same command works on the local development database.
-
 **Audit log** (`auditlogs` collection, kept 365 days) — who did what, when, from which IP/browser:
 
 | action | when |
 |---|---|
+| `entry_submitted` | a JC saved a Jamaat's month on the portal (what changed, IP) |
+| `master_created` / `master_updated` / `master_deleted` | Jamiat / Jamaat changes on the Masters page |
 | `login_success` / `login_failed` / `login_blocked` / `account_locked` | sign-in attempts |
 | `logout`, `token_refreshed`, `token_reuse_detected` | session events |
-| `dashboard_opened` | the dashboard page was opened |
-| `data_refresh` | the **Refresh** button was clicked (and whether the sheet was re-read) |
-| `list_viewed` | a list of Jamaats was opened from a card (card, status, Jamiat, Jamaat) |
+| `dashboard_opened`, `data_refresh`, `list_viewed` | dashboard use |
 | `audit_viewed`, `user_created`, `user_password_reset` | admin actions |
 
-Admins can read it at `GET /api/audit?limit=50&action=data_refresh&username=sehhat` (or in Atlas).
-
-## Making the Google Sheet private (service account)
-
-Today the sheet is shared "Anyone with the link". When you are ready to share it only with specific
-coordinators:
-
-1. Go to <https://console.cloud.google.com/> → create a project (e.g. *umoor-sehhat-dashboard*).
-2. **APIs & Services → Library** → enable **Google Sheets API**.
-3. **APIs & Services → Credentials → Create credentials → Service account** → create it (no roles needed).
-4. Open the service account → **Keys → Add key → Create new key → JSON**. A `.json` file downloads.
-5. Save it as `server/secrets/service-account.json` (this folder is git-ignored — never commit it).
-6. In the Google Sheet → **Share** → add the service account's email
-   (looks like `name@project.iam.gserviceaccount.com`) as **Viewer**.
-   Add your coordinators' Google accounts as **Editor** as usual.
-7. Change General access from "Anyone with the link" to **Restricted**.
-8. In `server/.env` set `SHEET_ACCESS=service-account` and restart the server.
-
-On a hosting platform, instead of the file, put the whole JSON key into the
-`GOOGLE_SERVICE_ACCOUNT_KEY_JSON` environment variable.
+Admins can read it at `GET /api/audit?limit=50&action=entry_submitted` (or in Atlas).
 
 ## Hosting: Vercel (website) + Render (API) + MongoDB Atlas (database)
 
 ```
-Browser ──► Vercel (React website) ──► Render (Express API) ──► MongoDB Atlas
-                                              └──► Google Sheet
+Browser ──► Vercel (React website, /api forwarded) ──► Render (Express API) ──► MongoDB Atlas
 ```
 
-1. **MongoDB Atlas** (<https://cloud.mongodb.com>) – create a free **M0** cluster, a database user,
-   allow network access from `0.0.0.0/0` (Render has no fixed IP), and copy the connection string
-   (`mongodb+srv://USER:PASSWORD@cluster…/umoor_sehhat?retryWrites=true&w=majority`).
-2. **Render** (<https://render.com>) – *New → Blueprint* → pick this repository (uses `render.yaml`).
-   Fill in `SHEET_ID`, `MONGODB_URI`, and `CORS_ORIGIN` (the Vercel address from step 3; you can
-   put a placeholder first and update it afterwards). Note the API address, e.g.
-   `https://us-jamaat-wise-sehat-api.onrender.com`. Check `…/api/health`.
-3. **Vercel** (<https://vercel.com>) – *Add New → Project* → import this repository →
-   **Root Directory: `client`** → environment variable `VITE_API_URL` = the Render address → Deploy.
-4. Put the Vercel address (and later `https://a.com`) into Render's `CORS_ORIGIN`
-   (comma-separated) and save — Render restarts the API.
+- **Vercel** builds `client/` (`vercel.json`) and forwards `/api/*` to Render.
+- **Render** runs `server/` (`render.yaml`). Secrets (`MONGODB_URI`, `CORS_ORIGIN`) are set in the Render dashboard.
+- **Atlas** network access must allow `0.0.0.0/0` (Render has no fixed IP).
 
-Every `git push` to `main` redeploys both automatically.
-
-**Free Render plan:** the API sleeps after ~15 minutes without visitors; the next visitor waits
-~30–60 seconds while it wakes (the page shows "Starting the server…" and retries by itself).
-Upgrade the Render service to a paid instance to keep it always on.
-
-## Running everything on one server (alternative)
-
-1. `npm run install:all && npm run build`
-2. Set `NODE_ENV=production`, `MONGODB_URI` and the other variables on the host.
-3. `npm start` — one Node process serves both the API and the website.
+**Free Render plan:** the API sleeps after ~15 minutes without visitors. A monitor (UptimeRobot or the
+GitHub Action in `.github/workflows/keep-alive.yml`) pinging `/api/health` every few minutes keeps it awake.

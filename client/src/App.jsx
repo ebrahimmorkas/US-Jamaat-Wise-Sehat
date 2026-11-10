@@ -1,12 +1,23 @@
 import Dashboard from "./Dashboard";
+import Masters from "./Masters";
+import JcPortal from "./JcPortal";
 import LoginPage from "./components/LoginPage";
 import { useAuth } from "./hooks/useAuth";
 import { useTheme } from "./hooks/useTheme";
+import { usePath } from "./lib/router";
 
-// Shows the sign-in page until the user is authenticated, then the dashboard.
 export default function App() {
-  const auth = useAuth();
+  const path = usePath();
   const { theme, toggle } = useTheme();
+
+  // The JC portal is open to everyone for now (no sign-in).
+  if (path === "/jc-portal") return <JcPortal theme={theme} onToggleTheme={toggle} />;
+  return <SignedInArea path={path} theme={theme} onToggleTheme={toggle} />;
+}
+
+// Shows the sign-in page until the user is authenticated, then the dashboard or the masters.
+function SignedInArea({ path, theme, onToggleTheme }) {
+  const auth = useAuth();
 
   if (auth.status === "checking") {
     return (
@@ -20,17 +31,10 @@ export default function App() {
   }
 
   if (auth.status === "anon") {
-    return <LoginPage onSignIn={auth.signIn} message={auth.message} theme={theme} onToggleTheme={toggle} />;
+    return <LoginPage onSignIn={auth.signIn} message={auth.message} theme={theme} onToggleTheme={onToggleTheme} />;
   }
 
-  return (
-    <Dashboard
-      key={auth.user.id}
-      user={auth.user}
-      onSignOut={auth.signOut}
-      onAuthExpired={auth.expire}
-      theme={theme}
-      onToggleTheme={toggle}
-    />
-  );
+  const common = { user: auth.user, onSignOut: auth.signOut, onAuthExpired: auth.expire, theme, onToggleTheme };
+  if (path === "/masters" && auth.user.role === "admin") return <Masters key={auth.user.id} {...common} />;
+  return <Dashboard key={auth.user.id} {...common} />;
 }

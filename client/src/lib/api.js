@@ -66,10 +66,26 @@ async function request(path, options) {
 export const isServerStarting = (err) =>
   err && !(err instanceof AuthError) && (err.status === 0 || [502, 503, 504].includes(err.status));
 
-export const fetchDashboard = () => request("/api/dashboard");
-export const refreshDashboard = () => request("/api/refresh", { method: "POST" });
+const monthQuery = (month) => (month ? `?month=${encodeURIComponent(month)}` : "");
+export const fetchDashboard = (month) => request("/api/dashboard" + monthQuery(month));
+export const refreshDashboard = (month) => request("/api/refresh" + monthQuery(month), { method: "POST" });
 export const getMe = () => request("/api/auth/me");
 export const login = (username, password) => raw("/api/auth/login", { method: "POST", body: { username, password } });
 export const logout = () => raw("/api/auth/logout", { method: "POST" }).catch(() => null);
 export const logEvent = (action, details) =>
   request("/api/audit/event", { method: "POST", body: { action, details } }).catch(() => null);
+
+// ---- JC portal (no sign-in) ----
+export const portalOptions = () => raw("/api/portal/options");
+export const portalEntry = (jamaatId, month) =>
+  raw(`/api/portal/entry?jamaat=${encodeURIComponent(jamaatId)}&month=${encodeURIComponent(month)}`);
+export const portalSave = (body) => raw("/api/portal/entry", { method: "POST", body });
+
+// ---- Masters (admins) ----
+export const mastersList = () => request("/api/masters");
+export const createJamiat = (body) => request("/api/masters/jamiats", { method: "POST", body });
+export const updateJamiat = (id, body) => request(`/api/masters/jamiats/${id}`, { method: "PATCH", body });
+export const deleteJamiat = (id) => request(`/api/masters/jamiats/${id}`, { method: "DELETE" });
+export const createJamaat = (body) => request("/api/masters/jamaats", { method: "POST", body });
+export const updateJamaat = (id, body) => request(`/api/masters/jamaats/${id}`, { method: "PATCH", body });
+export const deleteJamaat = (id) => request(`/api/masters/jamaats/${id}`, { method: "DELETE" });

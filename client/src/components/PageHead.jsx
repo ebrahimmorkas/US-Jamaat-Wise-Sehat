@@ -1,6 +1,7 @@
 import { ALL } from "../lib/helpers";
 
-export default function PageHead({ month, jamiat, jamaat, jamiatNames, jamaatNames, onJamiat, onJamaat }) {
+export default function PageHead({ month, months, onMonth, jamiat, jamaat, jamiatNames, jamaatNames, onJamiat, onJamaat }) {
+  const monthLabel = (months.find((m) => m.key === month) || {}).label;
   return (
     <section className="page-head">
       <div className="page-title">
@@ -24,11 +25,19 @@ export default function PageHead({ month, jamiat, jamaat, jamiatNames, jamaatNam
           )}
         </nav>
         <h1>
-          Sahebo Dashboard {month && <span className="chip">{month}</span>}
+          Sahebo Dashboard {monthLabel && <span className="chip">{monthLabel}</span>}
         </h1>
       </div>
 
       <div className="filters" role="group" aria-label="Filters">
+        {months.length > 0 && (
+          <label className="field field-month">
+            <span className="field-label">Month</span>
+            <select value={month} onChange={(e) => onMonth(e.target.value)}>
+              {months.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+            </select>
+          </label>
+        )}
         <label className="field">
           <span className="field-label">Jamiat</span>
           <select value={jamiat} onChange={(e) => onJamiat(e.target.value)}>

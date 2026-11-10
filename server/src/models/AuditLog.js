@@ -15,6 +15,10 @@ const ACTIONS = [
   "audit_viewed",
   "user_created",
   "user_password_reset",
+  "entry_submitted",      // a JC saved a Jamaat's monthly form on /jc-portal
+  "master_created",       // Jamiat / Jamaat added
+  "master_updated",
+  "master_deleted",
 ];
 
 const auditLogSchema = new mongoose.Schema({
