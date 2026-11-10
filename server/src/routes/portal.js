@@ -9,7 +9,7 @@ const User = require("../models/User");
 const Jamaat = require("../models/Jamaat");
 const Jamiat = require("../models/Jamiat");
 const Entry = require("../models/Entry");
-const { audit } = require("../services/audit");
+const { audit, diff } = require("../services/audit");
 const { activeMasters } = require("../services/data");
 const { getValueSets } = require("../services/lists");
 const { activeFields, portalShape } = require("../services/fields");
@@ -48,7 +48,10 @@ async function findJamaat(req, id) {
   const jm = await Jamaat.findOne({ _id: requireId(id, "Jamaat"), isActive: true });
   const jt = jm && (await Jamiat.findOne({ _id: jm.jamiat, isActive: true }).select("name").lean());
   if (!jm || !jt) throw new InputError("This Jamaat is not available. Reload the page.", 404);
-  if (!canFill(await accessOf(req), jm)) throw new InputError("This Jamaat is not assigned to you.", 403);
+  if (!canFill(await accessOf(req), jm)) {
+    audit(req, "access_denied", { success: false, target: { type: "jamaat", id: String(jm._id), label: `${jm.name} (${jt.name})` }, details: { reason: "jamaat_not_assigned", method: req.method, path: req.originalUrl.slice(0, 300) } });
+    throw new InputError("This Jamaat is not assigned to you.", 403);
+  }
   return { jamaat: jm, jamiat: jt };
 }
 
@@ -83,6 +86,7 @@ router.get("/entry", async (req, res, next) => {
     const month = checkMonth(req.query.month);
     const { jamaat } = await findJamaat(req, req.query.jamaat);
     const entry = await Entry.findOne({ jamaat: jamaat._id, month }).select("values remarks updatedAt").lean();
+    audit(req, "entry_viewed", { target: { type: "jamaat", id: String(jamaat._id), label: jamaat.name }, details: { month, saved: !!entry } });
     res.json({
       details: details(jamaat),
       entry: entry ? { values: entry.values, remarks: entry.remarks || "", updatedAt: entry.updatedAt } : null,
@@ -123,27 +127,30 @@ router.post("/entry", submitLimiter, async (req, res, next) => {
     );
 
     // Jamaat details live in the Jamaat master: update them when the JC corrected them.
+    const DETAIL_SPEC = [["mauzeType", "Mauze Type"], ["houseCount", "House Count"], ["children", "Children"]];
     const oldDetails = details(jamaat);
-    const detailChanges = {};
-    for (const [k, v] of Object.entries(newDetails)) if (v !== oldDetails[k]) detailChanges[k] = { from: oldDetails[k], to: v };
-    if (Object.keys(detailChanges).length) {
+    const detailChanges = diff(oldDetails, { ...oldDetails, ...newDetails }, DETAIL_SPEC);
+    const jamaatTarget = { type: "jamaat", id: String(jamaat._id), label: `${jamaat.name} (${jamiat.name})` };
+    if (detailChanges.length) {
       Object.assign(jamaat, newDetails);
       await jamaat.save();
+      audit(req, "master_updated", { target: jamaatTarget, changes: detailChanges, details: { via: "JC portal", month } });
     }
 
-    const changed = {};
+    // Audit trail: only the answers that changed, with their previous value.
+    const trail = [];
     for (const f of fields) {
       const old = before && before.values ? before.values[f.key] : undefined;
-      if ((old || null) !== (values[f.key] || null)) changed[f.label] = { from: old || null, to: values[f.key] || null };
+      if ((old || null) !== (values[f.key] || null)) trail.push({ field: `values.${f.key}`, label: f.label, from: old || null, to: values[f.key] || null });
     }
-    if ((before ? before.remarks || "" : "") !== remarks) changed.remarks = { from: before ? before.remarks || "" : null, to: remarks };
+    const oldRemarks = before ? before.remarks || "" : "";
+    if (oldRemarks !== remarks) trail.push({ field: "remarks", label: "Remarks", from: oldRemarks || null, to: remarks || null });
+    for (const d of detailChanges) trail.push({ ...d, field: `jamaat.${d.field}` });
 
     audit(req, "entry_submitted", {
-      details: {
-        month, jamiat: jamiat.name, jamaat: jamaat.name,
-        firstSubmission: !before, changed,
-        ...(Object.keys(detailChanges).length ? { jamaatDetails: detailChanges } : {}),
-      },
+      target: { ...jamaatTarget, type: "entry", id: `${jamaat._id}:${month}`, label: `${jamaatTarget.label} · ${monthLabel(month)}` },
+      changes: trail,
+      details: { month, jamiat: jamiat.name, jamaat: jamaat.name, firstSubmission: !before, unchanged: !trail.length || undefined },
     });
 
     res.json({ ok: true, firstSubmission: !before, updatedAt: entry.updatedAt, details: details(jamaat) });

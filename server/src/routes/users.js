@@ -9,9 +9,11 @@ const { requireAuth, requireRole } = require("../middleware/auth");
 const User = require("../models/User");
 const { ROLES } = require("../models/User");
 const Session = require("../models/Session");
-const { audit } = require("../services/audit");
+const { audit, diff } = require("../services/audit");
 const { parseGmail } = require("../lib/gmail");
-const { parseAssignment, countAllAccess, grantToAllAccess } = require("../services/access");
+const { parseAssignment, countAllAccess, grantToAllAccess, accessChanges } = require("../services/access");
+const Jamiat = require("../models/Jamiat");
+const Jamaat = require("../models/Jamaat");
 const { InputError, requireId, sendError } = require("../lib/validate");
 
 const router = express.Router();
@@ -36,6 +38,10 @@ const out = (u) => ({
   createdBy: u.createdBy || "",
 });
 const sameSet = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
+const ROLE_LABELS = { jc: "JC", saheb: "Saheb", superadmin: "Super Admin" };
+const USER_FIELDS = [["email", "Gmail"], ["role", "Role", (r) => (r ? ROLE_LABELS[r] || r : r)], ["isActive", "Active"]];
+const userTarget = (u) => ({ type: "user", id: String(u._id), label: u.email || u.username });
+const accessOf = (u) => ({ jamiats: (u.jamiats || []).map(String), jamaats: (u.jamaats || []).map(String) });
 
 function gmailOrThrow(input) {
   const g = parseGmail(input);
@@ -88,8 +94,9 @@ router.post("/all-access", async (req, res, next) => {
   try {
     const { type, id } = req.body || {};
     if (!["jamiat", "jamaat"].includes(type)) throw new InputError("Unknown type.");
-    const n = await grantToAllAccess(type, requireId(id, type));
-    audit(req, "user_updated", { details: { op: "grant new to all-access JCs", type, id, users: n } });
+    const doc = await (type === "jamiat" ? Jamiat : Jamaat).findById(requireId(id, type)).select("name").lean();
+    const n = await grantToAllAccess(type, id);
+    audit(req, "user_updated", { target: { type, id: String(id), label: doc ? doc.name : String(id) }, details: { op: `new ${type} given to JCs who had access to everything`, users: n } });
     res.json({ updated: n });
   } catch (err) {
     sendError(err, res, next);
@@ -105,7 +112,10 @@ router.post("/", async (req, res, next) => {
     if (await User.exists({ emailKey })) throw new InputError(DUPLICATE, 409);
     const access = role === "jc" ? await parseAssignment(body) : {};
     const u = await User.create({ role, email, emailKey, ...access, createdBy: req.user.email });
-    audit(req, "user_created", { details: { role, email, ...(role === "jc" ? { jamiats: access.jamiats.length, jamaats: access.jamaats.length } : {}) } });
+    audit(req, "user_created", {
+      target: userTarget(u),
+      changes: [...diff(null, u, USER_FIELDS), ...(role === "jc" ? await accessChanges(null, access) : [])],
+    });
     res.status(201).json({ user: out(u) });
   } catch (err) {
     sendError(err, res, next, DUPLICATE);
@@ -117,6 +127,7 @@ router.patch("/:id", async (req, res, next) => {
   try {
     const body = req.body || {};
     const u = await findUser(req.params.id);
+    const before = { email: u.email, role: u.role, isActive: u.isActive, ...accessOf(u) };
     const changes = {};
     const newRole = "role" in body ? roleOrThrow(body.role) : u.role;
     await guardSuperAdmin(req, u, {
@@ -165,7 +176,8 @@ router.patch("/:id", async (req, res, next) => {
     if (changes.role || changes.email || (changes.isActive && !u.isActive)) {
       await Session.updateMany({ user: u._id, revokedAt: null }, { $set: { revokedAt: new Date(), revokeReason: "changed_by_superadmin" } });
     }
-    if (Object.keys(changes).length) audit(req, "user_updated", { details: { email: u.email, role: u.role, changes } });
+    const trail = [...diff(before, u, USER_FIELDS), ...(await accessChanges(before, u.role === "jc" ? accessOf(u) : {}))];
+    if (trail.length) audit(req, "user_updated", { target: userTarget(u), changes: trail });
     res.json({ user: out(u) });
   } catch (err) {
     sendError(err, res, next, DUPLICATE);
@@ -179,7 +191,7 @@ router.delete("/:id", async (req, res, next) => {
     await guardSuperAdmin(req, u, { remove: true });
     await Session.deleteMany({ user: u._id });
     await u.deleteOne();
-    audit(req, "user_deleted", { details: { role: u.role, email: u.email || u.username } });
+    audit(req, "user_deleted", { target: userTarget(u), changes: [...diff(u, null, USER_FIELDS), ...(u.role === "jc" ? await accessChanges(accessOf(u), null) : [])] });
     res.status(204).end();
   } catch (err) {
     sendError(err, res, next);

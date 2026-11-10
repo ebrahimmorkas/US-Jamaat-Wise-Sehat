@@ -9,7 +9,7 @@ const { requireAuth, requireRole } = require("../middleware/auth");
 const Jamiat = require("../models/Jamiat");
 const Jamaat = require("../models/Jamaat");
 const Entry = require("../models/Entry");
-const { audit } = require("../services/audit");
+const { audit, diff } = require("../services/audit");
 const { removeFromAccess } = require("../services/access");
 const { InputError, requireId, parseName, parseJamaatDetails, sendError } = require("../lib/validate");
 
@@ -40,11 +40,15 @@ function parseActive(v) {
   return v;
 }
 
-// What changed, for the audit log.
-function diff(before, after, keys) {
-  const out = {};
-  for (const k of keys) if (String(before[k] ?? "") !== String(after[k] ?? "")) out[k] = { from: before[k] ?? null, to: after[k] ?? null };
-  return out;
+// Audit trail: which fields are compared, with readable labels.
+const JAMIAT_FIELDS = [["name", "Name"], ["isActive", "Active"]];
+const JAMAAT_FIELDS = [["jamiatName", "Jamiat"], ["name", "Name"], ["mauzeType", "Mauze Type"], ["houseCount", "House Count"], ["children", "Children"], ["isActive", "Active"]];
+const jamiatTarget = (j) => ({ type: "jamiat", id: String(j._id), label: j.name });
+const jamaatTarget = (jm, jamiatName) => ({ type: "jamaat", id: String(jm._id), label: `${jm.name} (${jamiatName})` });
+// Plain copy of a Jamaat with its Jamiat's name (so the trail shows names, not ids).
+async function jamaatSnapshot(jm) {
+  const j = await Jamiat.findById(jm.jamiat).select("name").lean();
+  return { ...(jm.toObject ? jm.toObject() : jm), jamiatName: j ? j.name : String(jm.jamiat) };
 }
 
 // ---------- GET /api/masters ----------
@@ -71,7 +75,7 @@ router.post("/jamiats", async (req, res, next) => {
   try {
     const name = parseName((req.body || {}).name, "Jamiat", 80);
     const j = await Jamiat.create({ name });
-    audit(req, "master_created", { details: { type: "jamiat", name } });
+    audit(req, "master_created", { target: jamiatTarget(j), changes: diff(null, j, JAMIAT_FIELDS) });
     res.status(201).json({ jamiat: jamiatOut(j) });
   } catch (err) {
     sendError(err, res, next, DUP_JAMIAT);
@@ -87,8 +91,8 @@ router.patch("/jamiats/:id", async (req, res, next) => {
     if ("name" in body) j.name = parseName(body.name, "Jamiat", 80);
     if ("isActive" in body) j.isActive = parseActive(body.isActive);
     await j.save();
-    const changes = diff(before, j, ["name", "isActive"]);
-    if (Object.keys(changes).length) audit(req, "master_updated", { details: { type: "jamiat", name: j.name, changes } });
+    const changes = diff(before, j, JAMIAT_FIELDS);
+    if (changes.length) audit(req, "master_updated", { target: jamiatTarget(j), changes });
     res.json({ jamiat: jamiatOut(j) });
   } catch (err) {
     sendError(err, res, next, DUP_JAMIAT);
@@ -103,7 +107,7 @@ router.delete("/jamiats/:id", async (req, res, next) => {
     if (n) throw new InputError(`${j.name} still has ${n} Jamaat${n === 1 ? "" : "s"}. Delete or move them first, or mark the Jamiat inactive.`, 409);
     await j.deleteOne();
     await removeFromAccess("jamiat", j._id);
-    audit(req, "master_deleted", { details: { type: "jamiat", name: j.name } });
+    audit(req, "master_deleted", { target: jamiatTarget(j), changes: diff(j.toObject(), null, JAMIAT_FIELDS) });
     res.status(204).end();
   } catch (err) {
     sendError(err, res, next);
@@ -123,7 +127,7 @@ router.post("/jamaats", async (req, res, next) => {
     const jamiat = await findJamiat(body.jamiatId);
     const name = parseName(body.name, "Jamaat", 120);
     const jm = await Jamaat.create({ jamiat: jamiat._id, name, ...parseJamaatDetails(body, (await getValueSets()).mauzeType) });
-    audit(req, "master_created", { details: { type: "jamaat", jamiat: jamiat.name, name } });
+    audit(req, "master_created", { target: jamaatTarget(jm, jamiat.name), changes: diff(null, { ...jm.toObject(), jamiatName: jamiat.name }, JAMAAT_FIELDS) });
     res.status(201).json({ jamaat: jamaatOut(jm) });
   } catch (err) {
     sendError(err, res, next, DUP_JAMAAT);
@@ -135,14 +139,15 @@ router.patch("/jamaats/:id", async (req, res, next) => {
     const body = req.body || {};
     const jm = await Jamaat.findById(requireId(req.params.id, "Jamaat"));
     if (!jm) throw new InputError("Jamaat not found.", 404);
-    const before = jm.toObject();
+    const before = await jamaatSnapshot(jm);
     if ("jamiatId" in body) jm.jamiat = (await findJamiat(body.jamiatId))._id;
     if ("name" in body) jm.name = parseName(body.name, "Jamaat", 120);
     if ("isActive" in body) jm.isActive = parseActive(body.isActive);
     Object.assign(jm, parseJamaatDetails(body, (await getValueSets()).mauzeType));
     await jm.save();
-    const changes = diff(before, jm, ["jamiat", "name", "mauzeType", "houseCount", "children", "isActive"]);
-    if (Object.keys(changes).length) audit(req, "master_updated", { details: { type: "jamaat", name: jm.name, changes } });
+    const after = await jamaatSnapshot(jm);
+    const changes = diff(before, after, JAMAAT_FIELDS);
+    if (changes.length) audit(req, "master_updated", { target: jamaatTarget(jm, after.jamiatName), changes });
     const entryCount = await Entry.countDocuments({ jamaat: jm._id });
     res.json({ jamaat: jamaatOut(jm, entryCount) });
   } catch (err) {
@@ -156,9 +161,10 @@ router.delete("/jamaats/:id", async (req, res, next) => {
     if (!jm) throw new InputError("Jamaat not found.", 404);
     const n = await Entry.countDocuments({ jamaat: jm._id });
     if (n) throw new InputError(`${jm.name} has ${n} monthly entr${n === 1 ? "y" : "ies"}, so it can't be deleted. Mark it inactive instead.`, 409);
+    const before = await jamaatSnapshot(jm);
     await jm.deleteOne();
     await removeFromAccess("jamaat", jm._id);
-    audit(req, "master_deleted", { details: { type: "jamaat", name: jm.name } });
+    audit(req, "master_deleted", { target: jamaatTarget(jm, before.jamiatName), changes: diff(before, null, JAMAAT_FIELDS) });
     res.status(204).end();
   } catch (err) {
     sendError(err, res, next);

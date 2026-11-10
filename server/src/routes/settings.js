@@ -8,6 +8,7 @@ const { requireAuth, requireRole } = require("../middleware/auth");
 const OptionList = require("../models/OptionList");
 const Jamaat = require("../models/Jamaat");
 const { audit } = require("../services/audit");
+const listTarget = (key) => ({ type: "list", id: key, label: (form.lists[key] || {}).label || key });
 const { getLists, invalidate } = require("../services/lists");
 const { cleanName } = require("../lib/names");
 const { InputError, isId, sendError } = require("../lib/validate");
@@ -83,7 +84,7 @@ router.post("/lists/:key/values", async (req, res, next) => {
     if (doc.values.some((v) => norm(v.value) === norm(value))) throw new InputError(`"${value}" is already in this list.`, 409);
     doc.values.push({ value });
     await doc.save();
-    audit(req, "dropdown_updated", { details: { list: req.params.key, op: "add", value } });
+    audit(req, "dropdown_updated", { target: listTarget(req.params.key), changes: [{ field: "values", label: "Value added", from: null, to: value }] });
     res.status(201).json(await listsPayload());
   } catch (err) {
     sendError(err, res, next);
@@ -104,7 +105,7 @@ router.patch("/lists/:key/values/:id", async (req, res, next) => {
     if (value !== before) renamed = (await Jamaat.updateMany({ mauzeType: before }, { $set: { mauzeType: value } })).modifiedCount;
     item.value = value;
     await doc.save();
-    if (value !== before) audit(req, "dropdown_updated", { details: { list: req.params.key, op: "rename", from: before, to: value, renamedIn: renamed } });
+    if (value !== before) audit(req, "dropdown_updated", { target: listTarget(req.params.key), changes: [{ field: "value", label: "Value", from: before, to: value }], details: renamed ? { jamaatsRenamed: renamed } : undefined });
     res.json(await listsPayload());
   } catch (err) {
     sendError(err, res, next);
@@ -121,7 +122,7 @@ router.delete("/lists/:key/values/:id", async (req, res, next) => {
     if (n) throw new InputError(`"${item.value}" is used by ${n} Jamaat${n === 1 ? "" : "s"}, so it can't be removed. Rename it instead.`, 409);
     doc.values.pull(item._id);
     await doc.save();
-    audit(req, "dropdown_updated", { details: { list: req.params.key, op: "remove", value: item.value } });
+    audit(req, "dropdown_updated", { target: listTarget(req.params.key), changes: [{ field: "values", label: "Value removed", from: item.value, to: null }] });
     res.json(await listsPayload());
   } catch (err) {
     sendError(err, res, next);
@@ -138,9 +139,10 @@ router.put("/lists/:key/order", async (req, res, next) => {
       throw new InputError("The list changed meanwhile. Reload the page.", 409);
     }
     const byId = new Map(doc.values.map((v) => [String(v._id), v.toObject()]));
+    const beforeOrder = doc.values.map((v) => v.value);
     doc.values = ids.map((id) => byId.get(id));
     await doc.save();
-    audit(req, "dropdown_updated", { details: { list: req.params.key, op: "reorder" } });
+    audit(req, "dropdown_updated", { target: listTarget(req.params.key), changes: [{ field: "order", label: "Order", from: beforeOrder, to: doc.values.map((v) => v.value) }] });
     res.json(await listsPayload());
   } catch (err) {
     sendError(err, res, next);

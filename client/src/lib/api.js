@@ -5,6 +5,7 @@ const API_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 export class ApiError extends Error {
   constructor(message, status, code) {
     super(message);
+    this.name = "ApiError";
     this.status = status;
     this.code = code;
   }
@@ -31,9 +32,28 @@ async function raw(path, { method = "GET", body } = {}) {
   if (res.status === 204) return null;
   let data = null;
   try { data = await res.json(); } catch { /* not JSON */ }
-  if (!res.ok) throw new ApiError((data && data.error) || `Server error (${res.status})`, res.status, data && data.code);
+  if (!res.ok) {
+    const err = new ApiError((data && data.error) || `Server error (${res.status})`, res.status, data && data.code);
+    // A server error (already saved in the error log) -> Error page with its reference.
+    if (res.status === 500 && data && data.code === "SERVER_ERROR") {
+      err.ref = data.ref;
+      window.dispatchEvent(new CustomEvent("app:error", { detail: { ref: data.ref, source: "server", path } }));
+    }
+    // The user's role may not do this (already logged by the server) -> Access denied page.
+    if (res.status === 403 && data && data.code === "FORBIDDEN") {
+      window.dispatchEvent(new CustomEvent("app:denied", { detail: { path } }));
+    }
+    throw err;
+  }
   return data;
 }
+
+/** Saves a website crash in the error log; resolves to its reference (or "" if it couldn't be sent). */
+export const reportClientError = (info) =>
+  raw("/api/logs/client-error", { method: "POST", body: { page: window.location.pathname + window.location.search, ...info } })
+    .then((r) => (r && r.ref) || "")
+    .catch(() => "");
+export const reportAccessDenied = (page) => raw("/api/logs/access-denied", { method: "POST", body: { page } }).catch(() => null);
 
 // One refresh at a time, shared by all requests that hit an expired access token.
 let refreshing = null;
@@ -82,6 +102,16 @@ export const portalOptions = () => request("/api/portal/options");
 export const portalEntry = (jamaatId, month) =>
   request(`/api/portal/entry?jamaat=${encodeURIComponent(jamaatId)}&month=${encodeURIComponent(month)}`);
 export const portalSave = (body) => request("/api/portal/entry", { method: "POST", body });
+
+// ---- Logs (Super Admin) ----
+const qs = (params) => {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== null && v !== "") p.set(k, v);
+  const s = p.toString();
+  return s ? `?${s}` : "";
+};
+export const auditList = (params) => request("/api/audit" + qs(params));
+export const errorList = (params) => request("/api/logs/errors" + qs(params));
 
 // ---- JC users (Super Admin) ----
 export const usersList = () => request("/api/users");
