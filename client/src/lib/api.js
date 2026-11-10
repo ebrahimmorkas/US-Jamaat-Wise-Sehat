@@ -83,7 +83,9 @@ export const portalSave = (body) => raw("/api/portal/entry", { method: "POST", b
 
 // ---- JC users (Super Admin) ----
 export const usersList = () => request("/api/users");
-export const createUser = (email) => request("/api/users", { method: "POST", body: { email } });
+export const createUser = (body) => request("/api/users", { method: "POST", body });
+export const allAccessCount = (type, id) => request(`/api/users/all-access?type=${type}&id=${encodeURIComponent(id)}`);
+export const grantAllAccess = (type, id) => request("/api/users/all-access", { method: "POST", body: { type, id } });
 export const updateUser = (id, body) => request(`/api/users/${id}`, { method: "PATCH", body });
 export const deleteUser = (id) => request(`/api/users/${id}`, { method: "DELETE" });
 

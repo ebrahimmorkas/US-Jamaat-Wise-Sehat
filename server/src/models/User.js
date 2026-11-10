@@ -28,6 +28,11 @@ const userSchema = new mongoose.Schema(
     email: { type: String, lowercase: true, trim: true, maxlength: 120, required() { return this.role === "jc"; } },
     emailKey: { type: String, select: false },
 
+    // JC access: the Jamiats and, inside them, the Jamaats this JC may fill.
+    // Saved as explicit lists ("All" in the form ticks everything that exists at that moment).
+    jamiats: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Jamiat" }], default: undefined },
+    jamaats: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Jamaat" }], default: undefined },
+
     isActive: { type: Boolean, default: true },
     createdBy: String,
 

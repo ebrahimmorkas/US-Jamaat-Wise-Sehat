@@ -38,7 +38,7 @@ app.use(
 );
 app.use(compression());
 app.use(cors({ origin: config.corsOrigins, methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], credentials: true }));
-app.use(express.json({ limit: "10kb" }));
+app.use(express.json({ limit: "100kb" })); // a JC with "All" Jamaats sends ~470 ids
 app.use(cookieParser());
 
 app.use(

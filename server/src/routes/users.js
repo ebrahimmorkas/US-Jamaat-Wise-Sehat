@@ -6,6 +6,7 @@ const User = require("../models/User");
 const Session = require("../models/Session");
 const { audit } = require("../services/audit");
 const { parseGmail } = require("../lib/gmail");
+const { parseAssignment, countAllAccess, grantToAllAccess } = require("../services/access");
 const { InputError, requireId, sendError } = require("../lib/validate");
 
 const router = express.Router();
@@ -16,7 +17,16 @@ router.use(requireAuth, requireRole("superadmin"), (req, res, next) => {
 });
 
 const DUPLICATE = "This Gmail is already added (Gmail ignores dots and “+…”, so it may be written differently).";
-const out = (u) => ({ id: String(u._id), email: u.email, isActive: u.isActive, createdAt: u.createdAt, createdBy: u.createdBy || "" });
+const out = (u) => ({
+  id: String(u._id),
+  email: u.email,
+  isActive: u.isActive,
+  jamiats: (u.jamiats || []).map(String),
+  jamaats: (u.jamaats || []).map(String),
+  createdAt: u.createdAt,
+  createdBy: u.createdBy || "",
+});
+const sameSet = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
 
 function gmailOrThrow(input) {
   const g = parseGmail(input);
@@ -40,20 +50,47 @@ router.get("/", async (req, res, next) => {
   }
 });
 
-// ---------- POST /api/users  { email } ----------
+// ---------- GET /api/users/all-access?type=jamiat|jamaat&id=<id> ----------
+// How many JCs had access to everything before this new Jamiat / Jamaat was added.
+router.get("/all-access", async (req, res, next) => {
+  try {
+    const { type, id } = req.query;
+    if (!["jamiat", "jamaat"].includes(type)) throw new InputError("Unknown type.");
+    res.json({ count: await countAllAccess(type, requireId(id, type)) });
+  } catch (err) {
+    sendError(err, res, next);
+  }
+});
+
+// ---------- POST /api/users/all-access  { type, id } ----------  give it to those JCs
+router.post("/all-access", async (req, res, next) => {
+  try {
+    const { type, id } = req.body || {};
+    if (!["jamiat", "jamaat"].includes(type)) throw new InputError("Unknown type.");
+    const n = await grantToAllAccess(type, requireId(id, type));
+    audit(req, "user_updated", { details: { op: "grant new to all-access JCs", type, id, users: n } });
+    res.json({ updated: n });
+  } catch (err) {
+    sendError(err, res, next);
+  }
+});
+
+// ---------- POST /api/users  { email, jamiats: [ids], jamaats: [ids] } ----------
 router.post("/", async (req, res, next) => {
   try {
-    const { email, emailKey } = gmailOrThrow((req.body || {}).email);
+    const body = req.body || {};
+    const { email, emailKey } = gmailOrThrow(body.email);
     if (await User.exists({ emailKey })) throw new InputError(DUPLICATE, 409);
-    const u = await User.create({ role: "jc", email, emailKey, createdBy: req.user.username });
-    audit(req, "user_created", { details: { role: "jc", email } });
+    const access = await parseAssignment(body);
+    const u = await User.create({ role: "jc", email, emailKey, ...access, createdBy: req.user.username });
+    audit(req, "user_created", { details: { role: "jc", email, jamiats: access.jamiats.length, jamaats: access.jamaats.length } });
     res.status(201).json({ user: out(u) });
   } catch (err) {
     sendError(err, res, next, DUPLICATE);
   }
 });
 
-// ---------- PATCH /api/users/:id  { email?, isActive? } ----------
+// ---------- PATCH /api/users/:id  { email?, isActive?, jamiats?, jamaats? } ----------
 router.patch("/:id", async (req, res, next) => {
   try {
     const body = req.body || {};
@@ -67,6 +104,18 @@ router.patch("/:id", async (req, res, next) => {
         u.email = email;
         u.emailKey = emailKey;
       }
+    }
+    if ("jamiats" in body || "jamaats" in body) {
+      const access = await parseAssignment({
+        jamiats: "jamiats" in body ? body.jamiats : u.jamiats,
+        jamaats: "jamaats" in body ? body.jamaats : u.jamaats,
+      });
+      const before = { jamiats: (u.jamiats || []).map(String), jamaats: (u.jamaats || []).map(String) };
+      if (!sameSet(before.jamiats, access.jamiats) || !sameSet(before.jamaats, access.jamaats)) {
+        changes.access = { from: { jamiats: before.jamiats.length, jamaats: before.jamaats.length }, to: { jamiats: access.jamiats.length, jamaats: access.jamaats.length } };
+      }
+      u.jamiats = access.jamiats;
+      u.jamaats = access.jamaats;
     }
     if ("isActive" in body) {
       if (typeof body.isActive !== "boolean") throw new InputError("isActive must be true or false.");
