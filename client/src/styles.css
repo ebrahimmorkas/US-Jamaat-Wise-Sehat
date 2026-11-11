@@ -167,6 +167,7 @@ button, select, input { font: inherit; color: inherit; }
 .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--s-good); box-shadow: 0 0 0 3px var(--soft-good); }
 .sync-dot.busy { background: var(--s-info); box-shadow: 0 0 0 3px var(--soft-info); animation: pulse 1s ease-in-out infinite; }
 .sync-dot.error { background: var(--s-bad); box-shadow: 0 0 0 3px var(--soft-bad); }
+.sync-dot.idle { background: var(--muted, #9aa0a6); box-shadow: none; }
 @keyframes pulse { 50% { opacity: .4; } }
 
 .btn {

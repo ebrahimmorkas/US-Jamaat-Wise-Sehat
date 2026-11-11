@@ -41,6 +41,17 @@ function verify(token, secret, typ) {
 const verifyAccess = (t) => verify(t, config.jwtAccessSecret, "access");
 const verifyRefresh = (t) => verify(t, config.jwtRefreshSecret, "refresh");
 
+// Short-lived ticket for opening the live-updates connection (the connection may go straight
+// to the API server, where the website's cookies are not sent, so the ticket proves who it is).
+function signSocketTicket(user, sessionId) {
+  return jwt.sign(
+    { typ: "socket", sid: String(sessionId) },
+    config.jwtAccessSecret,
+    { subject: String(user._id || user.id), expiresIn: config.realtime.ticketSeconds, issuer: ISSUER, audience: AUDIENCE, algorithm: "HS256" }
+  );
+}
+const verifySocketTicket = (t) => verify(t, config.jwtAccessSecret, "socket");
+
 // ---------- cookies ----------
 const baseCookie = () => ({ httpOnly: true, secure: config.isProduction, sameSite: "lax" });
 
@@ -110,6 +121,8 @@ module.exports = {
   REFRESH_COOKIE,
   verifyAccess,
   verifyRefresh,
+  signSocketTicket,
+  verifySocketTicket,
   startSession,
   rotateSession,
   revokeSession,

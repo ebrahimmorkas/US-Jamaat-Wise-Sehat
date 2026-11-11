@@ -37,9 +37,3 @@ export function scopeRows(jamiats, jamiat, jamaat) {
   }
   return rows;
 }
-
-export function formatDuration(totalSecs) {
-  const m = Math.floor(totalSecs / 60);
-  const s = totalSecs % 60;
-  return m ? `${m}:${String(s).padStart(2, "0")} min` : `${s} sec`;
-}

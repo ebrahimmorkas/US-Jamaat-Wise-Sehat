@@ -6,6 +6,10 @@ export default defineConfig({
   server: {
     port: 5173,
     // During development, API calls go to the Express server.
-    proxy: { "/api": "http://localhost:5000" },
+    // Live updates (Socket.IO) too, so the browser only ever talks to this address.
+    proxy: {
+      "/api": "http://localhost:5000",
+      "/socket.io": { target: "http://localhost:5000", ws: true },
+    },
   },
 });

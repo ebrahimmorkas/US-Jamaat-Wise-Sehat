@@ -28,7 +28,7 @@ JC portal (/jc-portal) ──► Express API ──► MongoDB ──► Sahebo 
 | Page | Who | What |
 |---|---|---|
 | `/jc-portal` | **JC** (signed in) | pick Month → Jamiat → Jamaat, fill the form, Submit |
-| `/` | **Saheb** | dashboard for a chosen month; refreshes every 2 minutes |
+| `/` | **Saheb** | dashboard for a chosen month; **live**: updates the moment a JC saves |
 | `/admin/...` | **Super Admin** | JC users, masters, Portal Fields |
 
 ## Data (MongoDB collections)
@@ -104,7 +104,9 @@ npm run dev                             # API on :5000 + React on http://localho
 | Variable | Meaning |
 |---|---|
 | `MONGODB_URI`, `MONGODB_DB_NAME` | MongoDB connection and database name |
-| `DASHBOARD_REFRESH_SECONDS` | how often an open dashboard reloads (default 120) |
+| `REALTIME_ENABLED` | `false` turns live updates off (default on) |
+| `REALTIME_PUBLIC_URL` | address browsers open the live connection to; empty = the website's own address (local). On Render: the Render URL |
+| `REALTIME_PATH`, `REALTIME_TICKET_SECONDS`, `REALTIME_PING_SECONDS` | live connection path (`/socket.io`), ticket lifetime (60 s), keep-alive (25 s) |
 | `GOOGLE_CLIENT_ID` | Google sign-in Client ID (see below) |
 | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | session secrets (required in production) |
 | `DEV_LOGIN` | `true` = local test sign-in without Google (ignored in production) |
@@ -150,6 +152,31 @@ Stored in MongoDB: `auditlogs` (actions + `target` + `changes: [{ field, label, 
 
 **Error page:** any server error or website crash sends the user to `/error` with the reference.
 **Access denied page:** a signed-in user opening another role's page (`/admin/...`, `/jc-portal`) sees it, and the attempt is logged.
+
+## Live updates (Socket.IO)
+
+There is no timed auto-refresh. When a JC saves an entry (or the Super Admin changes Jamiats/Jamaats, portal fields or
+the Mauze Type list), the server sends `dashboard:changed` to every open dashboard, which reloads its data at once.
+The message holds only *what* changed (`{ reason, month }`), never personal data; the page fetches the data through the
+normal API, so all role/access checks still apply. After a dropped connection the dashboard reloads to catch up.
+The top bar shows the state: *Live* / *Connecting* / *Paused · reconnecting*. The Refresh button still works.
+
+It is built to be reused by any page:
+
+| Where | What |
+|---|---|
+| `server/src/realtime/index.js` | `registerTopic(name, { roles, authorize })`, `publish(topic, event, data)`, `sendToUser`, `sendToRole`, `disconnectSession`, `disconnectUser`, `notifyOnSuccess(topic, event, data)` (Express middleware) |
+| `server/src/realtime/topics.js` | the topics (`dashboard` → Saheb only) and event names |
+| `client/src/lib/realtime.js` | one shared connection per tab: `subscribe(topic, event, handler)`, `onStatus`, `onReconnect`, `stop` |
+| `client/src/hooks/useRealtime.js` | `useRealtime(topic, event, handler, { onReconnect })`, `useRealtimeStatus()` |
+
+Adding a new live feature = register a topic in `topics.js`, `publish(...)` where the data changes, `useRealtime(...)` in the page.
+
+Security: the browser first gets a 60-second **ticket** (`POST /api/realtime/ticket`, signed-in only, same-site), sent when
+connecting; the server re-checks the session and account on every (re)connect, accepts only our website's origin, and
+checks the role per topic. Sign-out, a role change, deactivation or deletion closes that user's live connections.
+In production the browser connects **straight to Render** (`REALTIME_PUBLIC_URL`), because Vercel can't forward live
+connections; Vercel's `connect-src` allows that address.
 ## Hosting: Vercel (website) + Render (API) + MongoDB Atlas (database)
 
 ```

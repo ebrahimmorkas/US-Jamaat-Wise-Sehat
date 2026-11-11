@@ -7,13 +7,15 @@ import SidePanel from "./components/SidePanel";
 import ListDialog from "./components/ListDialog";
 import Skeleton from "./components/Skeleton";
 import { useDashboardData } from "./hooks/useDashboardData";
+import { useRealtimeStatus } from "./hooks/useRealtime";
 import Notice from "./components/Notice";
 import { ALL, NOT_FILLED, makeStatusHelpers, plural, scopeRows } from "./lib/helpers";
 import { logEvent } from "./lib/api";
 
 export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onToggleTheme }) {
   const [month, setMonth] = useState(""); // "" = current month (chosen by the server)
-  const { payload, error, loading, nextAt, intervalSecs, refresh } = useDashboardData({ month, onAuthError: onAuthExpired });
+  const { payload, error, loading, refresh } = useDashboardData({ month, onAuthError: onAuthExpired });
+  const live = useRealtimeStatus();
 
   const [jamiat, setJamiat] = useState(ALL);
   const [jamaat, setJamaat] = useState(ALL);
@@ -81,7 +83,7 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
     <>
       <AppBar
         page="dashboard"
-        sync={{ syncedAt: data && data.loadedAt, loading, failed: !!error && !data, nextAt, intervalSecs, onRefresh: refresh }}
+        sync={{ syncedAt: data && data.loadedAt, loading, failed: !!error && !data, live, onRefresh: refresh }}
         theme={theme}
         onToggleTheme={onToggleTheme}
         user={user}

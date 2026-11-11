@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AuthError, devLogin, getMe, googleLogin, isServerStarting, logout } from "../lib/api";
+import { stop as stopRealtime } from "../lib/realtime";
 
 const WAKE_MESSAGE = "Connecting to the server…";
 
@@ -44,12 +45,14 @@ export function useAuth() {
   }, []);
 
   const signOut = useCallback(async () => {
+    stopRealtime();
     await logout();
     try { window.google && window.google.accounts.id.disableAutoSelect(); } catch { /* not loaded */ }
     setState({ status: "anon", user: null, message: "You have signed out." });
   }, []);
 
   const expire = useCallback(() => {
+    stopRealtime();
     setState({ status: "anon", user: null, message: "Your session has ended. Please sign in again." });
   }, []);
 

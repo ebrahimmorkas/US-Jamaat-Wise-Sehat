@@ -15,6 +15,7 @@ const { parseAssignment, countAllAccess, grantToAllAccess, accessChanges } = req
 const Jamiat = require("../models/Jamiat");
 const Jamaat = require("../models/Jamaat");
 const { InputError, requireId, sendError } = require("../lib/validate");
+const realtime = require("../realtime");
 
 const router = express.Router();
 router.use(requireAuth, requireRole("superadmin"), (req, res, next) => {
@@ -175,6 +176,7 @@ router.patch("/:id", async (req, res, next) => {
     // Role, Gmail or status changed: sign this user out everywhere.
     if (changes.role || changes.email || (changes.isActive && !u.isActive)) {
       await Session.updateMany({ user: u._id, revokedAt: null }, { $set: { revokedAt: new Date(), revokeReason: "changed_by_superadmin" } });
+      realtime.disconnectUser(u._id); // and close their live connections
     }
     const trail = [...diff(before, u, USER_FIELDS), ...(await accessChanges(before, u.role === "jc" ? accessOf(u) : {}))];
     if (trail.length) audit(req, "user_updated", { target: userTarget(u), changes: trail });
@@ -191,6 +193,7 @@ router.delete("/:id", async (req, res, next) => {
     await guardSuperAdmin(req, u, { remove: true });
     await Session.deleteMany({ user: u._id });
     await u.deleteOne();
+    realtime.disconnectUser(u._id);
     audit(req, "user_deleted", { target: userTarget(u), changes: [...diff(u, null, USER_FIELDS), ...(u.role === "jc" ? await accessChanges(accessOf(u), null) : [])] });
     res.status(204).end();
   } catch (err) {

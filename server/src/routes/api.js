@@ -1,5 +1,4 @@
 const express = require("express");
-const config = require("../config");
 const form = require("../formConfig");
 const { isDbReady } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
@@ -16,7 +15,6 @@ const sahebOnly = [requireAuth, requireRole("saheb")];
 const publicConfig = async () => ({
   metrics: await dashboardMetrics(),
   showRemarks: form.showRemarks,
-  refreshIntervalSeconds: config.refreshIntervalSeconds,
 });
 
 async function payload(req) {
