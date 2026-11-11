@@ -2,6 +2,7 @@ const http = require("http");
 const config = require("./config");
 const app = require("./app");
 const realtime = require("./realtime");
+const { startKeepAlive, stopKeepAlive } = require("./services/keepAlive");
 const { connectDb, onConnected, mongoose } = require("./db");
 const { migrate } = require("./services/migrate");
 const { logError } = require("./services/audit");
@@ -14,10 +15,12 @@ async function main() {
   realtime.init(server); // live updates (Socket.IO) on the same port
   server.listen(config.port, () => {
     console.log(`[http] API listening on http://localhost:${config.port}`);
+    startKeepAlive(); // Render free plan: ping our own public address so the server never sleeps
   });
 
   const shutdown = (signal) => {
     console.log(`[app] ${signal} received, shutting down`);
+    stopKeepAlive();
     // Closing Socket.IO also closes the HTTP server.
     const stop = config.realtime.enabled ? realtime.close() : new Promise((r) => server.close(r));
     stop.then(() => mongoose.connection.close(false)).finally(() => process.exit(0));

@@ -187,5 +187,9 @@ Browser ──► Vercel (React website, /api forwarded) ──► Render (Expre
 - **Render** runs `server/` (`render.yaml`). Secrets (`MONGODB_URI`, `CORS_ORIGIN`) are set in the Render dashboard.
 - **Atlas** network access must allow `0.0.0.0/0` (Render has no fixed IP).
 
-**Free Render plan:** the API sleeps after ~15 minutes without visitors. A monitor (UptimeRobot or the
-GitHub Action in `.github/workflows/keep-alive.yml`) pinging `/api/health` every few minutes keeps it awake.
+**Free Render plan:** the API sleeps after ~15 minutes without visitors. To stop that, the server **pings its own
+public address** (`RENDER_EXTERNAL_URL/api/health`, set by Render) every 10 minutes (`server/src/services/keepAlive.js`;
+`KEEP_ALIVE_MINUTES`, `KEEP_ALIVE_ENABLED=false` to turn off, does nothing locally). The request goes through Render's
+edge like a visitor's, so the server never counts as idle. The GitHub Action in `.github/workflows/keep-alive.yml`
+stays as a backup (GitHub runs scheduled jobs late or skips them, so it's not enough alone).
+One always-on free service uses ~744 of the 750 free instance hours a month.
