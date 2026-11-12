@@ -23,6 +23,11 @@ JC portal (/jc-portal) ──► Express API ──► MongoDB ──► Sahebo 
   **each question's own answers**. Every answer has a **meaning** (Done / In progress / Pending / Not done / Not applicable) that
   sets its dashboard colour and whether it counts as done. Renaming an answer renames it in all saved forms; an answer in use
   can't be removed, and a question with saved answers can't be deleted (mark it inactive instead). The Mauze Type list is managed here too.
+  A question is either a **dropdown** or a **date picker** (chosen when it is created; date questions have no answers and no dashboard card).
+  **Include comment box** (ticked by default for new questions) shows a free-text comment under the answers on the JC portal.
+- **Jamaat details on the JC portal** (Mauze Type, House Count) are **read-only**; only the Super Admin changes them in Masters.
+  If a request still tries to change them (e.g. the locked fields were re-enabled in the browser), nothing is saved and the attempt
+  is logged under **Logs → Access denied** with the values that were tried.
 - Saheb and Super Admin accounts are created from the command line (below). On first start, old `admin`/`viewer` accounts become **Saheb**.
 
 | Page | Who | What |
@@ -38,7 +43,8 @@ JC portal (/jc-portal) ──► Express API ──► MongoDB ──► Sahebo 
 | `jamiats` | Jamiat master: `name` (unique, stored in capitals), `isActive` |
 | `jamaats` | Jamaat master: `jamiat`, `name` (unique inside its Jamiat), `mauzeType`, `houseCount`, `children`, `isActive` |
 | `portalfields` | the JC form questions and their answers (managed by the Super Admin) |
-| `entries` | one per Jamaat per month (`month` = `"YYYY-MM"`): answers keyed by question + remarks. Submitting again updates it |
+| `entries` | one per Jamaat per month (`month` = `"YYYY-MM"`): answers keyed by question (`values`), comments (`comments`) + remarks. Submitting again updates it |
+| `migrations` | one-time data changes already applied (so they never run twice) |
 | `users`, `sessions`, `auditlogs` | sign-in and audit trail |
 
 Rules that keep the masters clean:
@@ -142,7 +148,7 @@ sign-in page (still only registered Gmails). It is ignored when `NODE_ENV=produc
 | Tab | What it shows |
 |---|---|
 | **All activity** | every action: who, when, IP / browser |
-| **Changes (audit trail)** | every data change with **only the fields that changed**, their **previous** and **new** value (users, Jamiats/Jamaats, portal fields & answers, Mauze Type list, JC form saves, Jamaat details changed by a JC) |
+| **Changes (audit trail)** | every data change with **only the fields that changed**, their **previous** and **new** value (users, Jamiats/Jamaats, portal fields & answers, Mauze Type list, JC form saves) |
 | **Sign-ins** | successful and refused sign-ins (with the reason, e.g. "Gmail not registered"), sign-outs, stolen-session blocks |
 | **Access denied** | a role opening a page or calling something it may not use, a JC opening a Jamaat not assigned to them, requests coming from another website |
 | **Errors** | server errors and website crashes, with a **reference** (also shown to the user on the Error page), message, page, user and stack trace |

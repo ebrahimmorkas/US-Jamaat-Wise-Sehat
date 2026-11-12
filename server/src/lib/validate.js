@@ -50,9 +50,21 @@ function parseJamaatDetails(body, mauzeTypes) {
   return out;
 }
 
+// A real calendar date "YYYY-MM-DD", from 2020 up to tomorrow (any time zone's "today" fits).
+function parseDate(v, label) {
+  const s = typeof v === "string" ? v.trim() : "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  const d = m && new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  const ok = d && d.getUTCFullYear() === +m[1] && d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3];
+  if (!ok) throw new InputError(`Choose a valid date for ${label}.`);
+  if (+m[1] < 2020 || d.getTime() > Date.now() + 24 * 60 * 60 * 1000) throw new InputError(`${label} can't be in the future.`);
+  return s;
+}
+
 /**
- * Answers for the active portal fields. Each answer must be one of that field's options;
- * required fields must be answered. Returns { [key]: value } (unanswered optional fields left out).
+ * Answers for the active portal fields. A dropdown answer must be one of that field's options,
+ * a date question takes a date; required fields must be answered.
+ * Returns { [key]: value } (unanswered optional fields left out).
  */
 function parseValues(values, fields) {
   if (!values || typeof values !== "object") throw new InputError("Answer all the questions.");
@@ -64,12 +76,29 @@ function parseValues(values, fields) {
       if (f.required) missing.push(f.label);
       continue;
     }
+    if (f.type === "date") {
+      out[f.key] = parseDate(v, f.label);
+      continue;
+    }
     if (!f.options.some((o) => o.value === v)) {
       throw new InputError(`"${String(v).slice(0, 40)}" is not a choice for ${f.label}. Reload the page.`);
     }
     out[f.key] = v;
   }
   if (missing.length) throw new InputError(`Please answer: ${missing.join(" · ")}`);
+  return out;
+}
+
+/** Comment boxes: only for fields that have one; empty ones are left out. Returns { [key]: text }. */
+function parseComments(comments, fields) {
+  const src = comments && typeof comments === "object" ? comments : {};
+  const out = {};
+  for (const f of fields) {
+    if (!f.hasComment) continue;
+    const s = String(src[f.key] == null ? "" : src[f.key]).replace(/\r\n/g, "\n").trim();
+    if (s.length > form.commentMaxLength) throw new InputError(`The comment for ${f.label} is too long (max ${form.commentMaxLength} characters).`);
+    if (s) out[f.key] = s;
+  }
   return out;
 }
 
@@ -89,4 +118,4 @@ function sendError(err, res, next, duplicateMessage = "This already exists.") {
   next(err);
 }
 
-module.exports = { InputError, isId, requireId, parseName, parseCount, parseJamaatDetails, parseValues, parseRemarks, sendError };
+module.exports = { InputError, isId, requireId, parseName, parseCount, parseJamaatDetails, parseValues, parseComments, parseRemarks, sendError };

@@ -6,6 +6,7 @@
 // ============================================================
 const PROGRESS = [["Completed", "done"], ["Pending", "pending"], ["In Progress", "progress"], ["Not Applicable", "na"]];
 const YES_NO = [["Yes", "done"], ["No", "notdone"], ["Pending", "pending"], ["Not Applicable", "na"]];
+const YES_PENDING = [["Yes", "done"], ["Pending", "pending"]];
 
 module.exports = {
   // Months follow Indian time (a new month starts at midnight IST).
@@ -25,15 +26,16 @@ module.exports = {
   },
 
   // Starting questions (same as the old Excel sheet). key = where answers are saved; never changes.
+  // type "date" = a date picker instead of a dropdown.
   defaultFields: [
-    { key: "tibb", label: "Tibb", section: "Regular Khidmat", options: PROGRESS },
-    { key: "riyadah", label: "Riyadah", section: "Regular Khidmat", options: PROGRESS },
-    { key: "nazafat", label: "Nazafat", section: "Regular Khidmat", options: PROGRESS },
+    { key: "tibb", label: "Tibb", section: "Event Status", options: PROGRESS },
+    { key: "riyadah", label: "Riyadah", section: "Event Status", options: PROGRESS },
+    { key: "nazafat", label: "Nazafat", section: "Event Status", options: PROGRESS },
     { key: "mahulShifa", label: "Mahul Shifa Thayu?", section: "Mahul us Shifa (16mi)", options: YES_NO },
-    { key: "aamil", label: "Aamil Uploaded?", section: "Mahul us Shifa (16mi)", options: YES_NO },
-    { key: "before16mi", label: "Before 16mi?", section: "Mahul us Shifa (16mi)", options: YES_NO },
-    { key: "hsCoordinator", label: "HS Coordinator Assigned?", section: "Hifz us Sehhat", options: YES_NO, showOnDashboard: false },
-    { key: "caseFollow", label: "Hifz Sehhat Follow-up", section: "Hifz us Sehhat", options: YES_NO },
+    { key: "aamil", label: "Mahal Us Shifa report filled on amalat.com?", section: "Mahul us Shifa (16mi)", options: YES_NO },
+    { key: "reportDate", label: "Date the report was filled", section: "Mahul us Shifa (16mi)", type: "date", required: false, showOnDashboard: false },
+    { key: "hsCoordinator", label: "HS Coordinator Assigned?", section: "Hifz us Sehhat", options: YES_PENDING, showOnDashboard: false },
+    { key: "caseFollow", label: "Hifz Sehhat Follow-up", section: "Hifz us Sehhat", options: YES_PENDING },
     { key: "imadad", label: "Imadad Tibbi Follow-up", section: "Imadad Tibbi", options: PROGRESS },
   ],
 
@@ -44,5 +46,6 @@ module.exports = {
 
   remarksLabel: "Short Remarks / Next Action",
   remarksMaxLength: 500,
+  commentMaxLength: 300, // the comment box under a question
   showRemarks: true,
 };

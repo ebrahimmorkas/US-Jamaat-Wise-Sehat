@@ -10,7 +10,7 @@ const form = require("../formConfig");
 const { isDbReady } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const PortalField = require("../models/PortalField");
-const { MEANINGS } = require("../models/PortalField");
+const { MEANINGS, TYPES } = require("../models/PortalField");
 const Entry = require("../models/Entry");
 const { audit, diff } = require("../services/audit");
 const { answerUsage, invalidate } = require("../services/fields");
@@ -24,7 +24,8 @@ router.use(requireAuth, requireRole("superadmin"), (req, res, next) => {
 });
 
 // Audit trail labels.
-const FIELD_SPEC = [["label", "Question"], ["section", "Section"], ["required", "Required"], ["showOnDashboard", "Show on dashboard"], ["isActive", "Active"]];
+const TYPE_LABELS = { select: "Dropdown", date: "Date" };
+const FIELD_SPEC = [["label", "Question"], ["section", "Section"], ["type", "Type", (t) => (t ? TYPE_LABELS[t] || t : t)], ["hasComment", "Comment box"], ["required", "Required"], ["showOnDashboard", "Show on dashboard"], ["isActive", "Active"]];
 const meaningLabel = (m) => (form.meanings[m] || {}).label || m;
 const answerText = (o) => `${o.value} (${meaningLabel(o.meaning)})`;
 const fieldTarget = (f) => ({ type: "field", id: String(f._id), label: f.label });
@@ -71,6 +72,12 @@ async function loadField(id) {
   if (!f) throw new InputError("Question not found. Reload the page.", 404);
   return f;
 }
+// Answers belong to dropdown questions only.
+async function loadDropdown(id) {
+  const f = await loadField(id);
+  if ((f.type || "select") !== "select") throw new InputError("A date question has no answers.", 409);
+  return f;
+}
 function findOption(field, id) {
   const o = isId(id) ? field.options.id(id) : null;
   if (!o) throw new InputError("Answer not found. Reload the page.", 404);
@@ -89,6 +96,8 @@ async function payload() {
         key: f.key,
         label: f.label,
         section: f.section || "",
+        type: f.type || "select",
+        hasComment: f.hasComment === true,
         required: f.required !== false,
         showOnDashboard: f.showOnDashboard !== false,
         isActive: f.isActive !== false,
@@ -108,14 +117,17 @@ router.get("/", async (req, res, next) => {
   }
 });
 
-// ---------- POST /api/fields  { label, section, required, showOnDashboard, options:[{value, meaning}] } ----------
+// ---------- POST /api/fields  { label, section, type, hasComment, required, showOnDashboard, options:[{value, meaning}] } ----------
 router.post("/", async (req, res, next) => {
   try {
     const b = req.body || {};
     const label = cleanLabel(b.label);
     await uniqueLabel(label);
-    const options = (Array.isArray(b.options) ? b.options : []).map((o) => ({ value: cleanOption(o && o.value), meaning: cleanMeaning(o && o.meaning) }));
-    if (options.length < MIN_OPTIONS) throw new InputError(`Add at least ${MIN_OPTIONS} answers.`);
+    const type = b.type === undefined ? "select" : b.type;
+    if (!TYPES.includes(type)) throw new InputError("Choose the type of question.");
+    const isDate = type === "date";
+    const options = isDate ? [] : (Array.isArray(b.options) ? b.options : []).map((o) => ({ value: cleanOption(o && o.value), meaning: cleanMeaning(o && o.meaning) }));
+    if (!isDate && options.length < MIN_OPTIONS) throw new InputError(`Add at least ${MIN_OPTIONS} answers.`);
     const seen = new Set();
     for (const o of options) {
       if (seen.has(norm(o.value))) throw new InputError(`The answer "${o.value}" is listed twice.`);
@@ -126,24 +138,28 @@ router.post("/", async (req, res, next) => {
       key: "f" + crypto.randomBytes(6).toString("hex"),
       label,
       section: cleanSection(b.section),
+      type,
+      hasComment: "hasComment" in b ? cleanBool(b.hasComment, "Comment box") : true, // ticked by default
       required: "required" in b ? cleanBool(b.required, "Required") : true,
-      showOnDashboard: "showOnDashboard" in b ? cleanBool(b.showOnDashboard, "Show on dashboard") : true,
+      // the dashboard cards count dropdown answers, so a date question isn't shown there
+      showOnDashboard: isDate ? false : "showOnDashboard" in b ? cleanBool(b.showOnDashboard, "Show on dashboard") : true,
       order: last ? last.order + 1 : 0,
       options,
     });
-    audit(req, "field_created", { target: fieldTarget(f), changes: [...diff(null, f, FIELD_SPEC), { field: "options", label: "Answers", from: null, to: options.map(answerText) }] });
+    audit(req, "field_created", { target: fieldTarget(f), changes: [...diff(null, f, FIELD_SPEC), ...(isDate ? [] : [{ field: "options", label: "Answers", from: null, to: options.map(answerText) }])] });
     res.status(201).json({ ...(await payload()), createdId: String(f._id) });
   } catch (err) {
     sendError(err, res, next);
   }
 });
 
-// ---------- PATCH /api/fields/:id  { label?, section?, required?, showOnDashboard?, isActive? } ----------
+// ---------- PATCH /api/fields/:id  { label?, section?, hasComment?, required?, showOnDashboard?, isActive? } ----------
+// (the type is chosen once, when the question is created)
 router.patch("/:id", async (req, res, next) => {
   try {
     const b = req.body || {};
     const f = await loadField(req.params.id);
-    const before = { label: f.label, section: f.section, required: f.required, showOnDashboard: f.showOnDashboard, isActive: f.isActive };
+    const before = { label: f.label, section: f.section, hasComment: f.hasComment, required: f.required, showOnDashboard: f.showOnDashboard, isActive: f.isActive };
     if ("label" in b) {
       const label = cleanLabel(b.label);
       if (norm(label) !== norm(f.label)) await uniqueLabel(label, f._id);
@@ -151,7 +167,11 @@ router.patch("/:id", async (req, res, next) => {
     }
     if ("section" in b) f.section = cleanSection(b.section);
     if ("required" in b) f.required = cleanBool(b.required, "Required");
-    if ("showOnDashboard" in b) f.showOnDashboard = cleanBool(b.showOnDashboard, "Show on dashboard");
+    if ("hasComment" in b) f.hasComment = cleanBool(b.hasComment, "Comment box");
+    if ("showOnDashboard" in b) {
+      f.showOnDashboard = cleanBool(b.showOnDashboard, "Show on dashboard");
+      if (f.showOnDashboard && f.type === "date") throw new InputError("A date question can't have a dashboard card.");
+    }
     if ("isActive" in b) f.isActive = cleanBool(b.isActive, "Active");
     await f.save();
     const changes = diff(before, f, FIELD_SPEC);
@@ -166,7 +186,7 @@ router.patch("/:id", async (req, res, next) => {
 router.delete("/:id", async (req, res, next) => {
   try {
     const f = await loadField(req.params.id);
-    const n = await Entry.countDocuments({ [`values.${f.key}`]: { $exists: true } });
+    const n = await Entry.countDocuments({ $or: [{ [`values.${f.key}`]: { $exists: true } }, { [`comments.${f.key}`]: { $exists: true } }] });
     if (n) throw new InputError(`"${f.label}" is answered in ${n} saved form${n === 1 ? "" : "s"}, so it can't be deleted. Mark it inactive instead.`, 409);
     await f.deleteOne();
     audit(req, "field_deleted", { target: fieldTarget(f), changes: [...diff(f, null, FIELD_SPEC), { field: "options", label: "Answers", from: f.options.map(answerText), to: null }] });
@@ -197,7 +217,7 @@ router.put("/order", async (req, res, next) => {
 // ---------- answers of one field ----------
 router.post("/:id/options", async (req, res, next) => {
   try {
-    const f = await loadField(req.params.id);
+    const f = await loadDropdown(req.params.id);
     const value = cleanOption((req.body || {}).value);
     const meaning = cleanMeaning((req.body || {}).meaning);
     if (f.options.some((o) => norm(o.value) === norm(value))) throw new InputError(`"${value}" is already an answer of this question.`, 409);
@@ -212,7 +232,7 @@ router.post("/:id/options", async (req, res, next) => {
 
 router.patch("/:id/options/:oid", async (req, res, next) => {
   try {
-    const f = await loadField(req.params.id);
+    const f = await loadDropdown(req.params.id);
     const o = findOption(f, req.params.oid);
     const b = req.body || {};
     const before = { value: o.value, meaning: o.meaning };
@@ -243,7 +263,7 @@ router.patch("/:id/options/:oid", async (req, res, next) => {
 
 router.delete("/:id/options/:oid", async (req, res, next) => {
   try {
-    const f = await loadField(req.params.id);
+    const f = await loadDropdown(req.params.id);
     const o = findOption(f, req.params.oid);
     if (f.options.length <= MIN_OPTIONS) throw new InputError(`A question needs at least ${MIN_OPTIONS} answers.`, 409);
     const n = await Entry.countDocuments({ [`values.${f.key}`]: o.value });
@@ -259,7 +279,7 @@ router.delete("/:id/options/:oid", async (req, res, next) => {
 
 router.put("/:id/options/order", async (req, res, next) => {
   try {
-    const f = await loadField(req.params.id);
+    const f = await loadDropdown(req.params.id);
     const ids = Array.isArray((req.body || {}).ids) ? req.body.ids.map(String) : [];
     const current = f.options.map((o) => String(o._id));
     if (ids.length !== current.length || new Set(ids).size !== ids.length || !ids.every((id) => current.includes(id))) {

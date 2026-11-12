@@ -12,7 +12,7 @@ const PRESETS = {
   "Yes / No": [["Yes", "done"], ["No", "notdone"], ["Pending", "pending"], ["Not Applicable", "na"]],
   Progress: [["Completed", "done"], ["Pending", "pending"], ["In Progress", "progress"], ["Not Applicable", "na"]],
 };
-const blankNew = () => ({ label: "", section: "", required: true, showOnDashboard: true, options: [{ value: "", meaning: "" }, { value: "", meaning: "" }] });
+const blankNew = () => ({ label: "", section: "", type: "select", hasComment: true, required: true, showOnDashboard: true, options: [{ value: "", meaning: "" }, { value: "", meaning: "" }] });
 
 // Super Admin: the dropdown questions of the JC portal, each with its own answers, plus the Mauze Type list.
 export default function PortalFields({ onAuthExpired }) {
@@ -99,6 +99,7 @@ export default function PortalFields({ onAuthExpired }) {
                   <span className="field-name">{f.label}</span>
                   <span className="field-meta">
                     {f.section && <span>{f.section}</span>}
+                    {f.type === "date" && <span className="pill info">Date</span>}
                     {!f.isActive && <span className="pill na">Inactive</span>}
                     {!f.required && <span className="pill info">Optional</span>}
                     {!f.showOnDashboard && <span className="pill na">Not on dashboard</span>}
@@ -153,8 +154,9 @@ export default function PortalFields({ onAuthExpired }) {
 
 // ---------- settings + answers of one question ----------
 function FieldEditor({ field, meanings, sections, busy, act, onDeleted }) {
-  const [form, setForm] = useState({ label: field.label, section: field.section, required: field.required, showOnDashboard: field.showOnDashboard });
-  const dirty = form.label !== field.label || form.section !== field.section || form.required !== field.required || form.showOnDashboard !== field.showOnDashboard;
+  const isDate = field.type === "date";
+  const [form, setForm] = useState({ label: field.label, section: field.section, hasComment: field.hasComment, required: field.required, showOnDashboard: field.showOnDashboard });
+  const dirty = form.label !== field.label || form.section !== field.section || form.hasComment !== field.hasComment || form.required !== field.required || form.showOnDashboard !== field.showOnDashboard;
   const toneOf = (m) => (meanings.find((x) => x.key === m) || {}).tone || "na";
 
   const save = (e) => {
@@ -175,7 +177,7 @@ function FieldEditor({ field, meanings, sections, busy, act, onDeleted }) {
       <div className="panel-head master-head">
         <div>
           <h2>{field.label} {!field.isActive && <span className="pill na">Inactive</span>}</h2>
-          <p>{field.answered ? `Answered in ${plural(field.answered, "saved form")}` : "Not answered yet"}</p>
+          <p>{isDate ? "Date question · " : "Dropdown · "}{field.answered ? `Answered in ${plural(field.answered, "saved form")}` : "Not answered yet"}</p>
         </div>
         <div className="head-actions">
           <button type="button" className="mini-btn" onClick={toggleActive} disabled={busy}>{field.isActive ? "Mark inactive" : "Mark active"}</button>
@@ -191,13 +193,14 @@ function FieldEditor({ field, meanings, sections, busy, act, onDeleted }) {
         </label>
         <label className="field">
           <span className="field-label">Section heading <span className="optional">(optional)</span></span>
-          <input className="input" list="sections" value={form.section} maxLength={60} placeholder="e.g. Regular Khidmat"
+          <input className="input" list="sections" value={form.section} maxLength={60} placeholder="e.g. Event Status"
             onChange={(e) => setForm({ ...form, section: e.target.value })} />
           <datalist id="sections">{sections.map((s) => <option key={s} value={s} />)}</datalist>
         </label>
         <div className="checks">
           <label className="check"><input type="checkbox" checked={form.required} onChange={(e) => setForm({ ...form, required: e.target.checked })} /> Required on the JC portal</label>
-          <label className="check"><input type="checkbox" checked={form.showOnDashboard} onChange={(e) => setForm({ ...form, showOnDashboard: e.target.checked })} /> Show a card on the dashboard</label>
+          <label className="check"><input type="checkbox" checked={form.hasComment} onChange={(e) => setForm({ ...form, hasComment: e.target.checked })} /> Include comment box</label>
+          {!isDate && <label className="check"><input type="checkbox" checked={form.showOnDashboard} onChange={(e) => setForm({ ...form, showOnDashboard: e.target.checked })} /> Show a card on the dashboard</label>}
         </div>
         <div className="field-form-actions">
           <button type="submit" className="btn btn-primary" disabled={busy || !dirty}>Save question</button>
@@ -206,20 +209,27 @@ function FieldEditor({ field, meanings, sections, busy, act, onDeleted }) {
 
       <div className="eyebrow sub-head">Preview on the JC portal</div>
       <div className="dd-preview">
-        {field.options.map((o) => <span key={o.id} className={`pill ${toneOf(o.meaning)}`}>{o.value}</span>)}
+        {isDate
+          ? <input className="input date-input" type="date" disabled aria-label="Date picker preview" />
+          : field.options.map((o) => <span key={o.id} className={`pill ${toneOf(o.meaning)}`}>{o.value}</span>)}
+        {field.hasComment && <textarea className="input q-comment" rows={2} disabled placeholder="Comment (optional)" aria-label="Comment box preview" />}
       </div>
 
-      <div className="eyebrow sub-head">Answers</div>
-      <OptionsTable
-        values={field.options}
-        meanings={meanings}
-        busy={busy}
-        usedLabel="Saved answers using it"
-        onMove={(ids) => act(() => optionsOrder(field.id, ids), "Order saved.")}
-        onSave={(o, body) => act(() => optionEdit(field.id, o.id, body), "Answer saved.")}
-        onRemove={(o) => act(() => optionRemove(field.id, o.id), `Removed “${o.value}”.`)}
-        onAdd={(body) => act(() => optionAdd(field.id, body), `Added “${body.value.trim()}”.`)}
-      />
+      {!isDate && (
+        <>
+          <div className="eyebrow sub-head">Answers</div>
+          <OptionsTable
+            values={field.options}
+            meanings={meanings}
+            busy={busy}
+            usedLabel="Saved answers using it"
+            onMove={(ids) => act(() => optionsOrder(field.id, ids), "Order saved.")}
+            onSave={(o, body) => act(() => optionEdit(field.id, o.id, body), "Answer saved.")}
+            onRemove={(o) => act(() => optionRemove(field.id, o.id), `Removed “${o.value}”.`)}
+            onAdd={(body) => act(() => optionAdd(field.id, body), `Added “${body.value.trim()}”.`)}
+          />
+        </>
+      )}
     </>
   );
 }
@@ -229,8 +239,13 @@ function NewField({ meanings, sections, busy, onCancel, onCreate }) {
   const [f, setF] = useState(blankNew);
   const setOpt = (i, patch) => setF({ ...f, options: f.options.map((o, j) => (j === i ? { ...o, ...patch } : o)) });
 
+  const isDate = f.type === "date";
   const submit = (e) => {
     e.preventDefault();
+    if (isDate) {
+      const { options, showOnDashboard, ...rest } = f;
+      return onCreate(rest);
+    }
     const options = f.options.filter((o) => o.value.trim() || o.meaning);
     onCreate({ ...f, options });
   };
@@ -246,15 +261,24 @@ function NewField({ meanings, sections, busy, onCancel, onCreate }) {
         </label>
         <label className="field">
           <span className="field-label">Section heading <span className="optional">(optional)</span></span>
-          <input className="input" list="sections-new" value={f.section} maxLength={60} placeholder="e.g. Regular Khidmat"
+          <input className="input" list="sections-new" value={f.section} maxLength={60} placeholder="e.g. Event Status"
             onChange={(e) => setF({ ...f, section: e.target.value })} />
           <datalist id="sections-new">{sections.map((s) => <option key={s} value={s} />)}</datalist>
         </label>
+        <label className="field">
+          <span className="field-label">Type of answer</span>
+          <select value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })}>
+            <option value="select">Dropdown (choose one answer)</option>
+            <option value="date">Date picker</option>
+          </select>
+        </label>
         <div className="checks">
           <label className="check"><input type="checkbox" checked={f.required} onChange={(e) => setF({ ...f, required: e.target.checked })} /> Required on the JC portal</label>
-          <label className="check"><input type="checkbox" checked={f.showOnDashboard} onChange={(e) => setF({ ...f, showOnDashboard: e.target.checked })} /> Show a card on the dashboard</label>
+          <label className="check"><input type="checkbox" checked={f.hasComment} onChange={(e) => setF({ ...f, hasComment: e.target.checked })} /> Include comment box <span className="optional">(shown after the answers)</span></label>
+          {!isDate && <label className="check"><input type="checkbox" checked={f.showOnDashboard} onChange={(e) => setF({ ...f, showOnDashboard: e.target.checked })} /> Show a card on the dashboard</label>}
         </div>
 
+        {!isDate && <>
         <div className="answers-head">
           <span className="field-label">Answers</span>
           <span className="presets">
@@ -275,6 +299,7 @@ function NewField({ meanings, sections, busy, onCancel, onCreate }) {
           </div>
         ))}
         <button type="button" className="mini-btn add-answer" onClick={() => setF({ ...f, options: [...f.options, { value: "", meaning: "" }] })}>+ Add answer</button>
+        </>}
 
         <div className="field-form-actions">
           <button type="button" className="btn btn-ghost" onClick={onCancel}>Cancel</button>

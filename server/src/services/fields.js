@@ -6,7 +6,7 @@ const Entry = require("../models/Entry");
 
 let cache = null;
 
-/** All fields in display order: [{ id, key, label, section, required, showOnDashboard, isActive, options:[{id,value,meaning}] }] */
+/** All fields in display order: [{ id, key, label, section, type, hasComment, required, showOnDashboard, isActive, options:[{id,value,meaning}] }] */
 async function getFields() {
   if (cache) return cache;
   const docs = await PortalField.find().sort({ order: 1, createdAt: 1 }).lean();
@@ -15,6 +15,8 @@ async function getFields() {
     key: d.key,
     label: d.label,
     section: d.section || "",
+    type: d.type || "select",
+    hasComment: d.hasComment === true,
     required: d.required !== false,
     showOnDashboard: d.showOnDashboard !== false,
     isActive: d.isActive !== false,
@@ -32,14 +34,16 @@ const portalShape = (f) => ({
   key: f.key,
   label: f.label,
   group: f.section,
+  type: f.type,
+  hasComment: f.hasComment,
   required: f.required,
   options: f.options.map((o) => ({ value: o.value, tone: toneOf(o.meaning) })),
 });
 
-/** Dashboard cards: active fields marked "show on dashboard". */
+/** Dashboard cards: active dropdown fields marked "show on dashboard". */
 async function dashboardMetrics() {
   return (await activeFields())
-    .filter((f) => f.showOnDashboard)
+    .filter((f) => f.showOnDashboard && f.type === "select")
     .map((f) => {
       const pending = f.options.find((o) => o.meaning === "pending");
       return {
@@ -72,11 +76,13 @@ async function seedFields() {
   const isYesNo = (opts) => opts.some(([v]) => v === "Yes");
   await PortalField.insertMany(
     form.defaultFields.map((f, i) => {
+      const base = { key: f.key, label: f.label, section: f.section, order: i, required: f.required !== false, showOnDashboard: f.showOnDashboard !== false };
+      if (f.type === "date") return { ...base, type: "date", showOnDashboard: false, options: [] };
       const earlier = old[isYesNo(f.options) ? "yesNo" : "progress"];
-      const options = earlier && earlier.length && earlier.every((v) => v.meaning)
+      const options = earlier && earlier.length && earlier.every((v) => v.meaning) && f.options.length > 2
         ? earlier.map((v) => ({ value: v.value, meaning: v.meaning }))
         : f.options.map(([value, meaning]) => ({ value, meaning }));
-      return { key: f.key, label: f.label, section: f.section, order: i, showOnDashboard: f.showOnDashboard !== false, options };
+      return { ...base, options };
     })
   );
   console.log(`[fields] Created ${form.defaultFields.length} starting portal fields`);

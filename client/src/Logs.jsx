@@ -43,6 +43,7 @@ const REASONS = {
   google_verify_failed: "Google sign-in could not be verified",
   google_account_mismatch: "different Google account",
   jamaat_not_assigned: "Jamaat not assigned to this JC",
+  locked_jamaat_details: "tried to change locked Jamaat details (nothing saved)",
   request_from_another_site: "request from another website",
 };
 

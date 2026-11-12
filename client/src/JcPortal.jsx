@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AuthError, isServerStarting, portalEntry, portalOptions, portalSave } from "./lib/api";
-import { ChevronRight } from "./components/Icons";
+import { ChevronRight, LockIcon } from "./components/Icons";
 import AppBar from "./components/AppBar";
 import Notice from "./components/Notice";
 
@@ -10,15 +10,23 @@ const store = {
   set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage blocked */ } },
 };
 
+// details = the Jamaat's Mauze Type / House Count. They are locked here (only the Super Admin
+// changes them in Masters); they are sent back as shown, and the server refuses + logs any change.
 const blankForm = (details) => ({
   values: {},
+  comments: {},
   remarks: "",
   details: {
     mauzeType: details.mauzeType || "",
     houseCount: details.houseCount == null ? "" : String(details.houseCount),
-    children: details.children == null ? "" : String(details.children),
   },
 });
+
+// Today in the browser's time zone, as YYYY-MM-DD (the latest date a JC can pick).
+const today = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
 
 const fmtTime = (d) =>
   new Date(d).toLocaleString([], { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -90,7 +98,7 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
       .then(({ details, entry }) => {
         if (!alive) return;
         const f = blankForm(details);
-        if (entry) { f.values = { ...entry.values }; f.remarks = entry.remarks || ""; }
+        if (entry) { f.values = { ...entry.values }; f.comments = { ...(entry.comments || {}) }; f.remarks = entry.remarks || ""; }
         setForm(f);
         setBaseline(JSON.stringify(f));
         setSavedAt(entry ? entry.updatedAt : null);
@@ -124,7 +132,10 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
   const chooseJamaat = (v) => { if (okToLeave()) { setJamaatId(v); setSuccess(""); } };
 
   const setValue = (key, v) => setForm((f) => ({ ...f, values: { ...f.values, [key]: v } }));
+  // The detail fields are disabled; if someone re-enables one in the browser, the change is sent
+  // and the server refuses the save and logs the attempt.
   const setDetail = (key, v) => setForm((f) => ({ ...f, details: { ...f.details, [key]: v } }));
+  const setComment = (key, v) => setForm((f) => ({ ...f, comments: { ...f.comments, [key]: v } }));
 
   const groups = useMemo(() => {
     if (!opts) return [];
@@ -158,10 +169,14 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
     try {
       // Send only answers to the questions currently on the form.
       const values = {};
-      for (const f of opts.fields) if (form.values[f.key]) values[f.key] = form.values[f.key];
+      const comments = {};
+      for (const f of opts.fields) {
+        if (form.values[f.key]) values[f.key] = form.values[f.key];
+        if (f.hasComment && (form.comments[f.key] || "").trim()) comments[f.key] = form.comments[f.key];
+      }
       const res = await portalSave({
-        month, jamaatId, values, remarks: form.remarks,
-        details: form.details,
+        month, jamaatId, values, comments, remarks: form.remarks,
+        details: form.details, // locked: sent as shown so the server can check nothing was changed
       });
       const f = { ...form, details: blankForm(res.details).details };
       setForm(f);
@@ -231,23 +246,18 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
                   <div className="portal-step"><span className="step-no">2</span> Jamaat details</div>
                   <div className="details-grid">
                     <label className="field">
-                      <span className="field-label">Mauze Type</span>
-                      <select value={form.details.mauzeType} onChange={(e) => setDetail("mauzeType", e.target.value)}>
-                        <option value="">Not set</option>
-                        {opts.mauzeTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+                      <span className="field-label">Mauze Type <LockIcon /></span>
+                      <select value={form.details.mauzeType} disabled aria-readonly="true" onChange={(e) => setDetail("mauzeType", e.target.value)}>
+                        <option value={form.details.mauzeType}>{form.details.mauzeType || "Not set"}</option>
                       </select>
                     </label>
                     <label className="field">
-                      <span className="field-label">House Count</span>
-                      <input className="input" type="number" inputMode="numeric" min="0" step="1"
-                        value={form.details.houseCount} onChange={(e) => setDetail("houseCount", e.target.value)} />
-                    </label>
-                    <label className="field">
-                      <span className="field-label">Children</span>
-                      <input className="input" type="number" inputMode="numeric" min="0" step="1"
-                        value={form.details.children} onChange={(e) => setDetail("children", e.target.value)} />
+                      <span className="field-label">House Count <LockIcon /></span>
+                      <input className="input" value={form.details.houseCount} placeholder="Not set" readOnly disabled aria-readonly="true"
+                        onChange={(e) => setDetail("houseCount", e.target.value)} />
                     </label>
                   </div>
+                  <p className="locked-note">These details can be changed only by the Super Admin.</p>
                 </section>
 
                 <section className="panel form-section">
@@ -265,17 +275,32 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
                               {!f.required && <span className="optional">(optional)</span>}
                               {missing && <span className="q-req">Required</span>}
                             </legend>
-                            <div className="seg-control">
-                              {f.options.map((o) => (
-                                <label key={o.value} className={`seg-opt tone-${o.tone}${value === o.value ? " is-on" : ""}`}>
-                                  <input type="radio" name={f.key} value={o.value} checked={value === o.value} onChange={() => setValue(f.key, o.value)} />
-                                  <span>{o.value}</span>
-                                </label>
-                              ))}
-                              {!f.required && value && (
-                                <button type="button" className="seg-clear" onClick={() => setValue(f.key, "")}>Clear</button>
-                              )}
-                            </div>
+                            {f.type === "date" ? (
+                              <div className="date-line">
+                                <input className="input date-input" type="date" min="2020-01-01" max={today()} value={value}
+                                  onChange={(e) => setValue(f.key, e.target.value)} aria-label={f.label} />
+                                {!f.required && value && (
+                                  <button type="button" className="seg-clear" onClick={() => setValue(f.key, "")}>Clear</button>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="seg-control">
+                                {f.options.map((o) => (
+                                  <label key={o.value} className={`seg-opt tone-${o.tone}${value === o.value ? " is-on" : ""}`}>
+                                    <input type="radio" name={f.key} value={o.value} checked={value === o.value} onChange={() => setValue(f.key, o.value)} />
+                                    <span>{o.value}</span>
+                                  </label>
+                                ))}
+                                {!f.required && value && (
+                                  <button type="button" className="seg-clear" onClick={() => setValue(f.key, "")}>Clear</button>
+                                )}
+                              </div>
+                            )}
+                            {f.hasComment && (
+                              <textarea className="input q-comment" rows={2} maxLength={opts.commentMaxLength}
+                                placeholder="Comment (optional)" aria-label={`Comment for ${f.label}`}
+                                value={form.comments[f.key] || ""} onChange={(e) => setComment(f.key, e.target.value)} />
+                            )}
                           </fieldset>
                         );
                       })}
