@@ -3,13 +3,15 @@ const form = require("../formConfig");
 const PortalField = require("../models/PortalField");
 const OptionList = require("../models/OptionList");
 const Entry = require("../models/Entry");
+const { notDeleted, isDeleted } = require("../lib/softDelete");
 
 let cache = null;
 
 /** All fields in display order: [{ id, key, label, section, type, hasComment, required, showOnDashboard, isActive, options:[{id,value,meaning}] }] */
 async function getFields() {
   if (cache) return cache;
-  const docs = await PortalField.find().sort({ order: 1, createdAt: 1 }).lean();
+  // Deleted questions / answers (status "D") are left out everywhere except the Super Admin screen.
+  const docs = await PortalField.find(notDeleted()).sort({ order: 1, createdAt: 1 }).lean();
   cache = docs.map((d) => ({
     id: String(d._id),
     key: d.key,
@@ -20,7 +22,7 @@ async function getFields() {
     required: d.required !== false,
     showOnDashboard: d.showOnDashboard !== false,
     isActive: d.isActive !== false,
-    options: (d.options || []).map((o) => ({ id: String(o._id), value: o.value, meaning: o.meaning })),
+    options: (d.options || []).filter((o) => !isDeleted(o)).map((o) => ({ id: String(o._id), value: o.value, meaning: o.meaning })),
   }));
   return cache;
 }

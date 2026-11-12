@@ -3,6 +3,7 @@
 //  - A field's storage key never changes, so renaming a question keeps its saved answers.
 //  - Renaming an answer renames it in every saved entry of that field.
 //  - An answer in use can't be removed; a field with saved answers can't be deleted (mark it inactive).
+//  - Deleting a question or an answer only sets status "D" (hidden, kept, restorable).
 //  - Question names are unique; answers are unique inside a question (ignoring capitals/spaces).
 const crypto = require("crypto");
 const express = require("express");
@@ -15,6 +16,7 @@ const Entry = require("../models/Entry");
 const { audit, diff } = require("../services/audit");
 const { answerUsage, invalidate } = require("../services/fields");
 const { InputError, isId, sendError } = require("../lib/validate");
+const { DELETED, notDeleted, isDeleted, markDeleted, markRestored, deletedInfo, statusChange } = require("../lib/softDelete");
 
 const router = express.Router();
 router.use(requireAuth, requireRole("superadmin"), (req, res, next) => {
@@ -62,14 +64,21 @@ function cleanMeaning(m) {
   return m;
 }
 
+// Question names are unique, deleted questions included (restore one instead of adding it again).
 async function uniqueLabel(label, exceptId) {
-  const all = await PortalField.find(exceptId ? { _id: { $ne: exceptId } } : {}).select("label").lean();
-  if (all.some((f) => norm(f.label) === norm(label))) throw new InputError(`A question called "${label}" already exists.`, 409);
+  const all = await PortalField.find(exceptId ? { _id: { $ne: exceptId } } : {}).select("label status").lean();
+  const hit = all.find((f) => norm(f.label) === norm(label));
+  if (!hit) return;
+  throw new InputError(isDeleted(hit)
+    ? `A deleted question called "${hit.label}" exists. Click “Show deleted” and restore it instead.`
+    : `A question called "${label}" already exists.`, 409);
 }
 
-async function loadField(id) {
+// A question that isn't deleted (deleted ones can only be restored).
+async function loadField(id, { allowDeleted = false } = {}) {
   const f = isId(id) ? await PortalField.findById(id) : null;
   if (!f) throw new InputError("Question not found. Reload the page.", 404);
+  if (!allowDeleted && isDeleted(f)) throw new InputError(`"${f.label}" is deleted. Restore it first to change it.`, 409);
   return f;
 }
 // Answers belong to dropdown questions only.
@@ -78,10 +87,20 @@ async function loadDropdown(id) {
   if ((f.type || "select") !== "select") throw new InputError("A date question has no answers.", 409);
   return f;
 }
-function findOption(field, id) {
+function findOption(field, id, { allowDeleted = false } = {}) {
   const o = isId(id) ? field.options.id(id) : null;
   if (!o) throw new InputError("Answer not found. Reload the page.", 404);
+  if (!allowDeleted && isDeleted(o)) throw new InputError(`"${o.value}" is deleted. Restore it first to change it.`, 409);
   return o;
+}
+const liveOptions = (f) => f.options.filter((o) => !isDeleted(o));
+// Answers are unique inside a question, removed ones included (restore one instead of adding it again).
+function checkAnswerFree(f, value, exceptId) {
+  const hit = f.options.find((x) => String(x._id) !== String(exceptId || "") && norm(x.value) === norm(value));
+  if (!hit) return;
+  throw new InputError(isDeleted(hit)
+    ? `"${hit.value}" was deleted from this question earlier. Click “Show deleted” and restore it instead.`
+    : `"${value}" is already an answer of this question.`, 409);
 }
 
 async function payload() {
@@ -101,8 +120,9 @@ async function payload() {
         required: f.required !== false,
         showOnDashboard: f.showOnDashboard !== false,
         isActive: f.isActive !== false,
+        ...deletedInfo(f),
         answered: [...used.values()].reduce((a, b) => a + b, 0),
-        options: f.options.map((o) => ({ id: String(o._id), value: o.value, meaning: o.meaning, inUse: used.get(o.value) || 0 })),
+        options: f.options.map((o) => ({ id: String(o._id), value: o.value, meaning: o.meaning, inUse: used.get(o.value) || 0, ...deletedInfo(o) })),
       };
     }),
   };
@@ -188,25 +208,43 @@ router.delete("/:id", async (req, res, next) => {
     const f = await loadField(req.params.id);
     const n = await Entry.countDocuments({ $or: [{ [`values.${f.key}`]: { $exists: true } }, { [`comments.${f.key}`]: { $exists: true } }] });
     if (n) throw new InputError(`"${f.label}" is answered in ${n} saved form${n === 1 ? "" : "s"}, so it can't be deleted. Mark it inactive instead.`, 409);
-    await f.deleteOne();
-    audit(req, "field_deleted", { target: fieldTarget(f), changes: [...diff(f, null, FIELD_SPEC), { field: "options", label: "Answers", from: f.options.map(answerText), to: null }] });
+    const before = { isActive: f.isActive };
+    markDeleted(f, req.user.email); // status "D": hidden from the portal and the dashboard, kept
+    await f.save();
+    audit(req, "field_deleted", { target: fieldTarget(f), changes: [statusChange("A", DELETED), ...diff(before, f, [["isActive", "Active"]])] });
     res.json(await payload());
   } catch (err) {
     sendError(err, res, next);
   }
 });
 
-// ---------- PUT /api/fields/order  { ids } ----------
+// ---------- POST /api/fields/:id/restore ----------
+router.post("/:id/restore", async (req, res, next) => {
+  try {
+    const f = await loadField(req.params.id, { allowDeleted: true });
+    if (!isDeleted(f)) throw new InputError(`"${f.label}" is not deleted.`, 409);
+    await uniqueLabel(f.label, f._id);
+    const before = { isActive: f.isActive };
+    markRestored(f);
+    await f.save();
+    audit(req, "field_restored", { target: fieldTarget(f), changes: [statusChange(DELETED, "A"), ...diff(before, f, [["isActive", "Active"]])] });
+    res.json(await payload());
+  } catch (err) {
+    sendError(err, res, next);
+  }
+});
+
+// ---------- PUT /api/fields/order  { ids } ----------  (questions that aren't deleted)
 router.put("/order", async (req, res, next) => {
   try {
     const ids = Array.isArray((req.body || {}).ids) ? req.body.ids.map(String) : [];
-    const all = (await PortalField.find().select("_id").lean()).map((f) => String(f._id));
+    const all = (await PortalField.find(notDeleted()).select("_id").lean()).map((f) => String(f._id));
     if (ids.length !== all.length || new Set(ids).size !== ids.length || !ids.every((id) => all.includes(id))) {
       throw new InputError("The questions changed meanwhile. Reload the page.", 409);
     }
-    const beforeOrder = (await PortalField.find().sort({ order: 1, createdAt: 1 }).select("label").lean()).map((x) => x.label);
+    const beforeOrder = (await PortalField.find(notDeleted()).sort({ order: 1, createdAt: 1 }).select("label").lean()).map((x) => x.label);
     await PortalField.bulkWrite(ids.map((id, i) => ({ updateOne: { filter: { _id: id }, update: { $set: { order: i } } } })));
-    const afterOrder = (await PortalField.find().sort({ order: 1, createdAt: 1 }).select("label").lean()).map((x) => x.label);
+    const afterOrder = (await PortalField.find(notDeleted()).sort({ order: 1, createdAt: 1 }).select("label").lean()).map((x) => x.label);
     audit(req, "field_updated", { target: { type: "fields", id: "order", label: "Question order" }, changes: [{ field: "order", label: "Question order", from: beforeOrder, to: afterOrder }] });
     res.json(await payload());
   } catch (err) {
@@ -220,7 +258,7 @@ router.post("/:id/options", async (req, res, next) => {
     const f = await loadDropdown(req.params.id);
     const value = cleanOption((req.body || {}).value);
     const meaning = cleanMeaning((req.body || {}).meaning);
-    if (f.options.some((o) => norm(o.value) === norm(value))) throw new InputError(`"${value}" is already an answer of this question.`, 409);
+    checkAnswerFree(f, value);
     f.options.push({ value, meaning });
     await f.save();
     audit(req, "field_updated", { target: fieldTarget(f), changes: [{ field: "options", label: "Answer added", from: null, to: answerText({ value, meaning }) }] });
@@ -238,9 +276,7 @@ router.patch("/:id/options/:oid", async (req, res, next) => {
     const before = { value: o.value, meaning: o.meaning };
     const value = "value" in b ? cleanOption(b.value) : o.value;
     const meaning = "meaning" in b ? cleanMeaning(b.meaning) : o.meaning;
-    if (f.options.some((x) => String(x._id) !== String(o._id) && norm(x.value) === norm(value))) {
-      throw new InputError(`"${value}" is already an answer of this question.`, 409);
-    }
+    checkAnswerFree(f, value, o._id);
     let renamed = 0;
     if (value !== before.value) {
       renamed = (await Entry.updateMany({ [`values.${f.key}`]: before.value }, { $set: { [`values.${f.key}`]: value } })).modifiedCount;
@@ -265,31 +301,47 @@ router.delete("/:id/options/:oid", async (req, res, next) => {
   try {
     const f = await loadDropdown(req.params.id);
     const o = findOption(f, req.params.oid);
-    if (f.options.length <= MIN_OPTIONS) throw new InputError(`A question needs at least ${MIN_OPTIONS} answers.`, 409);
+    if (liveOptions(f).length <= MIN_OPTIONS) throw new InputError(`A question needs at least ${MIN_OPTIONS} answers.`, 409);
     const n = await Entry.countDocuments({ [`values.${f.key}`]: o.value });
     if (n) throw new InputError(`"${o.value}" is used in ${n} saved form${n === 1 ? "" : "s"}, so it can't be removed. Rename it instead.`, 409);
-    f.options.pull(o._id);
+    markDeleted(o, req.user.email); // status "D": hidden from the portal, kept
     await f.save();
-    audit(req, "field_updated", { target: fieldTarget(f), changes: [{ field: "options", label: "Answer removed", from: answerText(o), to: null }] });
+    audit(req, "field_updated", { target: fieldTarget(f), changes: [{ field: "options", label: "Answer deleted (status D)", from: answerText(o), to: null }] });
     res.json(await payload());
   } catch (err) {
     sendError(err, res, next);
   }
 });
 
+router.post("/:id/options/:oid/restore", async (req, res, next) => {
+  try {
+    const f = await loadDropdown(req.params.id);
+    const o = findOption(f, req.params.oid, { allowDeleted: true });
+    if (!isDeleted(o)) throw new InputError(`"${o.value}" is not deleted.`, 409);
+    checkAnswerFree(f, o.value, o._id);
+    markRestored(o);
+    await f.save();
+    audit(req, "field_updated", { target: fieldTarget(f), changes: [{ field: "options", label: "Answer restored", from: null, to: answerText(o) }] });
+    res.json(await payload());
+  } catch (err) {
+    sendError(err, res, next);
+  }
+});
+
+// Order of the answers that aren't deleted (deleted ones stay at the end).
 router.put("/:id/options/order", async (req, res, next) => {
   try {
     const f = await loadDropdown(req.params.id);
     const ids = Array.isArray((req.body || {}).ids) ? req.body.ids.map(String) : [];
-    const current = f.options.map((o) => String(o._id));
+    const current = liveOptions(f).map((o) => String(o._id));
     if (ids.length !== current.length || new Set(ids).size !== ids.length || !ids.every((id) => current.includes(id))) {
       throw new InputError("The answers changed meanwhile. Reload the page.", 409);
     }
     const byId = new Map(f.options.map((o) => [String(o._id), o.toObject()]));
-    const beforeOrder = f.options.map((o) => o.value);
-    f.options = ids.map((id) => byId.get(id));
+    const beforeOrder = liveOptions(f).map((o) => o.value);
+    f.options = [...ids.map((id) => byId.get(id)), ...f.options.filter((o) => isDeleted(o)).map((o) => o.toObject())];
     await f.save();
-    audit(req, "field_updated", { target: fieldTarget(f), changes: [{ field: "options.order", label: "Answer order", from: beforeOrder, to: f.options.map((o) => o.value) }] });
+    audit(req, "field_updated", { target: fieldTarget(f), changes: [{ field: "options.order", label: "Answer order", from: beforeOrder, to: liveOptions(f).map((o) => o.value) }] });
     res.json(await payload());
   } catch (err) {
     sendError(err, res, next);

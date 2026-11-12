@@ -3,9 +3,9 @@ import Notice from "./components/Notice";
 import { CheckIcon, ChevronLeft, ChevronRight, CloseIcon } from "./components/Icons";
 import {
   AuthError, fieldCreate, fieldDelete, fieldUpdate, fieldsGet, fieldsOrder, isServerStarting,
-  listAdd, listEdit, listOrder, listRemove, listsGet, optionAdd, optionEdit, optionRemove, optionsOrder,
+  fieldRestore, listAdd, listEdit, listOrder, listRemove, listRestore, listsGet, optionAdd, optionEdit, optionRemove, optionRestore, optionsOrder,
 } from "./lib/api";
-import { plural } from "./lib/helpers";
+import { deletedLine, plural } from "./lib/helpers";
 
 const MAUZE = "__mauze";
 const PRESETS = {
@@ -22,13 +22,15 @@ export default function PortalFields({ onAuthExpired }) {
   const [selected, setSelected] = useState(""); // field id | "new" | MAUZE
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
+  const [showDeleted, setShowDeleted] = useState(false); // also list questions / answers / values with status "D"
 
   const load = useCallback(async (tries = 0) => {
     try {
       const [f, l] = await Promise.all([fieldsGet(), listsGet()]);
       setData(f);
       setLists(l);
-      setSelected((s) => s || (f.fields[0] ? f.fields[0].id : "new"));
+      const first = f.fields.find((x) => !x.deleted);
+      setSelected((s) => s || (first ? first.id : "new"));
     } catch (err) {
       if (err instanceof AuthError) return onAuthExpired();
       if (isServerStarting(err) && tries < 24) {
@@ -59,10 +61,15 @@ export default function PortalFields({ onAuthExpired }) {
 
   if (!data || !lists) return <div className="panel portal-empty" style={{ marginTop: 28 }}>{loadMsg}</div>;
 
-  const fields = data.fields;
-  const field = fields.find((f) => f.id === selected);
+  // Ordering works on the questions that aren't deleted; deleted ones are listed after them.
+  const fields = data.fields.filter((f) => !f.deleted);
+  const deletedFields = data.fields.filter((f) => f.deleted);
+  const field = data.fields.find((f) => f.id === selected && (showDeleted || !f.deleted));
   const mauze = lists.lists.find((l) => l.key === "mauzeType");
+  const liveMauze = mauze.values.filter((v) => !v.deleted);
+  const deletedCount = deletedFields.length + data.fields.reduce((n, f) => n + f.options.filter((o) => o.deleted).length, 0) + (mauze.values.length - liveMauze.length);
   const sections = [...new Set(fields.map((f) => f.section).filter(Boolean))];
+  const firstId = () => (fields[0] ? fields[0].id : "new");
 
   const moveField = (i, dir) => {
     const ids = fields.map((f) => f.id);
@@ -77,6 +84,9 @@ export default function PortalFields({ onAuthExpired }) {
           <h1>Portal Fields</h1>
           <p className="page-sub">The dropdown questions JCs answer on the JC portal. Each question has its own answers. Changes apply immediately.</p>
         </div>
+        <label className="check show-deleted">
+          <input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} /> Show deleted ({deletedCount})
+        </label>
       </section>
 
       {msg && <Notice type={msg.type} text={msg.text} onClose={() => setMsg(null)} />}
@@ -115,11 +125,19 @@ export default function PortalFields({ onAuthExpired }) {
                 </span>
               </div>
             ))}
+            {showDeleted && deletedFields.map((f) => (
+              <div key={f.id} className={`field-row is-off is-deleted${f.id === selected ? " is-sel" : ""}`}>
+                <button type="button" className="field-pick" onClick={() => { setSelected(f.id); setMsg(null); }}>
+                  <span className="field-name">{f.label}</span>
+                  <span className="field-meta"><span className="pill bad">Deleted</span>{f.section && <span>{f.section}</span>}</span>
+                </button>
+              </div>
+            ))}
             <div className="eyebrow list-sep">Jamaat details</div>
             <div className={`field-row${selected === MAUZE ? " is-sel" : ""}`}>
               <button type="button" className="field-pick" onClick={() => { setSelected(MAUZE); setMsg(null); }}>
                 <span className="field-name">Mauze Type</span>
-                <span className="field-meta"><span>{plural(mauze.values.length, "value")}</span></span>
+                <span className="field-meta"><span>{plural(liveMauze.length, "value")}</span></span>
               </button>
             </div>
           </div>
@@ -129,17 +147,18 @@ export default function PortalFields({ onAuthExpired }) {
         <div className="panel">
           {selected === "new" && (
             <NewField meanings={data.meanings} sections={sections} busy={busy}
-              onCancel={() => setSelected(fields[0] ? fields[0].id : "new")}
+              onCancel={() => setSelected(firstId())}
               onCreate={async (body) => {
                 const res = await act(() => fieldCreate(body), `Added the question “${body.label.trim()}”.`);
                 if (res && res.createdId) setSelected(res.createdId);
               }} />
           )}
           {field && (
-            <FieldEditor key={field.id} field={field} meanings={data.meanings} sections={sections} busy={busy} act={act}
-              onDeleted={() => setSelected(fields.find((f) => f.id !== field.id)?.id || "new")} />
+            <FieldEditor key={field.id} field={field} meanings={data.meanings} sections={sections} busy={busy} act={act} showDeleted={showDeleted}
+              onDeleted={() => { if (!showDeleted) setSelected(fields.find((f) => f.id !== field.id)?.id || "new"); }} />
           )}
-          {selected === MAUZE && <MauzeEditor list={mauze} busy={busy} act={act} />}
+          {!field && selected !== "new" && selected !== MAUZE && <div className="empty-state">Choose a question.</div>}
+          {selected === MAUZE && <MauzeEditor list={mauze} busy={busy} act={act} showDeleted={showDeleted} />}
         </div>
       </section>
 
@@ -147,13 +166,14 @@ export default function PortalFields({ onAuthExpired }) {
         <b>Meaning</b> sets the colour of an answer on the dashboard and the completion rate: <i>Done</i> counts as done,
         <i> Not applicable</i> is left out, everything else counts as not done yet. Answers or questions already used in saved
         forms can't be deleted: rename an answer, or mark a question inactive (it disappears from the portal, history is kept).
+        Delete never erases anything: it gives status <b>D</b> (deleted) and hides it; tick <i>Show deleted</i> to restore.
       </p>
     </>
   );
 }
 
 // ---------- settings + answers of one question ----------
-function FieldEditor({ field, meanings, sections, busy, act, onDeleted }) {
+function FieldEditor({ field, meanings, sections, busy, act, onDeleted, showDeleted }) {
   const isDate = field.type === "date";
   const [form, setForm] = useState({ label: field.label, section: field.section, hasComment: field.hasComment, required: field.required, showOnDashboard: field.showOnDashboard });
   const dirty = form.label !== field.label || form.section !== field.section || form.hasComment !== field.hasComment || form.required !== field.required || form.showOnDashboard !== field.showOnDashboard;
@@ -168,9 +188,23 @@ function FieldEditor({ field, meanings, sections, busy, act, onDeleted }) {
     act(() => fieldUpdate(field.id, { isActive: !field.isActive }), `“${field.label}” is now ${field.isActive ? "inactive" : "active"}.`);
   };
   const remove = async () => {
-    if (!window.confirm(`Delete the question “${field.label}”? This cannot be undone.`)) return;
-    if (await act(() => fieldDelete(field.id), `Deleted “${field.label}”.`)) onDeleted();
+    if (!window.confirm(`Delete the question “${field.label}”?\n\nIt gets status D (deleted) and disappears from the JC portal and the dashboard. Nothing is erased; you can restore it from “Show deleted”.`)) return;
+    if (await act(() => fieldDelete(field.id), `Deleted “${field.label}” (status D). Tick “Show deleted” to restore it.`)) onDeleted();
   };
+
+  if (field.deleted) {
+    return (
+      <div className="panel-head master-head">
+        <div>
+          <h2>{field.label} <span className="pill bad">Deleted (status D)</span></h2>
+          <p>{deletedLine(field)}. It is hidden from the JC portal and the dashboard. Restore it to use or edit it again.</p>
+        </div>
+        <div className="head-actions">
+          <button type="button" className="mini-btn primary" onClick={() => act(() => fieldRestore(field.id), `Restored “${field.label}”.`)} disabled={busy}>Restore</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -211,7 +245,7 @@ function FieldEditor({ field, meanings, sections, busy, act, onDeleted }) {
       <div className="dd-preview">
         {isDate
           ? <input className="input date-input" type="date" disabled aria-label="Date picker preview" />
-          : field.options.map((o) => <span key={o.id} className={`pill ${toneOf(o.meaning)}`}>{o.value}</span>)}
+          : field.options.filter((o) => !o.deleted).map((o) => <span key={o.id} className={`pill ${toneOf(o.meaning)}`}>{o.value}</span>)}
         {field.hasComment && <textarea className="input q-comment" rows={2} disabled placeholder="Comment (optional)" aria-label="Comment box preview" />}
       </div>
 
@@ -222,6 +256,8 @@ function FieldEditor({ field, meanings, sections, busy, act, onDeleted }) {
             values={field.options}
             meanings={meanings}
             busy={busy}
+            showDeleted={showDeleted}
+            onRestore={(o) => act(() => optionRestore(field.id, o.id), `Restored “${o.value}”.`)}
             usedLabel="Saved answers using it"
             onMove={(ids) => act(() => optionsOrder(field.id, ids), "Order saved.")}
             onSave={(o, body) => act(() => optionEdit(field.id, o.id, body), "Answer saved.")}
@@ -311,13 +347,15 @@ function NewField({ meanings, sections, busy, onCancel, onCreate }) {
 }
 
 // ---------- Mauze Type ----------
-function MauzeEditor({ list, busy, act }) {
+function MauzeEditor({ list, busy, act, showDeleted }) {
   return (
     <>
       <div className="panel-head"><div><h2>Mauze Type</h2><p>Used by: {list.usedBy.join(", ")}</p></div></div>
       <OptionsTable
         values={list.values}
         busy={busy}
+        showDeleted={showDeleted}
+        onRestore={(v) => act(() => listRestore(list.key, v.id), `Restored “${v.value}”.`, "lists")}
         usedLabel="Jamaats using it"
         placeholder="New Mauze Type"
         onMove={(ids) => act(() => listOrder(list.key, ids), "Order saved.", "lists")}
@@ -330,7 +368,10 @@ function MauzeEditor({ list, busy, act }) {
 }
 
 // ---------- table of answers / values (meanings shown when `meanings` is given) ----------
-function OptionsTable({ values, meanings, busy, usedLabel, placeholder = "New answer", onMove, onSave, onRemove, onAdd }) {
+// Deleted (status "D") rows are listed after the others only when showDeleted, with a Restore button.
+function OptionsTable({ values: allValues, meanings, busy, usedLabel, placeholder = "New answer", showDeleted, onMove, onSave, onRemove, onRestore, onAdd }) {
+  const values = allValues.filter((v) => !v.deleted);
+  const deletedValues = showDeleted ? allValues.filter((v) => v.deleted) : [];
   const [edit, setEdit] = useState(null); // { id, value, meaning }
   const [draft, setDraft] = useState({ value: "", meaning: "" });
   const withMeaning = !!meanings;
@@ -403,14 +444,29 @@ function OptionsTable({ values, meanings, busy, usedLabel, placeholder = "New an
                     ) : (
                       <>
                         <button type="button" className="mini-btn" disabled={busy} onClick={() => setEdit({ id: v.id, value: v.value, meaning: v.meaning })}>Edit</button>
-                        <button type="button" className="mini-btn danger" disabled={busy || v.inUse > 0} onClick={() => window.confirm(`Remove “${v.value}”?`) && onRemove(v)}
-                          title={v.inUse ? "In use: rename it instead" : "Remove"}>Remove</button>
+                        <button type="button" className="mini-btn danger" disabled={busy || v.inUse > 0} onClick={() => window.confirm(`Delete “${v.value}”?\n\nIt gets status D (deleted) and is hidden. You can restore it from “Show deleted”.`) && onRemove(v)}
+                          title={v.inUse ? "In use: rename it instead" : "Delete (status D)"}>Delete</button>
                       </>
                     )}
                   </td>
                 </tr>
               );
             })}
+            {deletedValues.map((v) => (
+              <tr key={v.id} className="is-off is-deleted">
+                <td className="order-cell" data-label="Order"><span className="pill bad">Deleted</span></td>
+                <td className="cell-main"><span className="jm-name">{v.value}</span></td>
+                {withMeaning && (
+                  <td className="wide" data-label="Meaning on the dashboard">
+                    <span className="meaning"><span className={`dot tone-${meaningOf(v.meaning)?.tone || "na"}`} />{meaningOf(v.meaning)?.label || "—"}</span>
+                  </td>
+                )}
+                <td className="tnum" data-label="In use">{v.inUse}</td>
+                <td className="row-actions">
+                  <button type="button" className="mini-btn primary" disabled={busy} onClick={() => onRestore(v)} title={deletedLine(v)}>Restore</button>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </form>

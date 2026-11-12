@@ -1,5 +1,6 @@
 // One question on the JC portal: a dropdown with its own answers, or a date.
 const { mongoose } = require("../db");
+const { softDeleteFields } = require("../lib/softDelete");
 
 const MEANINGS = ["done", "progress", "pending", "notdone", "na"];
 const TYPES = ["select", "date"]; // select = dropdown (answers below) · date = date picker (no answers)
@@ -7,6 +8,7 @@ const TYPES = ["select", "date"]; // select = dropdown (answers below) · date =
 const optionSchema = new mongoose.Schema({
   value: { type: String, required: true, trim: true, maxlength: 40 },
   meaning: { type: String, enum: MEANINGS, required: true },
+  ...softDeleteFields(), // a removed answer keeps status "D" (hidden, restorable)
 });
 
 const portalFieldSchema = new mongoose.Schema(
@@ -23,6 +25,7 @@ const portalFieldSchema = new mongoose.Schema(
     required: { type: Boolean, default: true },
     showOnDashboard: { type: Boolean, default: true },
     isActive: { type: Boolean, default: true },
+    ...softDeleteFields(), // status "D" = deleted question (kept, restorable)
     options: { type: [optionSchema], default: [] },
   },
   { timestamps: true }

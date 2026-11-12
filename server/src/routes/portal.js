@@ -14,6 +14,7 @@ const { activeMasters } = require("../services/data");
 const { activeFields, portalShape } = require("../services/fields");
 const { clientIp } = require("../lib/clientIp");
 const realtime = require("../realtime");
+const { notDeleted } = require("../lib/softDelete");
 const { TOPICS, EVENTS } = require("../realtime/topics");
 const { monthLabel, recentMonths } = require("../lib/month");
 const { InputError, requireId, parseValues, parseComments, parseRemarks, sendError } = require("../lib/validate");
@@ -63,8 +64,8 @@ function checkMonth(month) {
 
 // An active Jamaat inside an active Jamiat, assigned to this JC.
 async function findJamaat(req, id) {
-  const jm = await Jamaat.findOne({ _id: requireId(id, "Jamaat"), isActive: true });
-  const jt = jm && (await Jamiat.findOne({ _id: jm.jamiat, isActive: true }).select("name").lean());
+  const jm = await Jamaat.findOne({ _id: requireId(id, "Jamaat"), isActive: true, ...notDeleted() });
+  const jt = jm && (await Jamiat.findOne({ _id: jm.jamiat, isActive: true, ...notDeleted() }).select("name").lean());
   if (!jm || !jt) throw new InputError("This Jamaat is not available. Reload the page.", 404);
   if (!canFill(await accessOf(req), jm)) {
     audit(req, "access_denied", { success: false, target: { type: "jamaat", id: String(jm._id), label: `${jm.name} (${jt.name})` }, details: { reason: "jamaat_not_assigned", method: req.method, path: req.originalUrl.slice(0, 300) } });

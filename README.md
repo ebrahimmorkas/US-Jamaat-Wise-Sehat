@@ -25,6 +25,12 @@ JC portal (/jc-portal) ──► Express API ──► MongoDB ──► Sahebo 
   can't be removed, and a question with saved answers can't be deleted (mark it inactive instead). The Mauze Type list is managed here too.
   A question is either a **dropdown** or a **date picker** (chosen when it is created; date questions have no answers and no dashboard card).
   **Include comment box** (ticked by default for new questions) shows a free-text comment under the answers on the JC portal.
+- **Delete = status "D"**: no Delete button erases anything (Jamiats, Jamaats, users, questions, answers, Mauze Type values).
+  The record gets `status: "D"` with `deletedAt` / `deletedBy`, becomes inactive and disappears from the dashboards, the JC
+  portal and the dropdowns; a deleted user is signed out and can't sign in. Tick **Show deleted** on the admin page to see them
+  and **Restore** (back to `status: "A"` and the active/inactive state it had). Names / Gmails stay reserved: adding one that
+  belongs to a deleted record asks you to restore it instead. The "in use" protections still apply (e.g. a Jamaat with monthly
+  entries can't be deleted: mark it inactive). A deleted Jamiat / Jamaat is taken out of JC assignments (not given back on restore).
 - **Jamaat details on the JC portal** (Mauze Type, House Count) are **read-only**; only the Super Admin changes them in Masters.
   If a request still tries to change them (e.g. the locked fields were re-enabled in the browser), nothing is saved and the attempt
   is logged under **Logs → Access denied** with the values that were tried.

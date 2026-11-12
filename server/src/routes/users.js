@@ -16,6 +16,7 @@ const Jamiat = require("../models/Jamiat");
 const Jamaat = require("../models/Jamaat");
 const { InputError, requireId, sendError } = require("../lib/validate");
 const realtime = require("../realtime");
+const { DELETED, notDeleted, isDeleted, markDeleted, markRestored, deletedInfo, statusChange } = require("../lib/softDelete");
 
 const router = express.Router();
 router.use(requireAuth, requireRole("superadmin"), (req, res, next) => {
@@ -37,6 +38,7 @@ const out = (u) => ({
   lastLoginAt: u.lastLoginAt || null,
   createdAt: u.createdAt,
   createdBy: u.createdBy || "",
+  ...deletedInfo(u),
 });
 const sameSet = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
 const ROLE_LABELS = { jc: "JC", saheb: "Saheb", superadmin: "Super Admin" };
@@ -57,6 +59,12 @@ async function findUser(id) {
   const u = await User.findById(requireId(id, "user"));
   if (!u) throw new InputError("User not found.", 404);
   return u;
+}
+// A Gmail already registered — also by a deleted user (restore that one instead of adding again).
+async function checkGmailFree(emailKey, exceptId) {
+  const other = await User.findOne({ emailKey, ...(exceptId ? { _id: { $ne: exceptId } } : {}) }).select("status").lean();
+  if (!other) return;
+  throw new InputError(isDeleted(other) ? "This Gmail belongs to a deleted user. Click “Show deleted” and restore that user instead." : DUPLICATE, 409);
 }
 // Refuse changes that would leave nobody able to manage the site.
 async function guardSuperAdmin(req, u, { deactivate, demote, remove }) {
@@ -110,7 +118,7 @@ router.post("/", async (req, res, next) => {
     const body = req.body || {};
     const role = roleOrThrow(body.role || "jc");
     const { email, emailKey } = gmailOrThrow(body.email);
-    if (await User.exists({ emailKey })) throw new InputError(DUPLICATE, 409);
+    await checkGmailFree(emailKey);
     const access = role === "jc" ? await parseAssignment(body) : {};
     const u = await User.create({ role, email, emailKey, ...access, createdBy: req.user.email });
     audit(req, "user_created", {
@@ -128,6 +136,7 @@ router.patch("/:id", async (req, res, next) => {
   try {
     const body = req.body || {};
     const u = await findUser(req.params.id);
+    if (isDeleted(u)) throw new InputError("This user is deleted. Restore them first to change anything.", 409);
     const before = { email: u.email, role: u.role, isActive: u.isActive, ...accessOf(u) };
     const changes = {};
     const newRole = "role" in body ? roleOrThrow(body.role) : u.role;
@@ -139,7 +148,7 @@ router.patch("/:id", async (req, res, next) => {
     if ("email" in body) {
       const { email, emailKey } = gmailOrThrow(body.email);
       if (email !== u.email) {
-        if (await User.exists({ emailKey, _id: { $ne: u._id } })) throw new InputError(DUPLICATE, 409);
+        await checkGmailFree(emailKey, u._id);
         changes.email = { from: u.email || null, to: email };
         u.email = email;
         u.emailKey = emailKey;
@@ -186,16 +195,45 @@ router.patch("/:id", async (req, res, next) => {
   }
 });
 
-// ---------- DELETE /api/users/:id ----------
+// ---------- DELETE /api/users/:id ----------  status "D": signed out everywhere, can't sign in, kept (restorable)
 router.delete("/:id", async (req, res, next) => {
   try {
     const u = await findUser(req.params.id);
+    if (isDeleted(u)) throw new InputError("This user is already deleted.", 409);
     await guardSuperAdmin(req, u, { remove: true });
-    await Session.deleteMany({ user: u._id });
-    await u.deleteOne();
+    const before = { email: u.email, role: u.role, isActive: u.isActive };
+    markDeleted(u, req.user.email);
+    await u.save();
+    await Session.updateMany({ user: u._id, revokedAt: null }, { $set: { revokedAt: new Date(), revokeReason: "user_deleted" } });
     realtime.disconnectUser(u._id);
-    audit(req, "user_deleted", { target: userTarget(u), changes: [...diff(u, null, USER_FIELDS), ...(u.role === "jc" ? await accessChanges(accessOf(u), null) : [])] });
+    audit(req, "user_deleted", { target: userTarget(u), changes: [statusChange("A", DELETED), ...diff(before, u, USER_FIELDS)] });
     res.status(204).end();
+  } catch (err) {
+    sendError(err, res, next);
+  }
+});
+
+// ---------- POST /api/users/:id/restore ----------  back to status "A" (with the access they had)
+router.post("/:id/restore", async (req, res, next) => {
+  try {
+    const u = await User.findById(requireId(req.params.id, "user")).select("+emailKey");
+    if (!u) throw new InputError("User not found.", 404);
+    if (!isDeleted(u)) throw new InputError("This user is not deleted.", 409);
+    if (u.emailKey) await checkGmailFree(u.emailKey, u._id);
+    const before = { email: u.email, role: u.role, isActive: u.isActive };
+    markRestored(u);
+    if (u.role === "jc") {
+      // Keep only Jamiats / Jamaats that still exist (deleted ones were taken away meanwhile).
+      const [jts, jms] = await Promise.all([
+        Jamiat.find({ _id: { $in: u.jamiats || [] }, ...notDeleted() }).select("_id").lean(),
+        Jamaat.find({ _id: { $in: u.jamaats || [] }, ...notDeleted() }).select("_id").lean(),
+      ]);
+      u.jamiats = jts.map((x) => x._id);
+      u.jamaats = jms.map((x) => x._id);
+    }
+    await u.save();
+    audit(req, "user_restored", { target: userTarget(u), changes: [statusChange(DELETED, "A"), ...diff(before, u, USER_FIELDS)] });
+    res.json({ user: out(u) });
   } catch (err) {
     sendError(err, res, next);
   }

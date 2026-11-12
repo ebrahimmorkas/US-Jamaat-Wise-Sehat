@@ -24,16 +24,19 @@ const ACTIONS = [
   // data changes (audit trail)
   "user_created",
   "user_updated",
-  "user_deleted",
+  "user_deleted",         // deletes only set status "D" (the record is kept)
+  "user_restored",        // ... and can be restored (status back to "A")
   "user_password_reset",
-  "dropdown_updated",     // a Mauze Type value was added / renamed / removed / reordered
+  "dropdown_updated",     // a Mauze Type value was added / renamed / removed (status D) / restored / reordered
   "field_created",        // a JC portal question was added
   "field_updated",        // ... renamed, its answers changed, reordered, (de)activated
   "field_deleted",
+  "field_restored",
   "entry_submitted",      // a JC saved a Jamaat's monthly form
   "master_created",       // Jamiat / Jamaat added
   "master_updated",
   "master_deleted",
+  "master_restored",
 ];
 
 const changeSchema = new mongoose.Schema(

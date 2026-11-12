@@ -7,6 +7,7 @@ const Entry = require("../models/Entry");
 const AuditLog = require("../models/AuditLog");
 const { seedLists } = require("./lists");
 const { seedFields, invalidate } = require("./fields");
+const { markDeleted, isDeleted } = require("../lib/softDelete");
 
 // One-time changes: each id runs once and is recorded in the "migrations" collection,
 // so later edits by the Super Admin are never overwritten.
@@ -51,8 +52,9 @@ async function formUpdate2026_11() {
       await before.save();
       changes.push({ field: "before16mi.isActive", label: `Active: "${before.label}"`, from: true, to: false });
     } else {
-      await before.deleteOne();
-      changes.push({ field: "before16mi", label: "Question deleted", from: before.label, to: null });
+      markDeleted(before, "system"); // status "D" (kept, restorable)
+      await before.save();
+      changes.push({ field: "before16mi", label: "Question deleted (status D)", from: before.label, to: null });
     }
   }
   if (aamil && !(await PortalField.exists({ key: "reportDate" }))) {
@@ -65,12 +67,12 @@ async function formUpdate2026_11() {
     const f = await PortalField.findOne({ key });
     if (!f) continue;
     const pending = f.options.find((o) => o.value === "Pending");
-    const drop = f.options.filter((o) => ["No", "Not Applicable"].includes(o.value));
+    const drop = f.options.filter((o) => ["No", "Not Applicable"].includes(o.value) && !isDeleted(o));
     if (!pending || !drop.length) continue;
     for (const o of drop) {
       const n = (await Entry.updateMany({ [`values.${key}`]: o.value }, { $set: { [`values.${key}`]: "Pending" } })).modifiedCount;
-      f.options.pull(o._id);
-      changes.push({ field: `${key}.options`, label: `Answer removed from "${f.label}"`, from: o.value + (n ? ` (${n} saved form(s) set to Pending)` : ""), to: null });
+      markDeleted(o, "system"); // status "D" (kept, restorable)
+      changes.push({ field: `${key}.options`, label: `Answer deleted (status D) from "${f.label}"`, from: o.value + (n ? ` (${n} saved form(s) set to Pending)` : ""), to: null });
     }
     await f.save();
   }

@@ -3,14 +3,15 @@ const { dashboardMetrics } = require("./fields");
 const Jamiat = require("../models/Jamiat");
 const Jamaat = require("../models/Jamaat");
 const Entry = require("../models/Entry");
+const { notDeleted } = require("../lib/softDelete");
 const { currentMonth, monthLabel, recentMonths } = require("../lib/month");
 
 const byName = (a, b) => a.name.localeCompare(b.name);
 
 /** Active Jamiats with their active Jamaats, sorted by name. */
 async function activeMasters() {
-  const jamiats = await Jamiat.find({ isActive: true }).select("name").lean();
-  const jamaats = await Jamaat.find({ isActive: true, jamiat: { $in: jamiats.map((j) => j._id) } })
+  const jamiats = await Jamiat.find({ isActive: true, ...notDeleted() }).select("name").lean();
+  const jamaats = await Jamaat.find({ isActive: true, ...notDeleted(), jamiat: { $in: jamiats.map((j) => j._id) } })
     .select("jamiat name mauzeType houseCount children")
     .lean();
   const groups = new Map(jamiats.map((j) => [String(j._id), { ...j, jamaats: [] }]));

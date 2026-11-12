@@ -122,12 +122,15 @@ export const allAccessCount = (type, id) => request(`/api/users/all-access?type=
 export const grantAllAccess = (type, id) => request("/api/users/all-access", { method: "POST", body: { type, id } });
 export const updateUser = (id, body) => request(`/api/users/${id}`, { method: "PATCH", body });
 export const deleteUser = (id) => request(`/api/users/${id}`, { method: "DELETE" });
+export const restoreUser = (id) => request(`/api/users/${id}/restore`, { method: "POST" });
 
 // ---- Portal fields = JC form questions (Super Admin) ----
 export const fieldsGet = () => request("/api/fields");
 export const fieldCreate = (body) => request("/api/fields", { method: "POST", body });
 export const fieldUpdate = (id, body) => request(`/api/fields/${id}`, { method: "PATCH", body });
 export const fieldDelete = (id) => request(`/api/fields/${id}`, { method: "DELETE" });
+export const fieldRestore = (id) => request(`/api/fields/${id}/restore`, { method: "POST" });
+export const optionRestore = (id, oid) => request(`/api/fields/${id}/options/${oid}/restore`, { method: "POST" });
 export const fieldsOrder = (ids) => request("/api/fields/order", { method: "PUT", body: { ids } });
 export const optionAdd = (id, body) => request(`/api/fields/${id}/options`, { method: "POST", body });
 export const optionEdit = (id, oid, body) => request(`/api/fields/${id}/options/${oid}`, { method: "PATCH", body });
@@ -139,6 +142,7 @@ export const listsGet = () => request("/api/settings/lists");
 export const listAdd = (key, body) => request(`/api/settings/lists/${key}/values`, { method: "POST", body });
 export const listEdit = (key, id, body) => request(`/api/settings/lists/${key}/values/${id}`, { method: "PATCH", body });
 export const listRemove = (key, id) => request(`/api/settings/lists/${key}/values/${id}`, { method: "DELETE" });
+export const listRestore = (key, id) => request(`/api/settings/lists/${key}/values/${id}/restore`, { method: "POST" });
 export const listOrder = (key, ids) => request(`/api/settings/lists/${key}/order`, { method: "PUT", body: { ids } });
 
 // ---- Masters (Super Admin) ----
@@ -146,6 +150,8 @@ export const mastersList = () => request("/api/masters");
 export const createJamiat = (body) => request("/api/masters/jamiats", { method: "POST", body });
 export const updateJamiat = (id, body) => request(`/api/masters/jamiats/${id}`, { method: "PATCH", body });
 export const deleteJamiat = (id) => request(`/api/masters/jamiats/${id}`, { method: "DELETE" });
+export const restoreJamiat = (id) => request(`/api/masters/jamiats/${id}/restore`, { method: "POST" });
 export const createJamaat = (body) => request("/api/masters/jamaats", { method: "POST", body });
 export const updateJamaat = (id, body) => request(`/api/masters/jamaats/${id}`, { method: "PATCH", body });
 export const deleteJamaat = (id) => request(`/api/masters/jamaats/${id}`, { method: "DELETE" });
+export const restoreJamaat = (id) => request(`/api/masters/jamaats/${id}/restore`, { method: "POST" });

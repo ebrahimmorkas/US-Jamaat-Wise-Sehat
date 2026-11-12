@@ -1,4 +1,5 @@
 const { mongoose } = require("../db");
+const { softDeleteFields } = require("../lib/softDelete");
 
 // Everyone signs in with Google. Only Gmail addresses added by a Super Admin can sign in.
 //   saheb      -> Sahebo dashboard
@@ -28,6 +29,7 @@ const userSchema = new mongoose.Schema(
     jamaats: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Jamaat" }], default: undefined },
 
     isActive: { type: Boolean, default: true },
+    ...softDeleteFields(), // status "D" = deleted: can't sign in, kept and restorable
     createdBy: String,
     lastLoginAt: Date,
   },

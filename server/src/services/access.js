@@ -3,6 +3,7 @@ const Jamiat = require("../models/Jamiat");
 const Jamaat = require("../models/Jamaat");
 const User = require("../models/User");
 const { InputError, isId } = require("../lib/validate");
+const { notDeleted } = require("../lib/softDelete");
 
 const ids = (list) => [...new Set((Array.isArray(list) ? list : []).map(String))];
 
@@ -19,9 +20,10 @@ async function parseAssignment(body) {
   if (!jamiatIds.length) throw new InputError("Choose at least one Jamiat.");
   if (![...jamiatIds, ...jamaatIds].every(isId)) throw new InputError("Some Jamiats or Jamaats are not valid. Reload the page.");
 
-  const jamiats = await Jamiat.find({ _id: { $in: jamiatIds } }).select("name").lean();
+  // Deleted (status "D") Jamiats / Jamaats can't be assigned.
+  const jamiats = await Jamiat.find({ _id: { $in: jamiatIds }, ...notDeleted() }).select("name").lean();
   if (jamiats.length !== jamiatIds.length) throw new InputError("Some Jamiats no longer exist. Reload the page.");
-  const jamaats = await Jamaat.find({ _id: { $in: jamaatIds } }).select("jamiat").lean();
+  const jamaats = await Jamaat.find({ _id: { $in: jamaatIds }, ...notDeleted() }).select("jamiat").lean();
   if (jamaats.length !== jamaatIds.length) throw new InputError("Some Jamaats no longer exist. Reload the page.");
   if (jamaats.some((jm) => !jamiatIds.includes(String(jm.jamiat)))) {
     throw new InputError("A chosen Jamaat is not inside the chosen Jamiats. Reload the page.");
@@ -68,7 +70,7 @@ async function grantToAllAccess(type, id) {
   return (await User.updateMany(filter, { $addToSet: { [field]: id } })).modifiedCount;
 }
 
-/** When a Jamiat / Jamaat is deleted, take it out of every JC's access. */
+/** When a Jamiat / Jamaat is deleted (status D), take it out of every JC's access (not given back on restore). */
 async function removeFromAccess(type, id) {
   const field = type === "jamiat" ? "jamiats" : "jamaats";
   await User.updateMany({ [field]: id }, { $pull: { [field]: id } });

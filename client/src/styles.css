@@ -986,3 +986,8 @@ select:disabled { opacity: .6; cursor: not-allowed; }
   .open-list { max-width: none; }
   .jc-table.card-rows td.m-hide { display: none; }
 }
+/* ---------- deleted records (status "D"): shown only with "Show deleted", with Restore ---------- */
+.show-deleted { align-self: flex-end; font-size: 13px; color: var(--ink-2); white-space: nowrap; }
+.users-tools .show-deleted { align-self: center; }
+.master-table tr.is-deleted .jm-name, .master-row.is-deleted .rank-name, .field-row.is-deleted .field-name { text-decoration: line-through; text-decoration-color: var(--s-bad); }
+.master-table tr.is-deleted td { background: color-mix(in srgb, var(--soft-bad) 45%, transparent); }

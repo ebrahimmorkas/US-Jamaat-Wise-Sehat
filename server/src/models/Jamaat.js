@@ -1,5 +1,6 @@
 // Jamaat master (≈ city). Belongs to one Jamiat.
 const { mongoose } = require("../db");
+const { softDeleteFields } = require("../lib/softDelete");
 
 const count = { type: Number, min: 0, max: 1000000, validate: { validator: (v) => v == null || Number.isInteger(v), message: "must be a whole number" } };
 
@@ -13,6 +14,7 @@ const jamaatSchema = new mongoose.Schema(
     houseCount: { ...count, default: null },
     children: { ...count, default: null },
     isActive: { type: Boolean, default: true },
+    ...softDeleteFields(), // status "D" = deleted (kept, restorable)
   },
   { timestamps: true }
 );

@@ -46,8 +46,8 @@ async function signIn(req, res, { email, sub, name, method }) {
     audit(req, "login_failed", { user: user ? user.toPublic() : null, username: email, success: false, details: { reason, method } });
     return res.status(403).json({ error: message, code });
   };
-  if (!user) {
-    return refuse("not_registered", `${email} is not registered. Ask the Super Admin to add this Google account.`, "NOT_REGISTERED");
+  if (!user || user.status === "D") { // a deleted user (status D) counts as not registered
+    return refuse(user ? "deleted" : "not_registered", `${email} is not registered. Ask the Super Admin to add this Google account.`, "NOT_REGISTERED");
   }
   if (!user.isActive) return refuse("inactive", "This account has been deactivated. Contact the Super Admin.", "USER_INACTIVE");
   // The Gmail address was given to someone else's Google account? (Google ids never change.)

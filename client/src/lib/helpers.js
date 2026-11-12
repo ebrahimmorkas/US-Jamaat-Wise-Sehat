@@ -7,6 +7,13 @@ export const same = (a, b) => lower(a) === lower(b);
 export const pct = (n, d) => (d ? Math.round((n / d) * 100) : 0);
 export const plural = (n, word, many) => `${n} ${n === 1 ? word : many || word + "s"}`;
 
+/** "Deleted by a@gmail.com on 12 Nov 2026" for records with status "D". */
+export const deletedLine = (x) => {
+  if (!x || !x.deleted) return "";
+  const when = x.deletedAt ? ` on ${new Date(x.deletedAt).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })}` : "";
+  return `Deleted${x.deletedBy ? ` by ${x.deletedBy}` : ""}${when}`;
+};
+
 // Answer helpers. Every question (metric) has its own answers:
 //   metric.options = [{ value, tone }]   metric.done = ["Completed", ...]
 // Tones: good | info | warn (pending) | bad | na (not applicable).

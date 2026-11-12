@@ -25,8 +25,14 @@ const arg = (name) => {
   try {
     const existing = await User.findOne({ emailKey: g.emailKey });
     if (existing) {
+      const wasDeleted = existing.status === "D";
       existing.role = role;
       existing.isActive = true;
+      existing.status = "A"; // a deleted user (status D) is restored
+      existing.deletedAt = undefined;
+      existing.deletedBy = undefined;
+      existing.activeBeforeDelete = undefined;
+      if (wasDeleted) await AuditLog.create({ action: "user_restored", username: "cli", details: { email: g.email, role } });
       existing.jamiats = undefined; // only JCs have assignments
       existing.jamaats = undefined;
       await existing.save();
