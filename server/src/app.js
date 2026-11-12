@@ -73,11 +73,15 @@ app.use("/api/audit", auditRoutes);
 app.use("/api/logs", logsRoutes);
 app.use("/api/realtime", realtimeRoutes);
 app.use("/api/portal", portalRoutes); // publishes its own live update (with the month)
-// Super Admin changes that the dashboard shows -> open dashboards reload at once.
-app.use("/api/masters", notifyOnSuccess(TOPICS.dashboard, EVENTS.dashboardChanged, { reason: "masters" }), mastersRoutes);
-app.use("/api/users", usersRoutes);
+// Super Admin changes that the dashboards show -> open Saheb and JC dashboards reload at once.
+app.use("/api/masters",
+  notifyOnSuccess(TOPICS.dashboard, EVENTS.dashboardChanged, { reason: "masters" }),
+  notifyOnSuccess(TOPICS.portal, EVENTS.portalChanged, { reason: "masters" }), mastersRoutes);
+app.use("/api/users", notifyOnSuccess(TOPICS.portal, EVENTS.portalChanged, { reason: "access" }), usersRoutes);
 app.use("/api/settings", notifyOnSuccess(TOPICS.dashboard, EVENTS.dashboardChanged, { reason: "lists" }), settingsRoutes);
-app.use("/api/fields", notifyOnSuccess(TOPICS.dashboard, EVENTS.dashboardChanged, { reason: "fields" }), fieldsRoutes);
+app.use("/api/fields",
+  notifyOnSuccess(TOPICS.dashboard, EVENTS.dashboardChanged, { reason: "fields" }),
+  notifyOnSuccess(TOPICS.portal, EVENTS.portalChanged, { reason: "fields" }), fieldsRoutes);
 app.use("/api", apiRoutes);
 app.use("/api", (req, res) => res.status(404).json({ error: "Not found" }));
 

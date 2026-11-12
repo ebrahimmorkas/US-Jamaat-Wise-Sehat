@@ -32,7 +32,8 @@ JC portal (/jc-portal) ──► Express API ──► MongoDB ──► Sahebo 
 
 | Page | Who | What |
 |---|---|---|
-| `/jc-portal` | **JC** (signed in) | pick Month → Jamiat → Jamaat, fill the form, Submit |
+| `/jc-portal` | **JC** (signed in) | **JC dashboard** for a month (only their own Jamaats, **live**): submitted / not submitted, completion rate, Jamaats needing follow-up, answers not done yet per question; *Fill* / *Update* opens the form for that Jamaat |
+| `/jc-portal/form` | **JC** | pick Month → Jamiat → Jamaat, fill the form, Submit |
 | `/` | **Saheb** | dashboard for a chosen month; **live**: updates the moment a JC saves |
 | `/admin/...` | **Super Admin** | JC users, masters, Portal Fields |
 

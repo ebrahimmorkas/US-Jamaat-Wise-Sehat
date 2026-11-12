@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import Dashboard from "./Dashboard";
 import AdminPortal from "./AdminPortal";
 import JcPortal from "./JcPortal";
+import JcDashboard from "./JcDashboard";
 import ErrorPage from "./ErrorPage";
 import AccessDenied from "./AccessDenied";
 import LoginPage from "./components/LoginPage";
@@ -12,13 +13,14 @@ import { navigate, usePath } from "./lib/router";
 import { reportClientError } from "./lib/api";
 
 // Everyone signs in with Google; each role has its own home:
-//   Saheb -> "/" (dashboard)   Super Admin -> "/admin/..."   JC -> "/jc-portal"
+//   Saheb -> "/" (dashboard)   Super Admin -> "/admin/..."   JC -> "/jc-portal" (their dashboard) + "/jc-portal/form"
 const homeOf = (role) => ({ superadmin: "/admin/users", jc: "/jc-portal" }[role] || "/");
+const isJcPage = (path) => path === "/jc-portal" || path.startsWith("/jc-portal/");
 const belongsTo = (role, path) =>
-  role === "superadmin" ? path.startsWith("/admin/") : role === "jc" ? path === "/jc-portal" : !path.startsWith("/admin") && path !== "/jc-portal";
+  role === "superadmin" ? path.startsWith("/admin/") : role === "jc" ? isJcPage(path) : !path.startsWith("/admin") && !isJcPage(path);
 // Pages that belong to a role. Opening one with another role shows "Access denied" (and is logged);
 // any other address (e.g. "/") just takes the user to their own home.
-const isRestrictedPage = (path) => path.startsWith("/admin") || path === "/jc-portal";
+const isRestrictedPage = (path) => path.startsWith("/admin") || isJcPage(path);
 
 // Errors we don't control (browser extensions, Google's script) must not take the user to the Error page.
 const ourError = (e) => {
@@ -106,6 +108,10 @@ function Main({ path, theme, onToggleTheme }) {
 
   const common = { user: auth.user, onSignOut: auth.signOut, onAuthExpired: auth.expire, theme, onToggleTheme };
   if (role === "superadmin") return <AdminPortal key={auth.user.id} {...common} path={belongsTo(role, path) ? path : homeOf(role)} />;
-  if (role === "jc") return <JcPortal key={auth.user.id} {...common} />;
+  if (role === "jc") {
+    return path === "/jc-portal/form"
+      ? <JcPortal key={auth.user.id} {...common} />
+      : <JcDashboard key={auth.user.id} {...common} />;
+  }
   return <Dashboard key={auth.user.id} {...common} />;
 }

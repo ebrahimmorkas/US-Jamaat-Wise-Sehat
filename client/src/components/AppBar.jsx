@@ -4,8 +4,9 @@ import { LogoutIcon, MoonIcon, RefreshIcon, SunIcon } from "./Icons";
 const ROLE_LABELS = { saheb: "Saheb", superadmin: "Super Admin", jc: "JC" };
 
 // Top bar. `nav` = [{ to, label }] page tabs (current one = `page`).
+// `canLeave()` = optional check before switching tab (e.g. unsaved answers); false = stay.
 // The refresh block is shown only when `sync` is passed (dashboard page).
-export default function AppBar({ title = "Umoor Sehhat", subtitle = "Monthly Coordination", nav, page, sync, theme, onToggleTheme, user, onSignOut }) {
+export default function AppBar({ title = "Umoor Sehhat", subtitle = "Monthly Coordination", nav, page, canLeave, sync, theme, onToggleTheme, user, onSignOut }) {
   const dark = theme === "dark";
   const themeLabel = dark ? "Switch to light mode" : "Switch to dark mode";
 
@@ -22,7 +23,8 @@ export default function AppBar({ title = "Umoor Sehhat", subtitle = "Monthly Coo
           {nav && nav.length > 0 && (
             <nav className="app-nav" aria-label="Pages">
               {nav.map((n) => (
-                <Link key={n.to} to={n.to} className={page === n.to ? "is-current" : ""} aria-current={page === n.to ? "page" : undefined}>{n.label}</Link>
+                <Link key={n.to} to={n.to} className={page === n.to ? "is-current" : ""} aria-current={page === n.to ? "page" : undefined}
+                  onClick={(e) => { if (page !== n.to && canLeave && !canLeave()) e.preventDefault(); }}>{n.label}</Link>
               ))}
             </nav>
           )}

@@ -98,6 +98,43 @@ router.get("/options", async (req, res, next) => {
   }
 });
 
+// ---------- GET /api/portal/summary?month=YYYY-MM ----------  the JC's own dashboard
+// Only the Jamaats assigned to this JC, and for each only the dropdown answers (no comments,
+// remarks or IPs). The page works out the counts itself.
+router.get("/summary", async (req, res, next) => {
+  try {
+    const months = recentMonths(form.portalMonthsBack);
+    const month = req.query.month ? checkMonth(req.query.month) : months[0];
+    const [masters, fields, access] = await Promise.all([activeMasters(), activeFields(), accessOf(req)]);
+    const questions = fields.filter((f) => f.type === "select").map((f) => ({
+      ...portalShape(f),
+      done: f.options.filter((o) => o.meaning === "done").map((o) => o.value),
+    }));
+    const mine = [];
+    for (const j of masters) {
+      if (!access.jamiats.has(String(j._id))) continue;
+      for (const jm of j.jamaats) if (access.jamaats.has(String(jm._id))) mine.push({ jm, jamiat: j });
+    }
+    const entries = await Entry.find({ month, jamaat: { $in: mine.map((x) => x.jm._id) } }).select("jamaat values updatedAt").lean();
+    const byJamaat = new Map(entries.map((e) => [String(e.jamaat), e]));
+    res.json({
+      month,
+      monthLabel: monthLabel(month),
+      months: months.map((key) => ({ key, label: monthLabel(key) })),
+      questions,
+      jamaats: mine.map(({ jm, jamiat }) => {
+        const e = byJamaat.get(String(jm._id));
+        const values = {};
+        if (e) for (const q of questions) if (e.values && e.values[q.key]) values[q.key] = e.values[q.key];
+        return { id: String(jm._id), name: jm.name, jamiatId: String(jamiat._id), jamiat: jamiat.name, submittedAt: e ? e.updatedAt : null, values };
+      }),
+      loadedAt: new Date(),
+    });
+  } catch (err) {
+    sendError(err, res, next);
+  }
+});
+
 // ---------- GET /api/portal/entry?jamaat=<id>&month=YYYY-MM ----------  what is saved already
 router.get("/entry", async (req, res, next) => {
   try {
@@ -173,8 +210,12 @@ router.post("/entry", submitLimiter, async (req, res, next) => {
       details: { month, jamiat: jamiat.name, jamaat: jamaat.name, firstSubmission: !before, unchanged: !trail.length || undefined },
     });
 
-    // Open dashboards reload at once (only the month is sent; they fetch the data themselves).
-    if (trail.length || !before) realtime.publish(TOPICS.dashboard, EVENTS.dashboardChanged, { reason: "entry", month });
+    // Open dashboards reload at once (only the month / Jamaat id is sent; they fetch the data themselves,
+    // so each JC still sees only their own Jamaats).
+    if (trail.length || !before) {
+      realtime.publish(TOPICS.dashboard, EVENTS.dashboardChanged, { reason: "entry", month });
+      realtime.publish(TOPICS.portal, EVENTS.portalChanged, { reason: "entry", month, jamaat: String(jamaat._id) });
+    }
 
     res.json({ ok: true, firstSubmission: !before, updatedAt: entry.updatedAt, details: details(jamaat) });
   } catch (err) {

@@ -3,6 +3,8 @@ import { AuthError, isServerStarting, portalEntry, portalOptions, portalSave } f
 import { ChevronRight, LockIcon } from "./components/Icons";
 import AppBar from "./components/AppBar";
 import Notice from "./components/Notice";
+import { JC_NAV } from "./JcDashboard";
+import { Link } from "./lib/router";
 
 const LAST_JAMIAT = "jc-portal:jamiat";
 const store = {
@@ -52,7 +54,7 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
 
   useEffect(() => {
     const before = document.title;
-    document.title = "JC Portal · Umoor Sehhat";
+    document.title = "Fill form · JC Portal";
     return () => { document.title = before; };
   }, []);
 
@@ -65,9 +67,21 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
         .then((o) => {
           if (!alive) return;
           setOpts(o);
-          setMonth(o.months[0] ? o.months[0].key : "");
-          const last = store.get(LAST_JAMIAT);
-          if (o.jamiats.some((j) => j.id === last)) setJamiatId(last);
+          // Opened from the dashboard ("Fill" / "Update"): ?jamaat=<id>&month=YYYY-MM
+          const params = new URLSearchParams(window.location.search);
+          const wantMonth = params.get("month");
+          const wantJamaat = params.get("jamaat");
+          const owner = wantJamaat && o.jamiats.find((j) => j.jamaats.some((x) => x.id === wantJamaat));
+          setMonth(o.months.some((m) => m.key === wantMonth) ? wantMonth : o.months[0] ? o.months[0].key : "");
+          if (owner) {
+            setJamiatId(owner.id);
+            setJamaatId(wantJamaat);
+            store.set(LAST_JAMIAT, owner.id);
+          } else {
+            const last = store.get(LAST_JAMIAT);
+            if (o.jamiats.some((j) => j.id === last)) setJamiatId(last);
+          }
+          if (window.location.search) window.history.replaceState(null, "", "/jc-portal/form");
         })
         .catch((err) => {
           if (!alive) return;
@@ -194,7 +208,8 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
 
   return (
     <div className="portal">
-      <AppBar title="JC Portal" subtitle="Monthly Jamaat follow-up" theme={theme} onToggleTheme={onToggleTheme} user={user} onSignOut={onSignOut} />
+      <AppBar title="JC Portal" subtitle="Monthly Jamaat follow-up" nav={JC_NAV} page="/jc-portal/form" canLeave={okToLeave}
+        theme={theme} onToggleTheme={onToggleTheme} user={user} onSignOut={onSignOut} />
 
       <main className="container portal-main">
         {!opts ? (
@@ -318,6 +333,7 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
 
                 <Notice type="error" text={error} onClose={() => setError("")} />
                 <Notice type="ok" text={success} onClose={() => setSuccess("")}>
+                  <Link to="/jc-portal" className="btn btn-ghost">Back to dashboard</Link>
                   {nextJamaat && (
                     <button type="button" className="btn btn-ghost" onClick={() => { setJamaatId(nextJamaat.id); setSuccess(""); window.scrollTo({ top: 0, behavior: "smooth" }); }}>
                       Next: {nextJamaat.name} <ChevronRight size={14} />
