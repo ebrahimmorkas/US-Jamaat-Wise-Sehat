@@ -183,12 +183,35 @@ button, select, input { font: inherit; color: inherit; }
 .btn.loading svg { animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+.sync-short { display: none; }
 @media (max-width: 560px) {
-  .brand-sub, .sync-next, .brand-divider { display: none; }
+  .brand-sub, .brand-divider { display: none; }
   .brand-name { display: none; }
   .brand-logo { height: 42px; }
   .btn span { display: none; }
   .btn { padding: 9px 10px; }
+  .appbar-inner { gap: 8px; min-height: 56px; padding-top: 7px; padding-bottom: 7px; }
+  .sync { gap: 8px; }
+  .sync-text { font-size: 11px; white-space: nowrap; }
+  .sync-long { display: none; }
+  .sync-short { display: inline; }
+  .appbar .icon-toggle { width: 36px; height: 36px; }
+}
+
+/* ---------- phones: page tabs get their own scrollable row under the logo ---------- */
+@media (max-width: 720px) {
+  .appbar-inner { flex-wrap: wrap; }
+  .brand { display: contents; }
+  .brand > * { order: 1; }
+  .sync { order: 2; margin-left: auto; }
+  .app-nav {
+    order: 3; flex: 1 0 100%; margin: 0 -16px; padding: 2px 16px 0;
+    overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  }
+  .app-nav::-webkit-scrollbar { display: none; }
+  .app-nav a { white-space: nowrap; padding: 8px 14px; }
+  /* 16px text in form fields: phones (iPhone) don't zoom the page when a field is tapped */
+  .input, select, textarea, .multi-btn, .login-field input { font-size: 16px; }
 }
 
 /* ---------- page head ---------- */
@@ -666,6 +689,43 @@ select:disabled { opacity: .6; cursor: not-allowed; }
 .master-table select { padding-right: 28px; background-position: right 6px center; }
 .master-table .input.num { width: 96px; }
 .edit-row td { background: var(--surface-2); }
+
+/* ---------- phones: table rows become cards (tables with class "card-rows") ---------- */
+@media (max-width: 640px) {
+  .table-wrap { padding: 0 12px 14px; }
+  .master-table.card-rows { min-width: 0; width: 100%; }
+  .master-table.card-rows thead { display: none; }
+  .master-table.card-rows, .master-table.card-rows tbody { display: block; }
+  .master-table.card-rows tr {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px;
+    padding: 12px 14px; margin-bottom: 10px;
+    border: 1px solid var(--border); border-radius: 12px; background: var(--surface);
+  }
+  .master-table.card-rows tr.edit-row { background: var(--surface-2); border-color: var(--brand); }
+  .master-table.card-rows td { display: block; padding: 0; border: 0; background: none !important; min-width: 0; overflow-wrap: anywhere; }
+  .master-table.card-rows td.idx, .master-table.card-rows td:empty { display: none; }
+  .master-table.card-rows td[data-label]::before {
+    content: attr(data-label); display: block; margin-bottom: 3px;
+    font-size: 10.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted);
+  }
+  .master-table.card-rows td.cell-main { grid-column: 1 / -1; font-size: 15px; }
+  .master-table.card-rows td.wide { grid-column: 1 / -1; max-width: none; }
+  .master-table.card-rows td.row-actions {
+    grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; text-align: left;
+    padding-top: 10px; border-top: 1px solid var(--border);
+  }
+  .master-table.card-rows .row-actions .mini-btn { padding: 8px 14px; font-size: 13px; }
+  .master-table.card-rows .row-actions .mini-btn + .mini-btn { margin-left: 0; }
+  .master-table.card-rows .input, .master-table.card-rows select, .master-table.card-rows .input.num { width: 100%; font-size: 16px; padding: 9px 12px; }
+  .master-table.card-rows .order-cell { width: auto; }
+  .add-line { flex-wrap: wrap; }
+  .jamaat-tools { padding: 4px 12px 12px; }
+  .jamaat-tools .input { flex: 1 1 100%; }
+  .jamaat-tools .btn { flex: 1; justify-content: center; }
+  .users-list .users-tools { padding-left: 12px; padding-right: 12px; }
+  .users-tools .input { flex: 1 1 150px; width: auto; }
+  .users-tools .role-filter { width: auto; flex: 1 1 110px; }
+}
 .move-select { margin-top: 6px; font-size: 12px !important; color: var(--ink-2); }
 
 /* ---------- Super Admin: users & dropdowns ---------- */
@@ -715,7 +775,9 @@ select:disabled { opacity: .6; cursor: not-allowed; }
 
 /* ---------- sign-in page ---------- */
 .login-hint { margin: 0 0 18px; color: var(--ink-2); font-size: 14px; }
+@media (max-width: 400px) { .login-card { padding: 26px 18px 20px; } .login-logo { height: 84px; margin-bottom: 18px; } }
 .google-slot { display: flex; flex-direction: column; align-items: center; gap: 10px; min-height: 44px; justify-content: center; }
+.google-button { width: 100%; max-width: 300px; display: flex; justify-content: center; }
 .google-slot.is-busy > div:first-child { opacity: .5; pointer-events: none; }
 .dev-login { margin-top: 22px; padding-top: 16px; border-top: 1px dashed var(--border-strong); text-align: left; }
 .dev-login .eyebrow { margin-bottom: 8px; color: var(--t-warn); }
@@ -789,6 +851,17 @@ select:disabled { opacity: .6; cursor: not-allowed; }
 .log-row.static { cursor: default; }
 .log-row:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
 @media (max-width: 900px) { .log-row { grid-template-columns: 1fr 1fr; } }
+/* phones: time + IP on one line, then what happened, then who */
+@media (max-width: 560px) {
+  .log-row { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; padding: 12px 14px; }
+  .log-row .log-time { grid-row: 1; grid-column: 1; }
+  .log-row .log-ip, .log-row .log-ref { grid-row: 1; grid-column: 2; }
+  .log-row .pill { grid-column: 1 / -1; justify-self: start; }
+  .log-row .log-main, .log-row .log-who { grid-column: 1 / -1; }
+  .log-changes { margin: 0 14px 10px; width: calc(100% - 28px); }
+  .log-extra { padding: 0 14px 12px; }
+  .log-tab { padding: 7px 12px; }
+}
 .log-time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
 .log-main { min-width: 0; }
 .log-main b { font-weight: 600; display: block; overflow-wrap: anywhere; }

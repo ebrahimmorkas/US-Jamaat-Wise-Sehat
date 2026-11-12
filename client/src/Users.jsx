@@ -230,9 +230,9 @@ export default function Users({ onAuthExpired }) {
           </select>
         </div>
         <div className="table-wrap">
-          <table className="master-table users-table">
+          <table className="master-table users-table card-rows">
             <thead>
-              <tr><th>#</th><th>Gmail</th><th>Role</th><th>Assigned</th><th>Status</th><th>Last sign-in</th><th /></tr>
+              <tr><th>#</th><th>Gmail</th><th>Role</th><th>Status</th><th>Assigned</th><th>Last sign-in</th><th /></tr>
             </thead>
             <tbody>
               {shown.map((u, i) => {
@@ -241,17 +241,17 @@ export default function Users({ onAuthExpired }) {
                 return (
                   <tr key={u.id} className={`${u.isActive ? "" : "is-off"}${form.id === u.id ? " edit-row" : ""}`}>
                     <td className="idx">{i + 1}</td>
-                    <td>
+                    <td className="cell-main">
                       {u.email ? <span className="jm-name">{u.email}</span> : (
                         <span className="no-gmail">No Gmail yet ({u.username}) — <b>can't sign in</b>. Click Edit to add one.</span>
                       )}
                       {u.name && <small className="user-sub">{u.name}</small>}
                       {self && <small className="user-sub">(you)</small>}
                     </td>
-                    <td><span className={`pill role-${u.role}`}>{roleLabel(u.role)}</span></td>
-                    <td className="access" title={a.title}>{a.text}</td>
-                    <td>{u.isActive ? <span className="pill good">Active</span> : <span className="pill na">Inactive</span>}</td>
-                    <td className="muted">{u.lastLoginAt ? fmtDate(u.lastLoginAt) : "Never"}</td>
+                    <td data-label="Role"><span className={`pill role-${u.role}`}>{roleLabel(u.role)}</span></td>
+                    <td data-label="Status">{u.isActive ? <span className="pill good">Active</span> : <span className="pill na">Inactive</span>}</td>
+                    <td className="access wide" data-label="Assigned" title={a.title}>{a.text}</td>
+                    <td className="muted wide" data-label="Last sign-in">{u.lastLoginAt ? fmtDate(u.lastLoginAt) : "Never"}</td>
                     <td className="row-actions">
                       <button type="button" className="mini-btn" onClick={() => startEdit(u)} disabled={busy}>Edit</button>
                       <button type="button" className="mini-btn" onClick={() => toggle(u)} disabled={busy || self}

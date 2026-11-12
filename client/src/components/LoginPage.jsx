@@ -75,7 +75,9 @@ export default function LoginPage({ onGoogle, onDev, message, theme, onToggleThe
         buttonBox.current.innerHTML = "";
         gid.renderButton(buttonBox.current, {
           type: "standard", theme: dark ? "filled_black" : "outline", size: "large",
-          text: "signin_with", shape: "pill", logo_alignment: "left", width: 300,
+          text: "signin_with", shape: "pill", logo_alignment: "left",
+          // fit small phones: never wider than the card (Google allows 200-400px)
+          width: Math.max(200, Math.min(300, buttonBox.current.clientWidth || 300)),
         });
       })
       .catch((err) => alive && setError(err.message));
@@ -117,7 +119,7 @@ export default function LoginPage({ onGoogle, onDev, message, theme, onToggleThe
         {!cfg && !error && <div className="google-slot muted">Loading…</div>}
         {cfg && cfg.googleClientId && (
           <div className={`google-slot${busy ? " is-busy" : ""}`}>
-            <div ref={buttonBox} />
+            <div ref={buttonBox} className="google-button" />
             {busy && <div className="muted">Signing in…</div>}
           </div>
         )}

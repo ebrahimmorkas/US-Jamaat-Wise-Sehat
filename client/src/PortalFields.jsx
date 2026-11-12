@@ -332,7 +332,7 @@ function OptionsTable({ values, meanings, busy, usedLabel, placeholder = "New an
   return (
     <>
       <form onSubmit={save} className="table-wrap">
-        <table className="master-table dd-table">
+        <table className="master-table dd-table card-rows">
           <thead>
             <tr>
               <th>Order</th><th>{withMeaning ? "Answer" : "Value"}</th>{withMeaning && <th>Meaning on the dashboard</th>}
@@ -344,7 +344,7 @@ function OptionsTable({ values, meanings, busy, usedLabel, placeholder = "New an
               const editing = edit && edit.id === v.id;
               return (
                 <tr key={v.id} className={editing ? "edit-row" : ""}>
-                  <td className="order-cell">
+                  <td className="order-cell" data-label="Order">
                     <button type="button" className="mini-btn icon" disabled={busy || i === 0} onClick={() => move(i, -1)} aria-label={`Move ${v.value} up`}>
                       <span className="rot"><ChevronLeft size={14} /></span>
                     </button>
@@ -352,13 +352,13 @@ function OptionsTable({ values, meanings, busy, usedLabel, placeholder = "New an
                       <span className="rot"><ChevronRight size={14} /></span>
                     </button>
                   </td>
-                  <td>
+                  <td className="cell-main">
                     {editing ? (
                       <input className="input" autoFocus value={edit.value} maxLength={40} onChange={(e) => setEdit({ ...edit, value: e.target.value })} aria-label="Value" />
                     ) : <span className="jm-name">{v.value}</span>}
                   </td>
                   {withMeaning && (
-                    <td>
+                    <td className="wide" data-label="Meaning on the dashboard">
                       {editing ? (
                         <select value={edit.meaning} onChange={(e) => setEdit({ ...edit, meaning: e.target.value })} aria-label="Meaning">
                           {meanings.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
@@ -368,7 +368,7 @@ function OptionsTable({ values, meanings, busy, usedLabel, placeholder = "New an
                       )}
                     </td>
                   )}
-                  <td className="tnum">{v.inUse}</td>
+                  <td className="tnum" data-label="In use">{v.inUse}</td>
                   <td className="row-actions">
                     {editing ? (
                       <>

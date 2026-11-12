@@ -67,18 +67,22 @@ const LIVE_TEXT = {
   idle: "Live updates off · use Refresh",
 };
 
+// Short version for phones.
+const LIVE_SHORT = { live: "Live", connecting: "Connecting…", offline: "Reconnecting…", off: "Not live", idle: "Not live" };
+
 function SyncStatus({ syncedAt, loading, failed, live }) {
+  const time = syncedAt ? new Date(syncedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
   let status = "Loading…";
   if (loading && syncedAt) status = "Updating…";
-  else if (syncedAt) status = "Updated " + new Date(syncedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  else if (syncedAt) status = <><span className="sync-long">Updated </span>{time}</>;
   else if (failed) status = "Update failed";
 
   const dotClass = loading ? "sync-dot busy" : failed || live === "offline" ? "sync-dot error" : live === "live" ? "sync-dot" : "sync-dot idle";
 
   return (
-    <div className="sync-text" aria-live="polite">
+    <div className="sync-text" aria-live="polite" title={LIVE_TEXT[live] || LIVE_TEXT.idle}>
       <span className="sync-line"><span className={dotClass} />{status}</span>
-      <span className="sync-next">{LIVE_TEXT[live] || LIVE_TEXT.idle}</span>
+      <span className="sync-next"><span className="sync-long">{LIVE_TEXT[live] || LIVE_TEXT.idle}</span><span className="sync-short">{LIVE_SHORT[live] || LIVE_SHORT.idle}</span></span>
     </div>
   );
 }
