@@ -20,6 +20,14 @@ const { clientIp } = require("./lib/clientIp");
 const { logError } = require("./services/audit");
 const { ACCESS_COOKIE, verifyAccess } = require("./services/auth");
 const logsRoutes = require("./routes/logs");
+const realtimeRoutes = require("./routes/realtime");
+const { notifyOnSuccess } = require("./realtime");
+const { TOPICS, EVENTS } = require("./realtime/topics");
+
+// The live connection may go straight to the API server (REALTIME_PUBLIC_URL).
+const realtimeOrigins = config.realtime.publicUrl
+  ? [config.realtime.publicUrl, config.realtime.publicUrl.replace(/^http/, "ws")]
+  : [];
 
 const app = express();
 app.set("trust proxy", config.trustProxyHops); // real visitor IP behind Vercel + Render
@@ -37,7 +45,7 @@ app.use(
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://accounts.google.com/gsi/style"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         imgSrc: ["'self'", "data:", "https://*.googleusercontent.com"],
-        connectSrc: ["'self'", "https://accounts.google.com/gsi/"],
+        connectSrc: ["'self'", "https://accounts.google.com/gsi/", ...realtimeOrigins],
         frameSrc: ["https://accounts.google.com/gsi/"],
         frameAncestors: ["'none'"], // nobody may show this site inside a frame (clickjacking)
         baseUri: ["'self'"],
@@ -63,11 +71,13 @@ app.use("/api", requireSameOrigin); // CSRF protection for POST requests
 app.use("/api/auth", authRoutes);
 app.use("/api/audit", auditRoutes);
 app.use("/api/logs", logsRoutes);
-app.use("/api/portal", portalRoutes);
-app.use("/api/masters", mastersRoutes);
+app.use("/api/realtime", realtimeRoutes);
+app.use("/api/portal", portalRoutes); // publishes its own live update (with the month)
+// Super Admin changes that the dashboard shows -> open dashboards reload at once.
+app.use("/api/masters", notifyOnSuccess(TOPICS.dashboard, EVENTS.dashboardChanged, { reason: "masters" }), mastersRoutes);
 app.use("/api/users", usersRoutes);
-app.use("/api/settings", settingsRoutes);
-app.use("/api/fields", fieldsRoutes);
+app.use("/api/settings", notifyOnSuccess(TOPICS.dashboard, EVENTS.dashboardChanged, { reason: "lists" }), settingsRoutes);
+app.use("/api/fields", notifyOnSuccess(TOPICS.dashboard, EVENTS.dashboardChanged, { reason: "fields" }), fieldsRoutes);
 app.use("/api", apiRoutes);
 app.use("/api", (req, res) => res.status(404).json({ error: "Not found" }));
 

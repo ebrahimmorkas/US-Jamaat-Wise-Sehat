@@ -15,8 +15,29 @@ const config = {
   // Database name; overrides any name inside MONGODB_URI.
   mongoDbName: (process.env.MONGODB_DB_NAME || "").trim(),
 
-  // How often an open dashboard reloads its data (seconds, 0 = never).
-  refreshIntervalSeconds: num(process.env.DASHBOARD_REFRESH_SECONDS ?? process.env.SYNC_INTERVAL_SECONDS, 120),
+  // ---- Live updates (Socket.IO) ----
+  realtime: {
+    enabled: process.env.REALTIME_ENABLED !== "false",
+    // URL path of the live connection on the API server.
+    path: "/" + (process.env.REALTIME_PATH || "/socket.io").replace(/^\/+|\/+$/g, ""),
+    // Address browsers connect to. Empty = the website's own address (local / single server).
+    // Behind Vercel it must be the API server itself (Vercel can't forward live connections),
+    // e.g. https://your-api.onrender.com
+    publicUrl: (process.env.REALTIME_PUBLIC_URL || "").trim().replace(/\/+$/, ""),
+    // How long a connection ticket is valid (seconds).
+    ticketSeconds: num(process.env.REALTIME_TICKET_SECONDS, 60) || 60,
+    // Keep-alive ping (seconds); also how fast a dropped connection is noticed.
+    pingIntervalSeconds: num(process.env.REALTIME_PING_SECONDS, 25) || 25,
+  },
+  // ---- Keep-alive (Render free plan sleeps after 15 min without requests) ----
+  keepAlive: {
+    enabled: process.env.KEEP_ALIVE_ENABLED !== "false",
+    // This server's public address. Render sets RENDER_EXTERNAL_URL itself; empty = off (local).
+    baseUrl: (process.env.KEEP_ALIVE_URL || process.env.RENDER_EXTERNAL_URL || "").trim().replace(/\/+$/, ""),
+    // Must stay below Render's 15 minutes.
+    intervalMinutes: Math.min(num(process.env.KEEP_ALIVE_MINUTES, 10), 14),
+    timeoutSeconds: 30,
+  },
   // Website address(es) allowed to call the API, comma-separated
   // (e.g. "https://your-site.vercel.app,https://a.com").
   corsOrigins: (process.env.CORS_ORIGIN || "http://localhost:5173")

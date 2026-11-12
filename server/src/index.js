@@ -1,5 +1,8 @@
+const http = require("http");
 const config = require("./config");
 const app = require("./app");
+const realtime = require("./realtime");
+const { startKeepAlive, stopKeepAlive } = require("./services/keepAlive");
 const { connectDb, onConnected, mongoose } = require("./db");
 const { migrate } = require("./services/migrate");
 const { logError } = require("./services/audit");
@@ -8,13 +11,19 @@ async function main() {
   onConnected(migrate); // role changes, indexes, default dropdown values
   await connectDb(); // keeps retrying in the background if MongoDB is not reachable yet
 
-  const server = app.listen(config.port, () => {
+  const server = http.createServer(app);
+  realtime.init(server); // live updates (Socket.IO) on the same port
+  server.listen(config.port, () => {
     console.log(`[http] API listening on http://localhost:${config.port}`);
+    startKeepAlive(); // Render free plan: ping our own public address so the server never sleeps
   });
 
   const shutdown = (signal) => {
     console.log(`[app] ${signal} received, shutting down`);
-    server.close(() => mongoose.connection.close(false).finally(() => process.exit(0)));
+    stopKeepAlive();
+    // Closing Socket.IO also closes the HTTP server.
+    const stop = config.realtime.enabled ? realtime.close() : new Promise((r) => server.close(r));
+    stop.then(() => mongoose.connection.close(false)).finally(() => process.exit(0));
     setTimeout(() => process.exit(1), 10000).unref();
   };
   process.on("SIGINT", shutdown);

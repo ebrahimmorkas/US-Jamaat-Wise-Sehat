@@ -151,7 +151,7 @@ export default function Masters({ onAuthExpired }) {
   const editRow = (key) => (
     <tr className="edit-row" key={key}>
       <td className="idx">{editId === "new" ? "+" : ""}</td>
-      <td>
+      <td className="cell-main" data-label={editId === "new" ? "New Jamaat" : "Jamaat"}>
         <input className="input" autoFocus placeholder="Jamaat name" value={edit.name} maxLength={120}
           onChange={(e) => setEdit({ ...edit, name: e.target.value })} aria-label="Jamaat name" />
         {editId !== "new" && (
@@ -160,14 +160,14 @@ export default function Masters({ onAuthExpired }) {
           </select>
         )}
       </td>
-      <td>
+      <td data-label="Mauze Type">
         <select value={edit.mauzeType} onChange={(e) => setEdit({ ...edit, mauzeType: e.target.value })} aria-label="Mauze Type">
           <option value="">Not set</option>
           {data.mauzeTypes.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
       </td>
-      <td><input className="input num" type="number" min="0" step="1" value={edit.houseCount} onChange={(e) => setEdit({ ...edit, houseCount: e.target.value })} aria-label="House Count" /></td>
-      <td><input className="input num" type="number" min="0" step="1" value={edit.children} onChange={(e) => setEdit({ ...edit, children: e.target.value })} aria-label="Children" /></td>
+      <td data-label="House Count"><input className="input num" type="number" min="0" step="1" value={edit.houseCount} onChange={(e) => setEdit({ ...edit, houseCount: e.target.value })} aria-label="House Count" /></td>
+      <td data-label="Children"><input className="input num" type="number" min="0" step="1" value={edit.children} onChange={(e) => setEdit({ ...edit, children: e.target.value })} aria-label="Children" /></td>
       <td colSpan={2} />
       <td className="row-actions">
         <button type="submit" className="mini-btn primary" disabled={busy} title="Save"><CheckIcon /> Save</button>
@@ -246,7 +246,7 @@ export default function Masters({ onAuthExpired }) {
                 </div>
 
                 <form onSubmit={saveJamaat} className="table-wrap">
-                  <table className="master-table">
+                  <table className="master-table card-rows">
                     <thead>
                       <tr>
                         <th>#</th><th>Jamaat</th><th>Mauze Type</th><th>House Count</th><th>Children</th>
@@ -259,12 +259,12 @@ export default function Masters({ onAuthExpired }) {
                         jm.id === editId ? editRow(jm.id) : (
                           <tr key={jm.id} className={jm.isActive ? "" : "is-off"}>
                             <td className="idx">{i + 1}</td>
-                            <td className="jm-name">{jm.name}</td>
-                            <td>{jm.mauzeType || <span className="muted">—</span>}</td>
-                            <td className="tnum">{jm.houseCount ?? <span className="muted">—</span>}</td>
-                            <td className="tnum">{jm.children ?? <span className="muted">—</span>}</td>
-                            <td>{jm.isActive ? <span className="pill good">Active</span> : <span className="pill na">Inactive</span>}</td>
-                            <td className="tnum">{jm.entryCount}</td>
+                            <td className="jm-name cell-main">{jm.name}</td>
+                            <td data-label="Mauze Type">{jm.mauzeType || <span className="muted">—</span>}</td>
+                            <td className="tnum" data-label="House Count">{jm.houseCount ?? <span className="muted">—</span>}</td>
+                            <td className="tnum" data-label="Children">{jm.children ?? <span className="muted">—</span>}</td>
+                            <td data-label="Status">{jm.isActive ? <span className="pill good">Active</span> : <span className="pill na">Inactive</span>}</td>
+                            <td className="tnum" data-label="Entries">{jm.entryCount}</td>
                             <td className="row-actions">
                               <button type="button" className="mini-btn" onClick={() => startEdit(jm)} disabled={busy}>Edit</button>
                               <button type="button" className="mini-btn" onClick={() => toggleJamaat(jm)} disabled={busy}>{jm.isActive ? "Deactivate" : "Activate"}</button>

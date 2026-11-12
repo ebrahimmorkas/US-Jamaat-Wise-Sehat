@@ -9,6 +9,7 @@ const auth = require("../services/auth");
 const { audit } = require("../services/audit");
 const { requireAuth } = require("../middleware/auth");
 const { clientIp } = require("../lib/clientIp");
+const realtime = require("../realtime");
 
 const router = express.Router();
 const byIp = (req) => ipKeyGenerator(clientIp(req));
@@ -33,7 +34,7 @@ const LOOPBACK = new Set(["127.0.0.1", "::1", "localhost"]);
 const devLoginAllowed = (req) => config.devLogin && LOOPBACK.has(clientIp(req));
 
 router.get("/config", (req, res) => {
-  res.json({ googleClientId: config.googleClientId, devLogin: devLoginAllowed(req) });
+  res.json({ googleClientId: config.googleClientId, devLogin: devLoginAllowed(req), realtime: realtime.clientConfig() });
 });
 
 // Signs in the user registered with this Gmail (any role). Only Gmails added by a Super Admin get in.
@@ -112,7 +113,10 @@ router.post("/refresh", refreshLimiter, dbGuard, async (req, res, next) => {
     const result = await auth.rotateSession(req, res, payload, user);
     if (result.error) {
       auth.clearAuthCookies(res);
-      if (result.reuse) audit(req, "token_reuse_detected", { user: user.toPublic(), success: false, details: { sessionId: payload.sid } });
+      if (result.reuse) {
+        audit(req, "token_reuse_detected", { user: user.toPublic(), success: false, details: { sessionId: payload.sid } });
+        realtime.disconnectSession(payload.sid);
+      }
       return res.status(401).json({ error: "Session ended. Please sign in again.", code: "SESSION_ENDED" });
     }
     audit(req, "token_refreshed", { user: user.toPublic(), details: { sessionId: payload.sid } });
@@ -137,6 +141,7 @@ router.post("/logout", async (req, res) => {
   }
   if (sid && isDbReady()) {
     await auth.revokeSession(sid, "logout").catch(() => {});
+    realtime.disconnectSession(sid);
     if (!who.username) {
       const u = await User.findById(who.id).lean().catch(() => null);
       if (u) who = { id: String(u._id), username: u.email || u.username, role: u.role };

@@ -1,5 +1,3 @@
-import { formatDuration } from "../lib/helpers";
-import { useNow } from "../hooks/useNow";
 import { Link } from "../lib/router";
 import { LogoutIcon, MoonIcon, RefreshIcon, SunIcon } from "./Icons";
 
@@ -60,25 +58,31 @@ export default function AppBar({ title = "Umoor Sehhat", subtitle = "Monthly Coo
   );
 }
 
-function SyncStatus({ syncedAt, loading, failed, nextAt, intervalSecs }) {
-  const now = useNow();
+// live = connection state of the live updates (see lib/realtime.js).
+const LIVE_TEXT = {
+  live: "Live · updates as JCs save",
+  connecting: "Connecting to live updates…",
+  offline: "Live updates paused · reconnecting…",
+  off: "Live updates off · use Refresh",
+  idle: "Live updates off · use Refresh",
+};
+
+// Short version for phones.
+const LIVE_SHORT = { live: "Live", connecting: "Connecting…", offline: "Reconnecting…", off: "Not live", idle: "Not live" };
+
+function SyncStatus({ syncedAt, loading, failed, live }) {
+  const time = syncedAt ? new Date(syncedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
   let status = "Loading…";
-  if (loading && syncedAt) status = "Refreshing…";
-  else if (syncedAt) status = "Updated " + new Date(syncedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  if (loading && syncedAt) status = "Updating…";
+  else if (syncedAt) status = <><span className="sync-long">Updated </span>{time}</>;
   else if (failed) status = "Update failed";
 
-  let next = "Auto-refresh off";
-  if (intervalSecs) {
-    const every = intervalSecs % 60 === 0 ? `${intervalSecs / 60} min` : formatDuration(intervalSecs);
-    const left = nextAt ? Math.max(0, Math.ceil((nextAt - now) / 1000)) : intervalSecs;
-    next = loading ? `Auto-refresh every ${every}` : `Auto-refresh every ${every} · next in ${formatDuration(left)}`;
-  }
-  const dotClass = loading ? "sync-dot busy" : failed ? "sync-dot error" : "sync-dot";
+  const dotClass = loading ? "sync-dot busy" : failed || live === "offline" ? "sync-dot error" : live === "live" ? "sync-dot" : "sync-dot idle";
 
   return (
-    <div className="sync-text">
+    <div className="sync-text" aria-live="polite" title={LIVE_TEXT[live] || LIVE_TEXT.idle}>
       <span className="sync-line"><span className={dotClass} />{status}</span>
-      <span className="sync-next">{next}</span>
+      <span className="sync-next"><span className="sync-long">{LIVE_TEXT[live] || LIVE_TEXT.idle}</span><span className="sync-short">{LIVE_SHORT[live] || LIVE_SHORT.idle}</span></span>
     </div>
   );
 }

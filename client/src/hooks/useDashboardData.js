@@ -1,23 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AuthError, fetchDashboard, isServerStarting, refreshDashboard } from "../lib/api";
+import { useRealtime } from "./useRealtime";
 
-// Loads the dashboard for one month, polls on the server's interval, and exposes a
-// manual refresh. `month` = "YYYY-MM" or "" for the current month.
-// Calls onAuthError() when the session has ended.
+const LIVE_DEBOUNCE_MS = 400; // several JCs saving together = one reload
+
+// Loads the dashboard for one month and keeps it live: whenever a JC saves an entry (or the
+// Super Admin changes masters / fields) the server says so and the data is reloaded at once.
+// `month` = "YYYY-MM" or "" for the current month. Calls onAuthError() when the session has ended.
 export function useDashboardData({ month, onAuthError }) {
   const [payload, setPayload] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [nextAt, setNextAt] = useState(null);
-  const timer = useRef(null);
   const busy = useRef(false);
   const queued = useRef(null);   // a request asked for while another was running
   const hasData = useRef(false);
   const retries = useRef(0);
+  const liveTimer = useRef(null);
   const monthRef = useRef(month);
   monthRef.current = month;
   const authErrorRef = useRef(onAuthError);
   authErrorRef.current = onAuthError;
+  const payloadRef = useRef(null);
+  payloadRef.current = payload;
 
   const run = useCallback(async (fn) => {
     if (busy.current) { queued.current = fn; return; }
@@ -54,28 +58,23 @@ export function useDashboardData({ month, onAuthError }) {
     if (retry) setTimeout(() => run(fn), 5000);
   }, []);
 
-  const intervalSecs = payload ? payload.config.refreshIntervalSeconds : 0;
-
-  const schedule = useCallback(
-    (secs) => {
-      clearInterval(timer.current);
-      if (!secs) { setNextAt(null); return; }
-      setNextAt(Date.now() + secs * 1000);
-      timer.current = setInterval(() => {
-        setNextAt(Date.now() + secs * 1000);
-        run(fetchDashboard);
-      }, secs * 1000);
-    },
-    [run]
-  );
-
   useEffect(() => { run(fetchDashboard); }, [run, month]);
-  useEffect(() => { schedule(intervalSecs); return () => clearInterval(timer.current); }, [intervalSecs, schedule]);
+  useEffect(() => () => clearTimeout(liveTimer.current), []);
 
-  const refresh = useCallback(() => {
-    run(refreshDashboard);
-    schedule(intervalSecs); // restart the countdown
-  }, [run, schedule, intervalSecs]);
+  const reloadSoon = useCallback(() => {
+    clearTimeout(liveTimer.current);
+    liveTimer.current = setTimeout(() => run(fetchDashboard), LIVE_DEBOUNCE_MS);
+  }, [run]);
 
-  return { payload, error, loading, nextAt, intervalSecs, refresh };
+  useRealtime("dashboard", "dashboard:changed", (evt) => {
+    const data = payloadRef.current && payloadRef.current.data;
+    // An entry of another month doesn't change this view (unless that month is new to the month list).
+    if (evt && evt.month && data && evt.month !== data.month && (data.months || []).some((m) => m.key === evt.month)) return;
+    reloadSoon();
+  }, { onReconnect: reloadSoon }); // back online: catch up on anything missed
+
+  // "Refresh" button (also logged in the audit trail).
+  const refresh = useCallback(() => run(refreshDashboard), [run]);
+
+  return { payload, error, loading, refresh };
 }

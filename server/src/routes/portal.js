@@ -14,6 +14,8 @@ const { activeMasters } = require("../services/data");
 const { getValueSets } = require("../services/lists");
 const { activeFields, portalShape } = require("../services/fields");
 const { clientIp } = require("../lib/clientIp");
+const realtime = require("../realtime");
+const { TOPICS, EVENTS } = require("../realtime/topics");
 const { monthLabel, recentMonths } = require("../lib/month");
 const { InputError, requireId, parseJamaatDetails, parseValues, parseRemarks, sendError } = require("../lib/validate");
 
@@ -152,6 +154,9 @@ router.post("/entry", submitLimiter, async (req, res, next) => {
       changes: trail,
       details: { month, jamiat: jamiat.name, jamaat: jamaat.name, firstSubmission: !before, unchanged: !trail.length || undefined },
     });
+
+    // Open dashboards reload at once (only the month is sent; they fetch the data themselves).
+    if (trail.length || !before) realtime.publish(TOPICS.dashboard, EVENTS.dashboardChanged, { reason: "entry", month });
 
     res.json({ ok: true, firstSubmission: !before, updatedAt: entry.updatedAt, details: details(jamaat) });
   } catch (err) {

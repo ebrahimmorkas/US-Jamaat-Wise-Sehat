@@ -18,9 +18,10 @@ services:
         value: "22"
       - key: MONGODB_DB_NAME
         value: US-Jamaat-Wise-Data
-      # How often an open dashboard reloads its data (seconds).
-      - key: DASHBOARD_REFRESH_SECONDS
-        value: "120"
+      # Live updates (Socket.IO): browsers connect straight to this server,
+      # because Vercel can't forward live connections.
+      - key: REALTIME_PUBLIC_URL
+        value: https://us-jamaat-wise-sehat-api.onrender.com
       # Sign-in: two random secrets (Render generates them).
       - key: JWT_ACCESS_SECRET
         generateValue: true

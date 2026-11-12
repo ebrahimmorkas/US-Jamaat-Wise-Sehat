@@ -94,6 +94,7 @@ export const authConfig = () => raw("/api/auth/config");
 export const googleLogin = (credential) => raw("/api/auth/google", { method: "POST", body: { credential } });
 export const devLogin = (email) => raw("/api/auth/dev-login", { method: "POST", body: { email } });
 export const logout = () => raw("/api/auth/logout", { method: "POST" }).catch(() => null);
+export const realtimeTicket = () => request("/api/realtime/ticket", { method: "POST" });
 export const logEvent = (action, details) =>
   request("/api/audit/event", { method: "POST", body: { action, details } }).catch(() => null);
 
