@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import MonthYearPicker from "./components/MonthYearPicker";
 import Notice from "./components/Notice";
 import { confirmDialog } from "./components/ConfirmDialog";
 import { CheckIcon, ChevronLeft, ChevronRight, CloseIcon } from "./components/Icons";
 import {
   AuthError, fieldCreate, fieldDelete, fieldUpdate, fieldsGet, fieldsOrder, isServerStarting,
-  fieldRestore, listAdd, listEdit, listOrder, listRemove, listRestore, listsGet, optionAdd, optionEdit, optionRemove, optionRestore, optionsOrder,
+  fieldRestore, activitiesGet, activityAdd, activityEdit, activityRemove, activityRestore, activitiesOrder, activitiesCopy, listAdd, listEdit, listOrder, listRemove, listRestore, listsGet, optionAdd, optionEdit, optionRemove, optionRestore, optionsOrder,
 } from "./lib/api";
 import { deletedLine, plural } from "./lib/helpers";
 
@@ -13,7 +14,7 @@ const PRESETS = {
   "Yes / No": [["Yes", "done"], ["No", "notdone"], ["Pending", "pending"], ["Not Applicable", "na"]],
   Progress: [["Completed", "done"], ["Pending", "pending"], ["In Progress", "progress"], ["Not Applicable", "na"]],
 };
-const blankNew = () => ({ label: "", section: "", type: "select", hasComment: true, required: true, showOnDashboard: true, options: [{ value: "", meaning: "" }, { value: "", meaning: "" }] });
+const blankNew = () => ({ label: "", section: "", type: "select", hasComment: true, hasActivities: false, required: true, showOnDashboard: true, options: [{ value: "", meaning: "" }, { value: "", meaning: "" }] });
 
 // Super Admin: the dropdown questions of the JC portal, each with its own answers, plus the Mauze Type list.
 export default function PortalFields({ onAuthExpired }) {
@@ -48,7 +49,7 @@ export default function PortalFields({ onAuthExpired }) {
     setMsg(null);
     try {
       const res = await fn();
-      if (target === "fields") setData(res); else setLists(res);
+      if (target === "fields") setData(res); else if (target === "lists") setLists(res); // "none": the caller keeps the result
       setMsg({ type: "ok", text: okText });
       return res;
     } catch (err) {
@@ -111,6 +112,7 @@ export default function PortalFields({ onAuthExpired }) {
                   <span className="field-meta">
                     {f.section && <span>{f.section}</span>}
                     {f.type === "date" && <span className="pill info">Date</span>}
+                    {f.hasActivities && <span className="pill info">Monthly activities</span>}
                     {!f.isActive && <span className="pill na">Inactive</span>}
                     {!f.required && <span className="pill info">Optional</span>}
                     {!f.showOnDashboard && <span className="pill na">Not on dashboard</span>}
@@ -176,12 +178,19 @@ export default function PortalFields({ onAuthExpired }) {
 // ---------- settings + answers of one question ----------
 function FieldEditor({ field, meanings, sections, busy, act, onDeleted, showDeleted }) {
   const isDate = field.type === "date";
-  const [form, setForm] = useState({ label: field.label, section: field.section, hasComment: field.hasComment, required: field.required, showOnDashboard: field.showOnDashboard });
-  const dirty = form.label !== field.label || form.section !== field.section || form.hasComment !== field.hasComment || form.required !== field.required || form.showOnDashboard !== field.showOnDashboard;
+  const [form, setForm] = useState({ label: field.label, section: field.section, hasComment: field.hasComment, hasActivities: field.hasActivities, required: field.required, showOnDashboard: field.showOnDashboard });
+  const dirty = form.label !== field.label || form.section !== field.section || form.hasComment !== field.hasComment || form.hasActivities !== field.hasActivities || form.required !== field.required || form.showOnDashboard !== field.showOnDashboard;
   const toneOf = (m) => (meanings.find((x) => x.key === m) || {}).tone || "na";
 
-  const save = (e) => {
+  const save = async (e) => {
     e.preventDefault();
+    if (form.hasActivities !== field.hasActivities && field.answered > 0 && !(await confirmDialog({
+      tone: "warn", confirmText: form.hasActivities ? "Switch on" : "Switch off",
+      title: form.hasActivities ? `Switch on monthly activities for “${field.label}”?` : `Switch off monthly activities for “${field.label}”?`,
+      message: form.hasActivities
+        ? "JCs will answer it per activity from now on. Answers saved before without an activity are kept, but no longer shown."
+        : "JCs will give one answer for the whole month again. Answers saved per activity are kept, but no longer shown. Switching back on shows them again.",
+    }))) return;
     act(() => fieldUpdate(field.id, form), "Question saved.");
   };
   const toggleActive = async () => {
@@ -241,6 +250,7 @@ function FieldEditor({ field, meanings, sections, busy, act, onDeleted, showDele
         <div className="checks">
           <label className="check"><input type="checkbox" checked={form.required} onChange={(e) => setForm({ ...form, required: e.target.checked })} /> Required on the JC portal</label>
           <label className="check"><input type="checkbox" checked={form.hasComment} onChange={(e) => setForm({ ...form, hasComment: e.target.checked })} /> Include comment box</label>
+          {!isDate && <label className="check"><input type="checkbox" checked={form.hasActivities} onChange={(e) => setForm({ ...form, hasActivities: e.target.checked })} /> Monthly activities <span className="optional">(JC picks the activity, then its status)</span></label>}
           {!isDate && <label className="check"><input type="checkbox" checked={form.showOnDashboard} onChange={(e) => setForm({ ...form, showOnDashboard: e.target.checked })} /> Show a card on the dashboard</label>}
         </div>
         <div className="field-form-actions">
@@ -255,6 +265,8 @@ function FieldEditor({ field, meanings, sections, busy, act, onDeleted, showDele
           : field.options.filter((o) => !o.deleted).map((o) => <span key={o.id} className={`pill ${toneOf(o.meaning)}`}>{o.value}</span>)}
         {field.hasComment && <textarea className="input q-comment" rows={2} disabled placeholder="Comment (optional)" aria-label="Comment box preview" />}
       </div>
+
+      {field.hasActivities && <ActivitiesEditor field={field} busy={busy} act={act} showDeleted={showDeleted} />}
 
       {!isDate && (
         <>
@@ -277,6 +289,138 @@ function FieldEditor({ field, meanings, sections, busy, act, onDeleted, showDele
   );
 }
 
+// ---------- monthly activities of one question ----------
+// One list per Hijri month (the JC portal's months plus next month, to prepare it in advance).
+function ActivitiesEditor({ field, busy, act, showDeleted }) {
+  const [data, setData] = useState(null); // { month, months, activities, previous }
+  const [month, setMonth] = useState("");
+  const [edit, setEdit] = useState(null); // { id, name }
+  const [draft, setDraft] = useState("");
+  const [loadErr, setLoadErr] = useState("");
+  const monthRef = useRef(month);
+  monthRef.current = month;
+
+  useEffect(() => {
+    let alive = true;
+    setLoadErr("");
+    activitiesGet(field.id, month)
+      .then((d) => { if (alive) { setData(d); if (!monthRef.current) setMonth(d.month); } })
+      .catch((err) => { if (alive) setLoadErr(err.message); });
+    return () => { alive = false; };
+  }, [field.id, month]);
+
+  // Every change returns the fresh list of that month.
+  const run = async (fn, okText) => {
+    const res = await act(fn, okText, "none");
+    if (res) setData(res);
+    return res;
+  };
+
+  if (!data) return <div className="act-admin"><div className="eyebrow sub-head">Monthly activities</div><p className="muted">{loadErr || "Loading…"}</p></div>;
+
+  const live = data.activities.filter((a) => !a.deleted);
+  const deleted = showDeleted ? data.activities.filter((a) => a.deleted) : [];
+  const label = (data.months.find((m) => m.key === data.month) || {}).label || "";
+  // Next month is offered too; the picker lists the months newest first.
+  const move = (i, dir) => {
+    const ids = live.map((a) => a.id);
+    [ids[i], ids[i + dir]] = [ids[i + dir], ids[i]];
+    run(() => activitiesOrder(field.id, data.month, ids), "Order saved.");
+  };
+  const add = async (e) => {
+    e.preventDefault();
+    if (!draft.trim()) return;
+    if (await run(() => activityAdd(field.id, data.month, draft), `Added “${draft.trim()}” to ${label}.`)) setDraft("");
+  };
+  const save = async (e) => {
+    e.preventDefault();
+    if (await run(() => activityEdit(field.id, edit.id, edit.name), "Activity saved.")) setEdit(null);
+  };
+
+  return (
+    <div className="act-admin">
+      <div className="eyebrow sub-head">Monthly activities</div>
+      <div className="act-admin-head">
+        <MonthYearPicker months={data.months} value={data.month} onChange={(m) => { setMonth(m); setEdit(null); }} />
+        {data.previous.count > 0 && (
+          <button type="button" className="btn btn-ghost" disabled={busy}
+            onClick={() => run(() => activitiesCopy(field.id, data.month), `Copied the activities of ${data.previous.label}.`)}>
+            Copy {plural(data.previous.count, "activity", "activities")} from {data.previous.label}
+          </button>
+        )}
+      </div>
+      <p className="act-admin-note">JCs choose one of these activities on the form for <b>{label}</b>, then its status. Each activity gets its own card on the dashboards.</p>
+
+      <form onSubmit={save} className="table-wrap">
+        <table className="master-table dd-table card-rows">
+          <thead><tr><th>Order</th><th>Activity</th><th title="Saved forms with an answer">Answered</th><th /></tr></thead>
+          <tbody>
+            {!live.length && !deleted.length && (
+              <tr><td colSpan={4} className="empty-state">No activities for {label} yet. Add the first one below.</td></tr>
+            )}
+            {live.map((a, i) => {
+              const editing = edit && edit.id === a.id;
+              return (
+                <tr key={a.id} className={editing ? "edit-row" : ""}>
+                  <td className="order-cell" data-label="Order">
+                    <button type="button" className="mini-btn icon" disabled={busy || i === 0} onClick={() => move(i, -1)} aria-label={`Move ${a.name} up`}>
+                      <span className="rot"><ChevronLeft size={14} /></span>
+                    </button>
+                    <button type="button" className="mini-btn icon" disabled={busy || i === live.length - 1} onClick={() => move(i, 1)} aria-label={`Move ${a.name} down`}>
+                      <span className="rot"><ChevronRight size={14} /></span>
+                    </button>
+                  </td>
+                  <td className="cell-main">
+                    {editing
+                      ? <input className="input" autoFocus value={edit.name} maxLength={80} onChange={(e) => setEdit({ ...edit, name: e.target.value })} aria-label="Activity" />
+                      : <span className="jm-name">{a.name}</span>}
+                  </td>
+                  <td className="tnum" data-label="Answered">{a.inUse}</td>
+                  <td className="row-actions">
+                    {editing ? (
+                      <>
+                        <button type="submit" className="mini-btn primary" disabled={busy}><CheckIcon /> Save</button>
+                        <button type="button" className="mini-btn" onClick={() => setEdit(null)} title="Cancel"><CloseIcon /></button>
+                      </>
+                    ) : (
+                      <>
+                        <button type="button" className="mini-btn" disabled={busy} onClick={() => setEdit({ id: a.id, name: a.name })}>Rename</button>
+                        <button type="button" className="mini-btn danger" disabled={busy || a.inUse > 0}
+                          title={a.inUse ? "Answered in saved forms: rename it instead" : "Delete (status D)"}
+                          onClick={async () => (await confirmDialog({
+                            tone: "danger", title: `Delete the activity “${a.name}”?`, confirmText: "Delete",
+                            message: `It disappears from the JC form and the dashboards for ${label}.\n\nNothing is erased; you can restore it from “Show deleted”.`,
+                          })) && run(() => activityRemove(field.id, a.id), `Deleted “${a.name}” (status D).`)}>Delete</button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {deleted.map((a) => (
+              <tr key={a.id} className="is-off is-deleted">
+                <td className="order-cell" data-label="Order"><span className="pill bad">Deleted</span></td>
+                <td className="cell-main"><span className="jm-name">{a.name}</span></td>
+                <td className="tnum" data-label="Answered">{a.inUse}</td>
+                <td className="row-actions">
+                  <button type="button" className="mini-btn primary" disabled={busy} title={deletedLine(a)}
+                    onClick={() => run(() => activityRestore(field.id, a.id), `Restored “${a.name}”.`)}>Restore</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </form>
+
+      <form className="add-line dd-add" onSubmit={add}>
+        <input className="input" placeholder={`New activity for ${label}, e.g. Week 1: Health talk`} value={draft} maxLength={80}
+          onChange={(e) => setDraft(e.target.value)} aria-label="New activity" />
+        <button type="submit" className="btn btn-primary" disabled={busy}>Add</button>
+      </form>
+    </div>
+  );
+}
+
 // ---------- create a question ----------
 function NewField({ meanings, sections, busy, onCancel, onCreate }) {
   const [f, setF] = useState(blankNew);
@@ -286,7 +430,7 @@ function NewField({ meanings, sections, busy, onCancel, onCreate }) {
   const submit = (e) => {
     e.preventDefault();
     if (isDate) {
-      const { options, showOnDashboard, ...rest } = f;
+      const { options, showOnDashboard, hasActivities, ...rest } = f;
       return onCreate(rest);
     }
     const options = f.options.filter((o) => o.value.trim() || o.meaning);
@@ -318,6 +462,7 @@ function NewField({ meanings, sections, busy, onCancel, onCreate }) {
         <div className="checks">
           <label className="check"><input type="checkbox" checked={f.required} onChange={(e) => setF({ ...f, required: e.target.checked })} /> Required on the JC portal</label>
           <label className="check"><input type="checkbox" checked={f.hasComment} onChange={(e) => setF({ ...f, hasComment: e.target.checked })} /> Include comment box <span className="optional">(shown after the answers)</span></label>
+          {!isDate && <label className="check"><input type="checkbox" checked={f.hasActivities} onChange={(e) => setF({ ...f, hasActivities: e.target.checked })} /> Monthly activities <span className="optional">(add the activities of each month after creating it)</span></label>}
           {!isDate && <label className="check"><input type="checkbox" checked={f.showOnDashboard} onChange={(e) => setF({ ...f, showOnDashboard: e.target.checked })} /> Show a card on the dashboard</label>}
         </div>
 

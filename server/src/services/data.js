@@ -5,7 +5,7 @@ const Jamiat = require("../models/Jamiat");
 const Jamaat = require("../models/Jamaat");
 const Entry = require("../models/Entry");
 const { notDeleted } = require("../lib/softDelete");
-const { currentMonth, monthLabel, portalMonths } = require("../lib/month");
+const { currentMonth, monthLabel, monthInfo, portalMonths } = require("../lib/month");
 
 const byName = (a, b) => a.name.localeCompare(b.name);
 
@@ -37,7 +37,7 @@ async function dashboardData(month) {
   const entries = await Entry.find({ month: m, jamaat: { $in: ids } }).select("jamaat values comments remarks updatedAt").lean();
   const byJamaat = new Map(entries.map((e) => [String(e.jamaat), e]));
 
-  const keys = (await dashboardMetrics()).map((m) => m.key);
+  const keys = (await dashboardMetrics(m)).map((x) => x.key);
   const jamiats = masters.map((j) => ({
     name: j.name,
     jamaats: j.jamaats.map((jm) => {
@@ -52,7 +52,7 @@ async function dashboardData(month) {
   return {
     month: m,
     monthLabel: monthLabel(m),
-    months: months.map((key) => ({ key, label: monthLabel(key) })),
+    months: months.map(monthInfo),
     jamiats,
     submitted: entries.length,
     loadedAt: new Date(),

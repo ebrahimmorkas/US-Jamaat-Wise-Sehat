@@ -5,6 +5,8 @@
 //  - An answer in use can't be removed; a field with saved answers can't be deleted (mark it inactive).
 //  - Deleting a question or an answer only sets status "D" (hidden, kept, restorable).
 //  - Question names are unique; answers are unique inside a question (ignoring capitals/spaces).
+//  - A question with "Monthly activities" has a list of activities per Hijri month; each activity is
+//    answered on its own (entries.values["<key>:<activity id>"]). Activities follow the same rules.
 const crypto = require("crypto");
 const express = require("express");
 const form = require("../formConfig");
@@ -13,8 +15,10 @@ const { requireAuth, requireRole } = require("../middleware/auth");
 const PortalField = require("../models/PortalField");
 const { MEANINGS, TYPES } = require("../models/PortalField");
 const Entry = require("../models/Entry");
+const Activity = require("../models/Activity");
 const { audit, diff } = require("../services/audit");
-const { answerUsage, invalidate } = require("../services/fields");
+const { answerUsage, invalidate, activityKey, savedKeysOf } = require("../services/fields");
+const { isMonth, currentMonth, addMonths, monthInfo, monthLabel, portalMonths } = require("../lib/month");
 const { InputError, isId, sendError } = require("../lib/validate");
 const { DELETED, notDeleted, isDeleted, markDeleted, markRestored, deletedInfo, statusChange } = require("../lib/softDelete");
 
@@ -27,7 +31,7 @@ router.use(requireAuth, requireRole("superadmin"), (req, res, next) => {
 
 // Audit trail labels.
 const TYPE_LABELS = { select: "Dropdown", date: "Date" };
-const FIELD_SPEC = [["label", "Question"], ["section", "Section"], ["type", "Type", (t) => (t ? TYPE_LABELS[t] || t : t)], ["hasComment", "Comment box"], ["required", "Required"], ["showOnDashboard", "Show on dashboard"], ["isActive", "Active"]];
+const FIELD_SPEC = [["label", "Question"], ["section", "Section"], ["type", "Type", (t) => (t ? TYPE_LABELS[t] || t : t)], ["hasComment", "Comment box"], ["hasActivities", "Monthly activities"], ["required", "Required"], ["showOnDashboard", "Show on dashboard"], ["isActive", "Active"]];
 const meaningLabel = (m) => (form.meanings[m] || {}).label || m;
 const answerText = (o) => `${o.value} (${meaningLabel(o.meaning)})`;
 const fieldTarget = (f) => ({ type: "field", id: String(f._id), label: f.label });
@@ -117,6 +121,7 @@ async function payload() {
         section: f.section || "",
         type: f.type || "select",
         hasComment: f.hasComment === true,
+        hasActivities: f.hasActivities === true,
         required: f.required !== false,
         showOnDashboard: f.showOnDashboard !== false,
         isActive: f.isActive !== false,
@@ -160,6 +165,7 @@ router.post("/", async (req, res, next) => {
       section: cleanSection(b.section),
       type,
       hasComment: "hasComment" in b ? cleanBool(b.hasComment, "Comment box") : true, // ticked by default
+      hasActivities: isDate ? false : "hasActivities" in b ? cleanBool(b.hasActivities, "Monthly activities") : false,
       required: "required" in b ? cleanBool(b.required, "Required") : true,
       // the dashboard cards count dropdown answers, so a date question isn't shown there
       showOnDashboard: isDate ? false : "showOnDashboard" in b ? cleanBool(b.showOnDashboard, "Show on dashboard") : true,
@@ -179,7 +185,7 @@ router.patch("/:id", async (req, res, next) => {
   try {
     const b = req.body || {};
     const f = await loadField(req.params.id);
-    const before = { label: f.label, section: f.section, hasComment: f.hasComment, required: f.required, showOnDashboard: f.showOnDashboard, isActive: f.isActive };
+    const before = { label: f.label, section: f.section, hasComment: f.hasComment, hasActivities: f.hasActivities, required: f.required, showOnDashboard: f.showOnDashboard, isActive: f.isActive };
     if ("label" in b) {
       const label = cleanLabel(b.label);
       if (norm(label) !== norm(f.label)) await uniqueLabel(label, f._id);
@@ -188,6 +194,10 @@ router.patch("/:id", async (req, res, next) => {
     if ("section" in b) f.section = cleanSection(b.section);
     if ("required" in b) f.required = cleanBool(b.required, "Required");
     if ("hasComment" in b) f.hasComment = cleanBool(b.hasComment, "Comment box");
+    if ("hasActivities" in b) {
+      f.hasActivities = cleanBool(b.hasActivities, "Monthly activities");
+      if (f.hasActivities && f.type === "date") throw new InputError("A date question can't have monthly activities.");
+    }
     if ("showOnDashboard" in b) {
       f.showOnDashboard = cleanBool(b.showOnDashboard, "Show on dashboard");
       if (f.showOnDashboard && f.type === "date") throw new InputError("A date question can't have a dashboard card.");
@@ -206,7 +216,8 @@ router.patch("/:id", async (req, res, next) => {
 router.delete("/:id", async (req, res, next) => {
   try {
     const f = await loadField(req.params.id);
-    const n = await Entry.countDocuments({ $or: [{ [`values.${f.key}`]: { $exists: true } }, { [`comments.${f.key}`]: { $exists: true } }] });
+    const keys = await savedKeysOf(f);
+    const n = await Entry.countDocuments({ $or: keys.flatMap((k) => [{ [`values.${k}`]: { $exists: true } }, { [`comments.${k}`]: { $exists: true } }]) });
     if (n) throw new InputError(`"${f.label}" is answered in ${n} saved form${n === 1 ? "" : "s"}, so it can't be deleted. Mark it inactive instead.`, 409);
     const before = { isActive: f.isActive };
     markDeleted(f, req.user.email); // status "D": hidden from the portal and the dashboard, kept
@@ -279,7 +290,9 @@ router.patch("/:id/options/:oid", async (req, res, next) => {
     checkAnswerFree(f, value, o._id);
     let renamed = 0;
     if (value !== before.value) {
-      renamed = (await Entry.updateMany({ [`values.${f.key}`]: before.value }, { $set: { [`values.${f.key}`]: value } })).modifiedCount;
+      for (const k of await savedKeysOf(f)) {
+        renamed += (await Entry.updateMany({ [`values.${k}`]: before.value }, { $set: { [`values.${k}`]: value } })).modifiedCount;
+      }
     }
     o.value = value;
     o.meaning = meaning;
@@ -302,7 +315,7 @@ router.delete("/:id/options/:oid", async (req, res, next) => {
     const f = await loadDropdown(req.params.id);
     const o = findOption(f, req.params.oid);
     if (liveOptions(f).length <= MIN_OPTIONS) throw new InputError(`A question needs at least ${MIN_OPTIONS} answers.`, 409);
-    const n = await Entry.countDocuments({ [`values.${f.key}`]: o.value });
+    const n = await Entry.countDocuments({ $or: (await savedKeysOf(f)).map((k) => ({ [`values.${k}`]: o.value })) });
     if (n) throw new InputError(`"${o.value}" is used in ${n} saved form${n === 1 ? "" : "s"}, so it can't be removed. Rename it instead.`, 409);
     markDeleted(o, req.user.email); // status "D": hidden from the portal, kept
     await f.save();
@@ -343,6 +356,177 @@ router.put("/:id/options/order", async (req, res, next) => {
     await f.save();
     audit(req, "field_updated", { target: fieldTarget(f), changes: [{ field: "options.order", label: "Answer order", from: beforeOrder, to: liveOptions(f).map((o) => o.value) }] });
     res.json(await payload());
+  } catch (err) {
+    sendError(err, res, next);
+  }
+});
+
+// ================= monthly activities of one question =================
+// Months the Super Admin can plan: the JC portal's months plus next month (to prepare it in advance).
+const activityMonths = () => [addMonths(currentMonth(), 1), ...portalMonths()];
+function cleanMonth(v) {
+  if (!isMonth(v) || !activityMonths().includes(v)) throw new InputError("Choose a valid month.");
+  return v;
+}
+function cleanActivity(v) {
+  const s = clean(v);
+  if (s.length < 2) throw new InputError("Enter the activity (at least 2 characters).");
+  if (s.length > 80) throw new InputError("Keep the activity under 80 characters.");
+  return s;
+}
+async function loadActivityField(id) {
+  const f = await loadField(id);
+  if (!f.hasActivities) throw new InputError(`"${f.label}" doesn't have monthly activities. Switch them on first.`, 409);
+  return f;
+}
+async function loadActivity(f, aid, { allowDeleted = false } = {}) {
+  const a = isId(aid) ? await Activity.findOne({ _id: aid, field: f.key }) : null;
+  if (!a) throw new InputError("Activity not found. Reload the page.", 404);
+  if (!allowDeleted && isDeleted(a)) throw new InputError(`"${a.name}" is deleted. Restore it first to change it.`, 409);
+  return a;
+}
+// Activity names are unique inside a question + month, deleted ones included.
+async function checkActivityFree(f, month, name, exceptId) {
+  const all = await Activity.find({ field: f.key, month, ...(exceptId ? { _id: { $ne: exceptId } } : {}) }).select("name status").lean();
+  const hit = all.find((a) => norm(a.name) === norm(name));
+  if (!hit) return;
+  throw new InputError(isDeleted(hit)
+    ? `"${hit.name}" was deleted from this month earlier. Click “Show deleted” and restore it instead.`
+    : `"${name}" is already an activity of this month.`, 409);
+}
+const activityTarget = (f, a) => ({ type: "activity", id: String(a._id), label: `${f.label} · ${monthLabel(a.month)} · ${a.name}` });
+
+async function activityPayload(f, month) {
+  const acts = await Activity.find({ field: f.key, month }).sort({ order: 1, createdAt: 1 }).lean();
+  const counts = await Promise.all(acts.map((a) => Entry.countDocuments({ month, [`values.${activityKey(f.key, String(a._id))}`]: { $exists: true } })));
+  const prev = addMonths(month, -1);
+  return {
+    month,
+    months: activityMonths().map(monthInfo),
+    activities: acts.map((a, i) => ({ id: String(a._id), name: a.name, inUse: counts[i], ...deletedInfo(a) })),
+    previous: { ...monthInfo(prev), count: await Activity.countDocuments({ field: f.key, month: prev, ...notDeleted() }) },
+  };
+}
+
+// ---------- GET /api/fields/:id/activities?month=YYYY-MM ----------
+router.get("/:id/activities", async (req, res, next) => {
+  try {
+    const f = await loadActivityField(req.params.id);
+    res.json(await activityPayload(f, req.query.month ? cleanMonth(req.query.month) : currentMonth()));
+  } catch (err) {
+    sendError(err, res, next);
+  }
+});
+
+// ---------- POST /api/fields/:id/activities  { month, name } ----------
+router.post("/:id/activities", async (req, res, next) => {
+  try {
+    const f = await loadActivityField(req.params.id);
+    const b = req.body || {};
+    const month = cleanMonth(b.month);
+    const name = cleanActivity(b.name);
+    await checkActivityFree(f, month, name);
+    const last = await Activity.findOne({ field: f.key, month }).sort({ order: -1 }).select("order").lean();
+    const a = await Activity.create({ field: f.key, month, name, order: last ? last.order + 1 : 0 });
+    audit(req, "field_updated", { target: activityTarget(f, a), changes: [{ field: "activities", label: `Activity added (${monthLabel(month)})`, from: null, to: name }] });
+    res.status(201).json(await activityPayload(f, month));
+  } catch (err) {
+    sendError(err, res, next);
+  }
+});
+
+// ---------- POST /api/fields/:id/activities/copy  { month } ----------  copy last month's list
+router.post("/:id/activities/copy", async (req, res, next) => {
+  try {
+    const f = await loadActivityField(req.params.id);
+    const month = cleanMonth((req.body || {}).month);
+    const prev = addMonths(month, -1);
+    const from = await Activity.find({ field: f.key, month: prev, ...notDeleted() }).sort({ order: 1, createdAt: 1 }).lean();
+    if (!from.length) throw new InputError(`${monthLabel(prev)} has no activities to copy.`, 409);
+    const here = await Activity.find({ field: f.key, month }).select("name order").lean();
+    const taken = new Set(here.map((a) => norm(a.name)));
+    let order = here.reduce((m, a) => Math.max(m, a.order), -1) + 1;
+    const add = from.filter((a) => !taken.has(norm(a.name))).map((a) => ({ field: f.key, month, name: a.name, order: order++ }));
+    if (!add.length) throw new InputError(`All activities of ${monthLabel(prev)} are already in ${monthLabel(month)}.`, 409);
+    await Activity.insertMany(add);
+    audit(req, "field_updated", {
+      target: { type: "activity", id: `${f.key}:${month}`, label: `${f.label} · ${monthLabel(month)}` },
+      changes: [{ field: "activities", label: `Activities copied from ${monthLabel(prev)}`, from: null, to: add.map((a) => a.name) }],
+    });
+    res.status(201).json(await activityPayload(f, month));
+  } catch (err) {
+    sendError(err, res, next);
+  }
+});
+
+// ---------- PUT /api/fields/:id/activities/order  { month, ids } ----------
+router.put("/:id/activities/order", async (req, res, next) => {
+  try {
+    const f = await loadActivityField(req.params.id);
+    const month = cleanMonth((req.body || {}).month);
+    const ids = Array.isArray(req.body.ids) ? req.body.ids.map(String) : [];
+    const live = await Activity.find({ field: f.key, month, ...notDeleted() }).sort({ order: 1, createdAt: 1 }).select("name").lean();
+    const current = live.map((a) => String(a._id));
+    if (ids.length !== current.length || new Set(ids).size !== ids.length || !ids.every((id) => current.includes(id))) {
+      throw new InputError("The activities changed meanwhile. Reload the page.", 409);
+    }
+    await Activity.bulkWrite(ids.map((id, i) => ({ updateOne: { filter: { _id: id }, update: { $set: { order: i } } } })));
+    const name = new Map(live.map((a) => [String(a._id), a.name]));
+    audit(req, "field_updated", {
+      target: { type: "activity", id: `${f.key}:${month}`, label: `${f.label} · ${monthLabel(month)}` },
+      changes: [{ field: "activities.order", label: "Activity order", from: live.map((a) => a.name), to: ids.map((id) => name.get(id)) }],
+    });
+    res.json(await activityPayload(f, month));
+  } catch (err) {
+    sendError(err, res, next);
+  }
+});
+
+// ---------- PATCH /api/fields/:id/activities/:aid  { name } ----------  (saved answers keep working)
+router.patch("/:id/activities/:aid", async (req, res, next) => {
+  try {
+    const f = await loadActivityField(req.params.id);
+    const a = await loadActivity(f, req.params.aid);
+    const name = cleanActivity((req.body || {}).name);
+    if (norm(name) !== norm(a.name)) await checkActivityFree(f, a.month, name, a._id);
+    const before = a.name;
+    a.name = name;
+    await a.save();
+    if (before !== name) audit(req, "field_updated", { target: activityTarget(f, a), changes: [{ field: "activities.name", label: `Activity (${monthLabel(a.month)})`, from: before, to: name }] });
+    res.json(await activityPayload(f, a.month));
+  } catch (err) {
+    sendError(err, res, next);
+  }
+});
+
+// ---------- DELETE /api/fields/:id/activities/:aid ----------  status D; not when already answered
+router.delete("/:id/activities/:aid", async (req, res, next) => {
+  try {
+    const f = await loadActivityField(req.params.id);
+    const a = await loadActivity(f, req.params.aid);
+    const k = activityKey(f.key, String(a._id));
+    const n = await Entry.countDocuments({ $or: [{ [`values.${k}`]: { $exists: true } }, { [`comments.${k}`]: { $exists: true } }] });
+    if (n) throw new InputError(`"${a.name}" is answered in ${n} saved form${n === 1 ? "" : "s"}, so it can't be deleted. Rename it instead.`, 409);
+    markDeleted(a, req.user.email);
+    await a.save();
+    audit(req, "field_updated", { target: activityTarget(f, a), changes: [{ field: "activities", label: `Activity deleted (status D, ${monthLabel(a.month)})`, from: a.name, to: null }] });
+    res.json(await activityPayload(f, a.month));
+  } catch (err) {
+    sendError(err, res, next);
+  }
+});
+
+// ---------- POST /api/fields/:id/activities/:aid/restore ----------
+router.post("/:id/activities/:aid/restore", async (req, res, next) => {
+  try {
+    const f = await loadActivityField(req.params.id);
+    const a = await loadActivity(f, req.params.aid, { allowDeleted: true });
+    if (!isDeleted(a)) throw new InputError(`"${a.name}" is not deleted.`, 409);
+    await checkActivityFree(f, a.month, a.name, a._id);
+    markRestored(a);
+    await a.save();
+    audit(req, "field_updated", { target: activityTarget(f, a), changes: [{ field: "activities", label: `Activity restored (${monthLabel(a.month)})`, from: null, to: a.name }] });
+    res.json(await activityPayload(f, a.month));
   } catch (err) {
     sendError(err, res, next);
   }

@@ -50,7 +50,8 @@ JC portal (/jc-portal) ──► Express API ──► MongoDB ──► Sahebo 
 | `jamiats` | Jamiat master: `name` (unique, stored in capitals), `isActive` |
 | `jamaats` | Jamaat master: `jamiat`, `name` (unique inside its Jamiat), `mauzeType`, `houseCount`, `children`, `isActive` |
 | `portalfields` | the JC form questions and their answers (managed by the Super Admin) |
-| `entries` | one per Jamaat per month (`month` = `"YYYY-MM"`): answers keyed by question (`values`), comments (`comments`) + remarks. Submitting again updates it |
+| `entries` | one per Jamaat per Hijri month (`month` = `"YYYY-MM"`, e.g. `"1448-06"`): answers keyed by question (`values`), comments (`comments`) + remarks. Submitting again updates it |
+| `activities` | the monthly activities of questions with **Monthly activities** switched on (`field`, `month`, `name`, `order`) |
 | `migrations` | one-time data changes already applied (so they never run twice) |
 | `users`, `sessions`, `auditlogs` | sign-in and audit trail |
 
@@ -63,14 +64,24 @@ Rules that keep the masters clean:
 
 The JC form questions and their answers are managed in the Super Admin portal (**Portal Fields**);
 `server/src/formConfig.js` only holds the starting set, the answer meanings/colours and the months setting.
-Entries are saved per **month** (`YYYY-MM`, no day), so whatever day a JC fills November, it is found under November.
+Entries are saved per **Hijri month** (`YYYY-MM`, no day), so whatever day a JC fills a month, it is found under that month.
 **Comments** typed by JCs are not shown on the dashboards directly: the Sahebo dashboard and the JC dashboard only
 show how many there are (a **Comments** button, a link on each card / Jamaat row). Opening it loads the text
 (`GET /api/dashboard/comments`, `GET /api/portal/comments` — a JC only gets their own Jamaats) and logs `comments_viewed`.
 
-Months are chosen with a **Month + Year** picker (year defaults to the current year). JCs can fill any month from
-`firstMonth` (default `2025-01`) up to the current month — never a future month. The Sahebo dashboard offers the same
-range plus any older month that has entries.
+Months are **Hijri months of the Misri (Fatemi) calendar** (calculated, as in Dawoodi Bohra calendars; see
+`server/src/lib/month.js`), e.g. Jumadal Ukhra 1448 = 10 Nov – 8 Dec 2026. They are chosen with a **Hijri Month + Year**
+picker (defaults to the current Hijri month; the English dates of the month are shown under it). JCs can fill any month
+from `firstMonth` (default `1448-05`) up to the current month — never a future month. The Sahebo dashboard offers the
+same range plus any older month that has entries. Month names are set in `formConfig.hijriMonthNames`.
+(Forms saved under English months before the switch were removed; a copy is in the `entries_gregorian_backup` collection.)
+
+**Monthly activities** (Tibb, Riyadah, Nazafat; any dropdown question can have them — Portal Fields → *Monthly
+activities*): the Super Admin adds the activities of each Hijri month (next month can be prepared in advance; *Copy
+from last month* repeats a list). On the JC form the JC picks the activity, then its status (and comment); every
+activity keeps its own answer, saved as `values["<question key>:<activity id>"]`, so a JC can update week 1 now and
+week 2 next week. Activity answers are optional. Each activity gets its own card on the Sahebo dashboard and its own
+row on the JC dashboard. An activity already answered can be renamed but not deleted.
 
 ## Tech stack (MERN)
 

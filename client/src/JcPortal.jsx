@@ -32,6 +32,9 @@ const today = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
+// Where one activity's answer is saved: "<question key>:<activity id>".
+const actKey = (key, id) => `${key}:${id}`;
+
 const fmtTime = (d) =>
   new Date(d).toLocaleString([], { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
@@ -46,6 +49,8 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
   const [jamaatId, setJamaatId] = useState("");
 
   const [form, setForm] = useState(null);       // what is on screen
+  const [activities, setActivities] = useState({}); // this month's activities: { <question key>: [{ id, name }] }
+  const [actPick, setActPick] = useState({});       // activity chosen in each activity question: { <question key>: id }
   const [baseline, setBaseline] = useState(""); // JSON of the last loaded/saved form (unsaved-changes check)
   const [savedAt, setSavedAt] = useState(null); // when this Jamaat's month was last saved
   const [entryLoading, setEntryLoading] = useState(false);
@@ -111,10 +116,16 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
     setError("");
     setShowMissing(false);
     portalEntry(jamaatId, month)
-      .then(({ details, entry }) => {
+      .then(({ details, entry, activities: acts = {} }) => {
         if (!alive) return;
         const f = blankForm(details);
         if (entry) { f.values = { ...entry.values }; f.comments = { ...(entry.comments || {}) }; f.remarks = entry.remarks || ""; }
+        setActivities(acts);
+        // Start each activity question on the first activity not answered yet.
+        setActPick(Object.fromEntries(Object.entries(acts).map(([k, list]) => {
+          const next = list.find((a) => !f.values[actKey(k, a.id)]) || list[0];
+          return [k, next ? next.id : ""];
+        })));
         setForm(f);
         setBaseline(JSON.stringify(f));
         setSavedAt(entry ? entry.updatedAt : null);
@@ -168,7 +179,8 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
     return out;
   }, [opts]);
 
-  const requiredFields = opts ? opts.fields.filter((f) => f.required) : [];
+  // Activity questions are answered per activity, as each one is done (never required).
+  const requiredFields = opts ? opts.fields.filter((f) => f.required && !f.hasActivities) : [];
   const answered = form ? requiredFields.filter((f) => form.values[f.key]).length : 0;
   const total = requiredFields.length;
   const index = jamaats.findIndex((x) => x.id === jamaatId);
@@ -177,7 +189,7 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
   const submit = useCallback(async (e) => {
     e.preventDefault();
     setError(""); setSuccess("");
-    const missing = opts.fields.filter((f) => f.required && !form.values[f.key]);
+    const missing = requiredFields.filter((f) => !form.values[f.key]);
     if (missing.length) {
       setShowMissing(true);
       setError(`Please answer: ${missing.map((f) => f.label).join(" · ")}`);
@@ -191,8 +203,10 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
       const values = {};
       const comments = {};
       for (const f of opts.fields) {
-        if (form.values[f.key]) values[f.key] = form.values[f.key];
-        if (f.hasComment && (form.comments[f.key] || "").trim()) comments[f.key] = form.comments[f.key];
+        for (const k of f.hasActivities ? (activities[f.key] || []).map((a) => actKey(f.key, a.id)) : [f.key]) {
+          if (form.values[k]) values[k] = form.values[k];
+          if (f.hasComment && (form.comments[k] || "").trim()) comments[k] = form.comments[k];
+        }
       }
       const res = await portalSave({
         month, jamaatId, values, comments, remarks: form.remarks,
@@ -210,7 +224,7 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
     } finally {
       setSaving(false);
     }
-  }, [opts, form, month, jamaatId, jamaat, monthLabel]);
+  }, [opts, form, month, jamaatId, jamaat, monthLabel, activities, requiredFields]);
 
   return (
     <div className="portal">
@@ -282,6 +296,13 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
                     <div className="q-group" key={g.name}>
                       <div className="eyebrow q-group-name">{g.name}</div>
                       {g.fields.map((f) => {
+                        if (f.hasActivities) {
+                          return (
+                            <ActivityQuestion key={f.key} f={f} list={activities[f.key] || []} form={form} monthLabel={monthLabel}
+                              pick={actPick[f.key] || ""} onPick={(id) => setActPick((p) => ({ ...p, [f.key]: id }))}
+                              setValue={setValue} setComment={setComment} commentMax={opts.commentMaxLength} />
+                          );
+                        }
                         const value = form.values[f.key] || "";
                         const missing = showMissing && !value;
                         return (
@@ -361,5 +382,67 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
         )}
       </main>
     </div>
+  );
+}
+
+// A question with monthly activities: choose the activity, then its status (and comment).
+// Every activity keeps its own answer; the chips show where each one stands.
+function ActivityQuestion({ f, list, form, monthLabel, pick, onPick, setValue, setComment, commentMax }) {
+  const act = list.find((a) => a.id === pick) || list[0];
+  const k = act ? actKey(f.key, act.id) : "";
+  const value = k ? form.values[k] || "" : "";
+  const toneOf = (v) => (f.options.find((o) => o.value === v) || {}).tone || "na";
+  const updated = list.filter((a) => form.values[actKey(f.key, a.id)]).length;
+
+  return (
+    <fieldset className="q q-acts" id={`q-${f.key}`}>
+      <legend className="q-label">
+        {f.label}
+        {list.length > 0 && <span className="optional">{updated} of {list.length} activities updated</span>}
+      </legend>
+      {!list.length ? (
+        <p className="act-none">No activities have been added for {monthLabel} yet.</p>
+      ) : (
+        <>
+          <label className="field act-pick">
+            <span className="field-label">Activity</span>
+            <select value={act.id} onChange={(e) => onPick(e.target.value)}>
+              {list.map((a) => {
+                const v = form.values[actKey(f.key, a.id)];
+                return <option key={a.id} value={a.id}>{a.name}{v ? ` — ${v}` : " — not updated"}</option>;
+              })}
+            </select>
+          </label>
+          <span className="field-label act-status-label">Status of “{act.name}”</span>
+          <div className="seg-control" role="radiogroup" aria-label={`Status of ${act.name}`}>
+            {f.options.map((o) => (
+              <label key={o.value} className={`seg-opt tone-${o.tone}${value === o.value ? " is-on" : ""}`}>
+                <input type="radio" name={k} value={o.value} checked={value === o.value} onChange={() => setValue(k, o.value)} />
+                <span>{o.value}</span>
+              </label>
+            ))}
+            {value && <button type="button" className="seg-clear" onClick={() => setValue(k, "")}>Clear</button>}
+          </div>
+          {f.hasComment && (
+            <textarea className="input q-comment" rows={2} maxLength={commentMax}
+              placeholder={`Comment on “${act.name}” (optional)`} aria-label={`Comment for ${f.label}: ${act.name}`}
+              value={form.comments[k] || ""} onChange={(e) => setComment(k, e.target.value)} />
+          )}
+          {list.length > 1 && (
+            <div className="act-chips" aria-label={`All ${f.label} activities`}>
+              {list.map((a) => {
+                const v = form.values[actKey(f.key, a.id)];
+                return (
+                  <button type="button" key={a.id} className={`act-chip${a.id === act.id ? " is-sel" : ""}`} onClick={() => onPick(a.id)}
+                    aria-pressed={a.id === act.id} title={v ? `${a.name}: ${v}` : `${a.name}: not updated`}>
+                    <span className={`dot tone-${v ? toneOf(v) : "empty"}`} />{a.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+    </fieldset>
   );
 }

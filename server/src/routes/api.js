@@ -13,14 +13,14 @@ const sahebOnly = [requireAuth, requireRole("saheb")];
 
 // What the React app needs to draw the dashboard: one card per portal field marked
 // "show on dashboard", each with its own answers, colours and "done" answers.
-const publicConfig = async () => ({
-  metrics: await dashboardMetrics(),
+const publicConfig = async (month) => ({
+  metrics: await dashboardMetrics(month), // one card per activity for monthly-activity questions
   showRemarks: form.showRemarks,
 });
 
 async function payload(req) {
-  const month = isMonth(req.query.month) ? req.query.month : undefined;
-  const [cfg, data] = await Promise.all([publicConfig(), dashboardData(month)]);
+  const month = isMonth(req.query.month) ? req.query.month : currentMonth();
+  const [cfg, data] = await Promise.all([publicConfig(month), dashboardData(month)]);
   return { config: cfg, data };
 }
 

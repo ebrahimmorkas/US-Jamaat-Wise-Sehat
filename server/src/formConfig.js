@@ -9,13 +9,21 @@ const YES_NO = [["Yes", "done"], ["No", "notdone"], ["Pending", "pending"], ["No
 const YES_PENDING = [["Yes", "done"], ["Pending", "pending"]];
 
 module.exports = {
-  // Months follow Indian time (a new month starts at midnight IST).
+  // Reports are monthly, by Hijri month of the Misri calendar (see server/src/lib/month.js).
+  // A new day starts at midnight Indian time.
   timeZone: "Asia/Kolkata",
 
-  // The Month + Year pickers go from this month ("YYYY-MM") up to the current month.
-  // A JC can fill (or update) any month in that range; future months are never offered.
-  // The Sahebo dashboard also shows any older month that has entries.
-  firstMonth: "2025-01",
+  // The Month + Year pickers go from this Hijri month ("YYYY-MM", e.g. "1448-05" = Jumadal Ula 1448)
+  // up to the current month. A JC can fill (or update) any month in that range; future months are
+  // never offered. The Sahebo dashboard also shows any older month that has entries.
+  firstMonth: "1448-05",
+
+  // Names of the 12 Hijri months as shown on the pickers.
+  hijriMonthNames: [
+    "Moharram ul Haraam", "Safar ul Muzaffar", "Rabi ul Awwal", "Rabi ul Aakhar",
+    "Jumadal Ula", "Jumadal Ukhra", "Rajab ul Asab", "Shaban ul Karim",
+    "Ramadan ul Moazzam", "Shawwal ul Mukarram", "Zilqadah ul Haraam", "Zilhaj ul Haraam",
+  ],
 
   // What each answer meaning does on the dashboard.
   //   tone: colour · "done" counts as done in the completion rate · "na" is left out of it
@@ -28,11 +36,11 @@ module.exports = {
   },
 
   // Starting questions (same as the old Excel sheet). key = where answers are saved; never changes.
-  // type "date" = a date picker instead of a dropdown.
+  // type "date" = a date picker instead of a dropdown. hasActivities = answered per monthly activity.
   defaultFields: [
-    { key: "tibb", label: "Tibb", section: "Event Status", options: PROGRESS },
-    { key: "riyadah", label: "Riyadah", section: "Event Status", options: PROGRESS },
-    { key: "nazafat", label: "Nazafat", section: "Event Status", options: PROGRESS },
+    { key: "tibb", label: "Tibb", section: "Event Status", options: PROGRESS, hasActivities: true },
+    { key: "riyadah", label: "Riyadah", section: "Event Status", options: PROGRESS, hasActivities: true },
+    { key: "nazafat", label: "Nazafat", section: "Event Status", options: PROGRESS, hasActivities: true },
     { key: "mahulShifa", label: "Mahul Shifa Thayu?", section: "Mahul us Shifa (16mi)", options: YES_NO },
     { key: "aamil", label: "Mahal Us Shifa report filled on amalat.com?", section: "Mahul us Shifa (16mi)", options: YES_NO },
     { key: "reportDate", label: "Date the report was filled", section: "Mahul us Shifa (16mi)", type: "date", required: false, showOnDashboard: false },

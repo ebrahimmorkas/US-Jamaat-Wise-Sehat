@@ -1,7 +1,7 @@
 // Comments JCs typed under the questions (entries.comments). The dashboards only get a count per
 // Jamaat; the text itself is loaded when someone opens "Comments" (and that is logged).
 const Entry = require("../models/Entry");
-const { getFields, toneOf } = require("./fields");
+const { formFields, toneOf } = require("./fields");
 const { monthLabel } = require("../lib/month");
 
 const text = (v) => (typeof v === "string" ? v.trim() : "");
@@ -20,7 +20,7 @@ async function commentsFor(month, places) {
   const [entries, fields] = await Promise.all([
     Entry.find({ month, jamaat: { $in: [...byId.keys()] }, comments: { $exists: true } })
       .select("jamaat values comments updatedAt").lean(),
-    getFields(), // also questions made inactive later, so their old comments keep a label
+    formFields(month, { all: true }), // also inactive questions / deleted activities, so old comments keep a label
   ]);
   const order = new Map(fields.map((f, i) => [f.key, i]));
   const comments = [];
@@ -38,7 +38,7 @@ async function commentsFor(month, places) {
     || (order.get(a.key) ?? 999) - (order.get(b.key) ?? 999));
   const used = new Set(comments.map((c) => c.key));
   const questions = fields.filter((f) => used.has(f.key)).map((f) => ({
-    key: f.key, label: f.label, group: f.section,
+    key: f.key, label: f.label, group: f.section, ...(f.activity ? { parentLabel: f.parentLabel, activity: f.activity } : {}),
     options: f.options.map((o) => ({ value: o.value, tone: toneOf(o.meaning) })),
   }));
   return { month, monthLabel: monthLabel(month), questions, comments };

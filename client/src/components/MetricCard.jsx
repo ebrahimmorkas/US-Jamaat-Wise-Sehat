@@ -34,8 +34,9 @@ export default function MetricCard({ metric, rows, helpers, status, onStatus, on
   return (
     <article className="card">
       <header className="card-head">
-        <div className="eyebrow">{metric.group}</div>
-        <h3>{metric.label}</h3>
+        {/* an activity card: "Event Status · Tibb" above the activity's name */}
+        <div className="eyebrow">{metric.activity ? [metric.group, metric.parentLabel].filter(Boolean).join(" · ") : metric.group}</div>
+        <h3>{metric.activity ? metric.activity.name : metric.label}</h3>
       </header>
 
       <div className="card-main">

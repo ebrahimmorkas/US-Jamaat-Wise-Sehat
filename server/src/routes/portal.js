@@ -11,13 +11,13 @@ const Jamiat = require("../models/Jamiat");
 const Entry = require("../models/Entry");
 const { audit } = require("../services/audit");
 const { activeMasters } = require("../services/data");
-const { activeFields, portalShape } = require("../services/fields");
+const { activeFields, formFields, activitiesFor, portalShape } = require("../services/fields");
 const { commentsFor, commentedKeys } = require("../services/comments");
 const { clientIp } = require("../lib/clientIp");
 const realtime = require("../realtime");
 const { notDeleted } = require("../lib/softDelete");
 const { TOPICS, EVENTS } = require("../realtime/topics");
-const { monthLabel, portalMonths } = require("../lib/month");
+const { monthLabel, monthInfo, portalMonths } = require("../lib/month");
 const { InputError, requireId, parseValues, parseComments, parseRemarks, sendError } = require("../lib/validate");
 
 const router = express.Router();
@@ -90,7 +90,7 @@ router.get("/options", async (req, res, next) => {
   try {
     const [masters, fields, access] = await Promise.all([activeMasters(), activeFields(), accessOf(req)]);
     res.json({
-      months: portalMonths().map((key) => ({ key, label: monthLabel(key) })),
+      months: portalMonths().map(monthInfo),
       fields: fields.map(portalShape),
       remarksLabel: form.remarksLabel,
       remarksMaxLength: form.remarksMaxLength,
@@ -111,13 +111,14 @@ router.get("/options", async (req, res, next) => {
 });
 
 // ---------- GET /api/portal/summary?month=YYYY-MM ----------  the JC's own dashboard
+// (each activity of a monthly-activity question is a question of its own here)
 // Only the Jamaats assigned to this JC, and for each only the dropdown answers (no comments,
 // remarks or IPs). The page works out the counts itself.
 router.get("/summary", async (req, res, next) => {
   try {
     const months = portalMonths();
     const month = req.query.month ? checkMonth(req.query.month) : months[0];
-    const [masters, fields, access] = await Promise.all([activeMasters(), activeFields(), accessOf(req)]);
+    const [masters, fields, access] = await Promise.all([activeMasters(), formFields(month), accessOf(req)]);
     const questions = fields.filter((f) => f.type === "select").map((f) => ({
       ...portalShape(f),
       done: f.options.filter((o) => o.meaning === "done").map((o) => o.value),
@@ -128,7 +129,7 @@ router.get("/summary", async (req, res, next) => {
     res.json({
       month,
       monthLabel: monthLabel(month),
-      months: months.map((key) => ({ key, label: monthLabel(key) })),
+      months: months.map(monthInfo),
       questions,
       jamaats: mine.map(({ jm, jamiat }) => {
         const e = byJamaat.get(String(jm._id));
@@ -163,10 +164,16 @@ router.get("/entry", async (req, res, next) => {
   try {
     const month = checkMonth(req.query.month);
     const { jamaat } = await findJamaat(req, req.query.jamaat);
-    const entry = await Entry.findOne({ jamaat: jamaat._id, month }).select("values comments remarks updatedAt").lean();
+    const [entry, fields, acts] = await Promise.all([
+      Entry.findOne({ jamaat: jamaat._id, month }).select("values comments remarks updatedAt").lean(),
+      activeFields(),
+      activitiesFor(month),
+    ]);
     audit(req, "entry_viewed", { target: { type: "jamaat", id: String(jamaat._id), label: jamaat.name }, details: { month, saved: !!entry } });
     res.json({
       details: details(jamaat),
+      // this month's activities of each monthly-activity question: { <field key>: [{ id, name }] }
+      activities: Object.fromEntries(fields.filter((f) => f.hasActivities).map((f) => [f.key, (acts.get(f.key) || []).map(({ id, name }) => ({ id, name }))])),
       entry: entry ? { values: entry.values, comments: entry.comments || {}, remarks: entry.remarks || "", updatedAt: entry.updatedAt } : null,
     });
   } catch (err) {
@@ -185,7 +192,7 @@ router.post("/entry", submitLimiter, async (req, res, next) => {
   try {
     const body = req.body || {};
     const month = checkMonth(body.month);
-    const fields = await activeFields();
+    const fields = await formFields(month); // each activity of the month counts as a question
     const answers = parseValues(body.values, fields);
     const comments = parseComments(body.comments, fields);
     const remarks = parseRemarks(body.remarks);

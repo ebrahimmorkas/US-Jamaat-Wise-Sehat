@@ -21,6 +21,9 @@ const portalFieldSchema = new mongoose.Schema(
     type: { type: String, enum: TYPES, default: "select" },
     // A free-text comment box under the question on the JC portal (entries.comments.<key>).
     hasComment: { type: Boolean, default: false },
+    // Monthly activities (dropdown questions only): the Super Admin adds a list of activities for each
+    // month; the JC picks an activity and answers it. Each activity gets its own answer (and comment).
+    hasActivities: { type: Boolean, default: false },
     order: { type: Number, default: 0 },
     required: { type: Boolean, default: true },
     showOnDashboard: { type: Boolean, default: true },

@@ -626,7 +626,8 @@ textarea.input { resize: vertical; min-height: 76px; line-height: 1.45; }
 .success > svg { color: var(--t-good); flex: none; }
 .btn-ghost { background: var(--surface); border-color: var(--border-strong); color: var(--ink); margin-left: auto; }
 .btn-ghost:hover { background: var(--surface-2); }
-.field-month { width: 250px; }
+.field-month { width: 300px; } /* Hijri month names are long */
+.field-hint { font-size: 11.5px; color: var(--muted); }
 .my-pick { display: flex; gap: 8px; }
 .my-pick select { min-width: 0; }
 .my-pick select:first-child { flex: 1.5; }
@@ -1060,3 +1061,28 @@ select:disabled { opacity: .6; cursor: not-allowed; }
 .users-tools .show-deleted { align-self: center; }
 .master-table tr.is-deleted .jm-name, .master-row.is-deleted .rank-name, .field-row.is-deleted .field-name { text-decoration: line-through; text-decoration-color: var(--s-bad); }
 .master-table tr.is-deleted td { background: color-mix(in srgb, var(--soft-bad) 45%, transparent); }
+/* ---------- monthly activities ---------- */
+/* JC form: activity dropdown, then its status */
+.q-acts .act-pick { width: 100%; max-width: 520px; margin-bottom: 10px; }
+.act-status-label { display: block; margin-bottom: 6px; }
+.act-none { margin: 0; padding: 10px 12px; border: 1px dashed var(--border-strong); border-radius: 10px; color: var(--muted); font-size: 13px; }
+.act-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.act-chip {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+  padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface);
+  color: var(--ink-2); font: inherit; font-size: 12px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.act-chip:hover { border-color: var(--border-strong); }
+.act-chip.is-sel { border-color: var(--brand); color: var(--ink); box-shadow: 0 0 0 1px var(--brand) inset; }
+.act-chip .dot { flex: none; }
+/* Super Admin: activities of a month */
+.act-admin { margin-top: 4px; }
+.act-admin-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; padding: 0 20px; }
+.act-admin-head .btn { margin-top: 22px; }
+.act-admin-note { margin: 8px 20px 10px; font-size: 12.5px; color: var(--muted); }
+@media (max-width: 560px) {
+  .act-admin-head { padding: 0 16px; }
+  .act-admin-head .btn { margin-top: 0; width: 100%; }
+  .act-admin-note { margin: 8px 16px 10px; }
+}

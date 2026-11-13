@@ -79,6 +79,33 @@ async function formUpdate2026_11() {
   return changes;
 }
 
+// Nov 2026: months become Hijri months (Misri calendar), and Tibb / Riyadah / Nazafat get monthly activities.
+//  - Forms saved under English months ("2026-11"; Hijri years are 14xx) are removed, as asked by the client
+//    ("start fresh"). They are copied to the "entries_gregorian_backup" collection first.
+//  - "Monthly activities" switched on for Tibb, Riyadah and Nazafat.
+async function hijriActivities2026_11() {
+  const changes = [];
+  const old = { month: { $gte: "1900" } };
+  const n = await Entry.countDocuments(old);
+  if (n) {
+    const docs = await Entry.collection.find(old).toArray();
+    const backup = mongoose.connection.db.collection("entries_gregorian_backup");
+    await backup.insertMany(docs.map((d) => ({ ...d, backedUpAt: new Date() })), { ordered: false }).catch((err) => {
+      if (err.code !== 11000) throw err; // already copied by an earlier, interrupted run
+    });
+    await Entry.deleteMany(old);
+    changes.push({ field: "entries", label: "Saved forms of English months removed (now Hijri months; copy kept in entries_gregorian_backup)", from: n, to: 0 });
+  }
+  for (const key of ["tibb", "riyadah", "nazafat"]) {
+    const f = await PortalField.findOne({ key, type: { $ne: "date" } });
+    if (!f || f.hasActivities) continue;
+    f.hasActivities = true;
+    await f.save();
+    changes.push({ field: `${key}.hasActivities`, label: `Monthly activities: "${f.label}"`, from: false, to: true });
+  }
+  return changes;
+}
+
 async function migrate() {
   // 1) Old roles -> new roles. The old "admin"/"viewer" accounts (e.g. "sehhat") become Sahebs.
   const res = await User.collection.updateMany({ role: { $in: ["admin", "viewer"] } }, { $set: { role: "saheb" } });
@@ -104,6 +131,7 @@ async function migrate() {
 
   // 5) One-time form changes.
   await once("form-2026-11", formUpdate2026_11);
+  await once("hijri-activities-2026-11", hijriActivities2026_11);
 }
 
 module.exports = { migrate };

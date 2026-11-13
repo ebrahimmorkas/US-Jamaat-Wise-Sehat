@@ -139,6 +139,14 @@ export const optionAdd = (id, body) => request(`/api/fields/${id}/options`, { me
 export const optionEdit = (id, oid, body) => request(`/api/fields/${id}/options/${oid}`, { method: "PATCH", body });
 export const optionRemove = (id, oid) => request(`/api/fields/${id}/options/${oid}`, { method: "DELETE" });
 export const optionsOrder = (id, ids) => request(`/api/fields/${id}/options/order`, { method: "PUT", body: { ids } });
+// monthly activities of a question
+export const activitiesGet = (id, month) => request(`/api/fields/${id}/activities${month ? `?month=${encodeURIComponent(month)}` : ""}`);
+export const activityAdd = (id, month, name) => request(`/api/fields/${id}/activities`, { method: "POST", body: { month, name } });
+export const activityEdit = (id, aid, name) => request(`/api/fields/${id}/activities/${aid}`, { method: "PATCH", body: { name } });
+export const activityRemove = (id, aid) => request(`/api/fields/${id}/activities/${aid}`, { method: "DELETE" });
+export const activityRestore = (id, aid) => request(`/api/fields/${id}/activities/${aid}/restore`, { method: "POST" });
+export const activitiesOrder = (id, month, ids) => request(`/api/fields/${id}/activities/order`, { method: "PUT", body: { month, ids } });
+export const activitiesCopy = (id, month) => request(`/api/fields/${id}/activities/copy`, { method: "POST", body: { month } });
 
 // ---- Simple lists: Mauze Type (Super Admin) ----
 export const listsGet = () => request("/api/settings/lists");
