@@ -63,7 +63,10 @@ Rules that keep the masters clean:
 
 The JC form questions and their answers are managed in the Super Admin portal (**Portal Fields**);
 `server/src/formConfig.js` only holds the starting set, the answer meanings/colours and the months setting.
-JCs can fill the current month and the 2 months before it (`portalMonthsBack`).
+Entries are saved per **month** (`YYYY-MM`, no day), so whatever day a JC fills November, it is found under November.
+Months are chosen with a **Month + Year** picker (year defaults to the current year). JCs can fill any month from
+`firstMonth` (default `2025-01`) up to the current month — never a future month. The Sahebo dashboard offers the same
+range plus any older month that has entries.
 
 ## Tech stack (MERN)
 

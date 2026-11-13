@@ -1,4 +1,5 @@
 import { ALL } from "../lib/helpers";
+import MonthYearPicker from "./MonthYearPicker";
 
 export default function PageHead({ month, months, onMonth, jamiat, jamaat, jamiatNames, jamaatNames, onJamiat, onJamaat }) {
   const monthLabel = (months.find((m) => m.key === month) || {}).label;
@@ -30,14 +31,7 @@ export default function PageHead({ month, months, onMonth, jamiat, jamaat, jamia
       </div>
 
       <div className="filters" role="group" aria-label="Filters">
-        {months.length > 0 && (
-          <label className="field field-month">
-            <span className="field-label">Month</span>
-            <select value={month} onChange={(e) => onMonth(e.target.value)}>
-              {months.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-            </select>
-          </label>
-        )}
+        <MonthYearPicker months={months} value={month} onChange={onMonth} />
         <label className="field">
           <span className="field-label">Jamiat</span>
           <select value={jamiat} onChange={(e) => onJamiat(e.target.value)}>

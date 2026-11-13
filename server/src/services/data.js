@@ -4,7 +4,7 @@ const Jamiat = require("../models/Jamiat");
 const Jamaat = require("../models/Jamaat");
 const Entry = require("../models/Entry");
 const { notDeleted } = require("../lib/softDelete");
-const { currentMonth, monthLabel, recentMonths } = require("../lib/month");
+const { currentMonth, monthLabel, portalMonths } = require("../lib/month");
 
 const byName = (a, b) => a.name.localeCompare(b.name);
 
@@ -21,10 +21,11 @@ async function activeMasters() {
   return list;
 }
 
-/** Months that have at least one entry, plus the portal's recent months, newest first. */
+/** The portal's months (firstMonth .. now) plus any older month that has entries, newest first. */
 async function availableMonths() {
   const used = await Entry.distinct("month");
-  return [...new Set([...recentMonths(0), ...used])].sort().reverse();
+  const now = currentMonth();
+  return [...new Set([...portalMonths(), ...used.filter((m) => m <= now)])].sort().reverse();
 }
 
 /** Everything the dashboard needs for one month. */

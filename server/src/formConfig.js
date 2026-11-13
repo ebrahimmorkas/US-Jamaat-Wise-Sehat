@@ -12,8 +12,10 @@ module.exports = {
   // Months follow Indian time (a new month starts at midnight IST).
   timeZone: "Asia/Kolkata",
 
-  // On /jc-portal a JC can fill the current month and this many months before it.
-  portalMonthsBack: 2,
+  // The Month + Year pickers go from this month ("YYYY-MM") up to the current month.
+  // A JC can fill (or update) any month in that range; future months are never offered.
+  // The Sahebo dashboard also shows any older month that has entries.
+  firstMonth: "2025-01",
 
   // What each answer meaning does on the dashboard.
   //   tone: colour · "done" counts as done in the completion rate · "na" is left out of it

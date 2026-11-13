@@ -4,6 +4,7 @@ import { ChevronRight, LockIcon } from "./components/Icons";
 import AppBar from "./components/AppBar";
 import Notice from "./components/Notice";
 import { confirmDialog } from "./components/ConfirmDialog";
+import MonthYearPicker from "./components/MonthYearPicker";
 import { JC_NAV } from "./JcDashboard";
 import { Link } from "./lib/router";
 
@@ -227,12 +228,7 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
             <section className="panel portal-pick" aria-label="Choose the Jamaat">
               <div className="portal-step"><span className="step-no">1</span> Choose the Jamaat</div>
               <div className="pick-grid">
-                <label className="field">
-                  <span className="field-label">Month</span>
-                  <select value={month} onChange={(e) => chooseMonth(e.target.value)}>
-                    {opts.months.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-                  </select>
-                </label>
+                <MonthYearPicker months={opts.months} value={month} onChange={chooseMonth} />
                 <label className="field">
                   <span className="field-label">Jamiat</span>
                   <select value={jamiatId} onChange={(e) => chooseJamiat(e.target.value)}>

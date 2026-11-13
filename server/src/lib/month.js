@@ -1,5 +1,5 @@
 // Months are stored as "YYYY-MM" strings, e.g. "2026-11".
-const { timeZone } = require("../formConfig");
+const { timeZone, firstMonth } = require("../formConfig");
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -24,7 +24,16 @@ function monthLabel(month) {
   return `${NAMES[m - 1]} ${y}`;
 }
 
-/** The current month and `back` months before it, newest first. */
-const recentMonths = (back) => Array.from({ length: back + 1 }, (_, i) => addMonths(currentMonth(), -i));
+/** Every month from `first` up to the current month, newest first (never a future month). */
+function monthsSince(first) {
+  const now = currentMonth();
+  const out = [now];
+  if (!isMonth(first)) return out;
+  for (let m = addMonths(now, -1); m >= first; m = addMonths(m, -1)) out.push(m);
+  return out;
+}
 
-module.exports = { isMonth, currentMonth, addMonths, monthLabel, recentMonths };
+/** Months the JC portal offers: formConfig.firstMonth .. current month, newest first. */
+const portalMonths = () => monthsSince(firstMonth);
+
+module.exports = { isMonth, currentMonth, addMonths, monthLabel, monthsSince, portalMonths };

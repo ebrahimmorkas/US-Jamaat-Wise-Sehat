@@ -592,7 +592,13 @@ textarea.input { resize: vertical; min-height: 76px; line-height: 1.45; }
 .success > svg { color: var(--t-good); flex: none; }
 .btn-ghost { background: var(--surface); border-color: var(--border-strong); color: var(--ink); margin-left: auto; }
 .btn-ghost:hover { background: var(--surface-2); }
-.field-month { width: 190px; }
+.field-month { width: 250px; }
+.my-pick { display: flex; gap: 8px; }
+.my-pick select { min-width: 0; }
+.my-pick select:first-child { flex: 1.5; }
+.my-pick select:last-child { flex: 1; }
+.pick-grid .field-month { width: auto; }
+@media (max-width: 560px) { .field-month { width: 100%; } }
 
 /* ---------- page tabs in the app bar ---------- */
 .app-nav { display: flex; gap: 4px; margin-left: 12px; }

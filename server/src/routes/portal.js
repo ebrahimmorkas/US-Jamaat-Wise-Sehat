@@ -16,7 +16,7 @@ const { clientIp } = require("../lib/clientIp");
 const realtime = require("../realtime");
 const { notDeleted } = require("../lib/softDelete");
 const { TOPICS, EVENTS } = require("../realtime/topics");
-const { monthLabel, recentMonths } = require("../lib/month");
+const { monthLabel, portalMonths } = require("../lib/month");
 const { InputError, requireId, parseValues, parseComments, parseRemarks, sendError } = require("../lib/validate");
 
 const router = express.Router();
@@ -58,7 +58,7 @@ function lockedChanges(sent, jm) {
 }
 
 function checkMonth(month) {
-  if (!recentMonths(form.portalMonthsBack).includes(month)) throw new InputError("Choose a valid month.");
+  if (!portalMonths().includes(month)) throw new InputError("Choose a valid month (not a future month).");
   return month;
 }
 
@@ -79,7 +79,7 @@ router.get("/options", async (req, res, next) => {
   try {
     const [masters, fields, access] = await Promise.all([activeMasters(), activeFields(), accessOf(req)]);
     res.json({
-      months: recentMonths(form.portalMonthsBack).map((key) => ({ key, label: monthLabel(key) })),
+      months: portalMonths().map((key) => ({ key, label: monthLabel(key) })),
       fields: fields.map(portalShape),
       remarksLabel: form.remarksLabel,
       remarksMaxLength: form.remarksMaxLength,
@@ -104,7 +104,7 @@ router.get("/options", async (req, res, next) => {
 // remarks or IPs). The page works out the counts itself.
 router.get("/summary", async (req, res, next) => {
   try {
-    const months = recentMonths(form.portalMonthsBack);
+    const months = portalMonths();
     const month = req.query.month ? checkMonth(req.query.month) : months[0];
     const [masters, fields, access] = await Promise.all([activeMasters(), activeFields(), accessOf(req)]);
     const questions = fields.filter((f) => f.type === "select").map((f) => ({

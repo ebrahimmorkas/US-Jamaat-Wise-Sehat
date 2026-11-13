@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AppBar from "./components/AppBar";
 import Notice from "./components/Notice";
+import MonthYearPicker from "./components/MonthYearPicker";
 import { BuildingIcon, CheckIcon, ClockIcon, StarIcon } from "./components/Icons";
 import { AuthError, isServerStarting, portalSummary } from "./lib/api";
 import { useRealtime, useRealtimeStatus } from "./hooks/useRealtime";
@@ -154,12 +155,7 @@ export default function JcDashboard({ user, onSignOut, onAuthExpired, theme, onT
           </div>
           {data && (
             <div className="filters">
-              <label className="field">
-                <span className="field-label">Month</span>
-                <select value={data.month} onChange={(e) => setMonth(e.target.value)}>
-                  {data.months.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
-                </select>
-              </label>
+              <MonthYearPicker months={data.months} value={data.month} onChange={setMonth} />
               {jamiats.length > 1 && (
                 <label className="field">
                   <span className="field-label">Jamiat</span>
