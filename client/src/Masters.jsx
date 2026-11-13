@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckIcon, CloseIcon } from "./components/Icons";
 import Notice from "./components/Notice";
+import { confirmDialog } from "./components/ConfirmDialog";
 import {
   AuthError, createJamaat, createJamiat, deleteJamaat, deleteJamiat, isServerStarting,
   allAccessCount, grantAllAccess, mastersList, restoreJamaat, restoreJamiat, updateJamaat, updateJamiat,
@@ -71,7 +72,10 @@ export default function Masters({ onAuthExpired }) {
     try {
       const { count } = await allAccessCount(type, id);
       if (!count) return;
-      if (!window.confirm(`${plural(count, "JC")} currently ${count === 1 ? "has" : "have"} access to ${everything}.\n\nGive ${count === 1 ? "this JC" : "them"} access to ${name} too?`)) return;
+      if (!(await confirmDialog({
+        tone: "info", title: `Give access to ${name}?`, confirmText: "Give access", cancelText: "Not now",
+        message: `${plural(count, "JC")} currently ${count === 1 ? "has" : "have"} access to ${everything}.\n\nGive ${count === 1 ? "this JC" : "them"} access to ${name} too?`,
+      }))) return;
       const r = await grantAllAccess(type, id);
       setMsg({ type: "ok", text: `Added ${name}. ${plural(r.updated, "JC")} now ${r.updated === 1 ? "has" : "have"} access to it.` });
     } catch (err) {
@@ -117,14 +121,20 @@ export default function Masters({ onAuthExpired }) {
     if (await act(() => updateJamiat(selected.id, { name }), `Renamed to ${name}.`)) setRenaming(null);
   };
 
-  const toggleJamiat = () => {
+  const toggleJamiat = async () => {
     const to = !selected.isActive;
-    if (!to && !window.confirm(`Mark ${selected.name} inactive?\n\nIt and its Jamaats will be hidden from the JC portal and the dashboard. Saved entries are kept.`)) return;
+    if (!to && !(await confirmDialog({
+      tone: "warn", title: `Mark ${selected.name} inactive?`, confirmText: "Mark inactive",
+      message: "It and its Jamaats will be hidden from the JC portal and the dashboard. Saved entries are kept.",
+    }))) return;
     act(() => updateJamiat(selected.id, { isActive: to }), `${selected.name} is now ${to ? "active" : "inactive"}.`);
   };
 
-  const removeJamiat = () => {
-    if (!window.confirm(`Delete the Jamiat ${selected.name}?\n\nIt will get status D (deleted): hidden everywhere and taken away from JCs. Nothing is erased; you can restore it from “Show deleted”.`)) return;
+  const removeJamiat = async () => {
+    if (!(await confirmDialog({
+      tone: "danger", title: `Delete the Jamiat ${selected.name}?`, confirmText: "Delete",
+      message: "It will get status D (deleted): hidden everywhere and taken away from JCs.\n\nNothing is erased; you can restore it from “Show deleted”.",
+    }))) return;
     act(() => deleteJamiat(selected.id), `Deleted ${selected.name} (status D). Tick “Show deleted” to restore it.`).then((ok) => ok && !showDeleted && setSelectedId(""));
   };
   const restoreJamiatNow = () => act(() => restoreJamiat(selected.id), `Restored ${selected.name}.`);
@@ -145,14 +155,20 @@ export default function Masters({ onAuthExpired }) {
     if (ok && editId === "new" && ok.jamaat) await offerAccess("jamaat", ok.jamaat.id, name, `all Jamaats of ${selected.name}`);
   };
 
-  const toggleJamaat = (jm) => {
+  const toggleJamaat = async (jm) => {
     const to = !jm.isActive;
-    if (!to && !window.confirm(`Mark ${jm.name} inactive?\n\nIt will be hidden from the JC portal and the dashboard. Saved entries are kept.`)) return;
+    if (!to && !(await confirmDialog({
+      tone: "warn", title: `Mark ${jm.name} inactive?`, confirmText: "Mark inactive",
+      message: "It will be hidden from the JC portal and the dashboard. Saved entries are kept.",
+    }))) return;
     act(() => updateJamaat(jm.id, { isActive: to }), `${jm.name} is now ${to ? "active" : "inactive"}.`);
   };
 
-  const removeJamaat = (jm) => {
-    if (!window.confirm(`Delete the Jamaat ${jm.name}?\n\nIt will get status D (deleted): hidden everywhere and taken away from JCs. Nothing is erased; you can restore it from “Show deleted”.`)) return;
+  const removeJamaat = async (jm) => {
+    if (!(await confirmDialog({
+      tone: "danger", title: `Delete the Jamaat ${jm.name}?`, confirmText: "Delete",
+      message: "It will get status D (deleted): hidden everywhere and taken away from JCs.\n\nNothing is erased; you can restore it from “Show deleted”.",
+    }))) return;
     act(() => deleteJamaat(jm.id), `Deleted ${jm.name} (status D). Tick “Show deleted” to restore it.`);
   };
   const restoreJamaatNow = (jm) => act(() => restoreJamaat(jm.id), `Restored ${jm.name}. Give JCs access to it again in Users if needed.`);

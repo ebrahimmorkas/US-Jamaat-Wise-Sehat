@@ -7,6 +7,7 @@ import ErrorPage from "./ErrorPage";
 import AccessDenied from "./AccessDenied";
 import LoginPage from "./components/LoginPage";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { ConfirmHost } from "./components/ConfirmDialog";
 import { useAuth } from "./hooks/useAuth";
 import { useTheme } from "./hooks/useTheme";
 import { navigate, usePath } from "./lib/router";
@@ -59,9 +60,12 @@ export default function App() {
   }, [showError]);
 
   return (
-    <ErrorBoundary resetKey={path} onError={showError} fallback={<ErrorPage theme={theme} onToggleTheme={toggle} />}>
-      {path === "/error" ? <ErrorPage theme={theme} onToggleTheme={toggle} /> : <Main path={path} theme={theme} onToggleTheme={toggle} />}
-    </ErrorBoundary>
+    <>
+      <ErrorBoundary resetKey={path} onError={showError} fallback={<ErrorPage theme={theme} onToggleTheme={toggle} />}>
+        {path === "/error" ? <ErrorPage theme={theme} onToggleTheme={toggle} /> : <Main path={path} theme={theme} onToggleTheme={toggle} />}
+      </ErrorBoundary>
+      <ConfirmHost />
+    </>
   );
 }
 

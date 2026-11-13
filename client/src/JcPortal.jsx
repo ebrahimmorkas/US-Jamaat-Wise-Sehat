@@ -3,6 +3,7 @@ import { AuthError, isServerStarting, portalEntry, portalOptions, portalSave } f
 import { ChevronRight, LockIcon } from "./components/Icons";
 import AppBar from "./components/AppBar";
 import Notice from "./components/Notice";
+import { confirmDialog } from "./components/ConfirmDialog";
 import { JC_NAV } from "./JcDashboard";
 import { Link } from "./lib/router";
 
@@ -135,15 +136,19 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
     return () => window.removeEventListener("beforeunload", warn);
   }, [dirty]);
 
-  const okToLeave = () => !dirty || window.confirm(`You have unsaved answers for ${jamaat ? jamaat.name : "this Jamaat"}. Discard them?`);
+  // (Closing / reloading the browser tab still uses the browser's own warning above; browsers don't allow a custom one there.)
+  const okToLeave = async () => !dirty || confirmDialog({
+    tone: "caution", title: "Discard unsaved answers?", confirmText: "Discard", cancelText: "Keep editing",
+    message: `You have unsaved answers for ${jamaat ? jamaat.name : "this Jamaat"}. If you continue, they will be lost.`,
+  });
 
-  const chooseMonth = (v) => { if (okToLeave()) { setMonth(v); setSuccess(""); } };
-  const chooseJamiat = (v) => {
-    if (!okToLeave()) return;
+  const chooseMonth = async (v) => { if (await okToLeave()) { setMonth(v); setSuccess(""); } };
+  const chooseJamiat = async (v) => {
+    if (!(await okToLeave())) return;
     setJamiatId(v); setJamaatId(""); setSuccess("");
     if (v) store.set(LAST_JAMIAT, v);
   };
-  const chooseJamaat = (v) => { if (okToLeave()) { setJamaatId(v); setSuccess(""); } };
+  const chooseJamaat = async (v) => { if (await okToLeave()) { setJamaatId(v); setSuccess(""); } };
 
   const setValue = (key, v) => setForm((f) => ({ ...f, values: { ...f.values, [key]: v } }));
   // The detail fields are disabled; if someone re-enables one in the browser, the change is sent

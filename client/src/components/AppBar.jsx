@@ -1,10 +1,10 @@
-import { Link } from "../lib/router";
+import { Link, navigate } from "../lib/router";
 import { LogoutIcon, MoonIcon, RefreshIcon, SunIcon } from "./Icons";
 
 const ROLE_LABELS = { saheb: "Saheb", superadmin: "Super Admin", jc: "JC" };
 
 // Top bar. `nav` = [{ to, label }] page tabs (current one = `page`).
-// `canLeave()` = optional check before switching tab (e.g. unsaved answers); false = stay.
+// `canLeave()` = optional check before switching tab (e.g. unsaved answers); true / false or a Promise of it.
 // The refresh block is shown only when `sync` is passed (dashboard page).
 export default function AppBar({ title = "Umoor Sehhat", subtitle = "Monthly Coordination", nav, page, canLeave, sync, theme, onToggleTheme, user, onSignOut }) {
   const dark = theme === "dark";
@@ -24,7 +24,11 @@ export default function AppBar({ title = "Umoor Sehhat", subtitle = "Monthly Coo
             <nav className="app-nav" aria-label="Pages">
               {nav.map((n) => (
                 <Link key={n.to} to={n.to} className={page === n.to ? "is-current" : ""} aria-current={page === n.to ? "page" : undefined}
-                  onClick={(e) => { if (page !== n.to && canLeave && !canLeave()) e.preventDefault(); }}>{n.label}</Link>
+                  onClick={(e) => {
+                    if (page === n.to || !canLeave || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                    e.preventDefault(); // wait for the answer (it may show a popup), then go
+                    Promise.resolve(canLeave()).then((ok) => ok && navigate(n.to));
+                  }}>{n.label}</Link>
               ))}
             </nav>
           )}

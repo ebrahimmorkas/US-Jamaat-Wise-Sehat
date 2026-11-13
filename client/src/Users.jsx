@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Notice from "./components/Notice";
 import MultiSelect from "./components/MultiSelect";
+import { confirmDialog } from "./components/ConfirmDialog";
 import { AuthError, createUser, deleteUser, isServerStarting, mastersList, restoreUser, updateUser, usersList } from "./lib/api";
 import { deletedLine, lower, plural } from "./lib/helpers";
 
@@ -126,7 +127,10 @@ export default function Users({ onAuthExpired }) {
     }
 
     if (editing && editing.role !== form.role &&
-      !window.confirm(`Change ${editing.email || editing.username} from ${roleLabel(editing.role)} to ${roleLabel(form.role)}?\n\nThey will be signed out and see the ${roleLabel(form.role)} pages next time.`)) return;
+      !(await confirmDialog({
+        tone: "warn", title: `Change ${editing.email || editing.username} to ${roleLabel(form.role)}?`, confirmText: "Change role",
+        message: `Their role changes from ${roleLabel(editing.role)} to ${roleLabel(form.role)}. They will be signed out and see the ${roleLabel(form.role)} pages next time.`,
+      }))) return;
 
     const ok = editing
       ? await act(() => updateUser(editing.id, body), `Saved ${email}.`)
@@ -147,12 +151,18 @@ export default function Users({ onAuthExpired }) {
   };
 
   const who = (u) => u.email || u.username;
-  const toggle = (u) => {
-    if (u.isActive && !window.confirm(`Deactivate ${who(u)}?\n\nThey will be signed out and can't sign in until activated again.`)) return;
+  const toggle = async (u) => {
+    if (u.isActive && !(await confirmDialog({
+      tone: "warn", title: `Deactivate ${who(u)}?`, confirmText: "Deactivate",
+      message: "They will be signed out and can't sign in until activated again.",
+    }))) return;
     act(() => updateUser(u.id, { isActive: !u.isActive }), `${who(u)} is now ${u.isActive ? "inactive" : "active"}.`);
   };
-  const remove = (u) => {
-    if (!window.confirm(`Delete ${who(u)}?\n\nThey get status D (deleted): signed out at once and can't sign in. Nothing is erased; you can restore them from “Show deleted”.`)) return;
+  const remove = async (u) => {
+    if (!(await confirmDialog({
+      tone: "danger", title: `Delete ${who(u)}?`, confirmText: "Delete",
+      message: "They get status D (deleted): signed out at once and can't sign in.\n\nNothing is erased; you can restore them from “Show deleted”.",
+    }))) return;
     act(() => deleteUser(u.id), `Deleted ${who(u)} (status D). Tick “Show deleted” to restore.`).then((ok) => ok && form.id === u.id && setForm(newForm()));
   };
   const restore = (u) => act(() => restoreUser(u.id), `Restored ${who(u)}.`);

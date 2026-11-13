@@ -16,4 +16,8 @@ export const EyeIcon = () => <Svg size={18}><P d="M12 5C6.5 5 2.7 8.6 1 12c1.7 3
 export const EyeOffIcon = () => <Svg size={18}><P d="M2.8 4.2 4.2 2.8l17 17-1.4 1.4-3.1-3.1A11.6 11.6 0 0 1 12 19c-5.5 0-9.3-3.6-11-7a13.4 13.4 0 0 1 4.2-4.9L2.8 4.2zM12 5c5.5 0 9.3 3.6 11 7-.7 1.4-1.7 2.8-3 4l-3.2-3.2A4.5 4.5 0 0 0 11.2 7.2L8.9 5A11 11 0 0 1 12 5zm-3.9 5.5a4.5 4.5 0 0 0 5.4 5.4L8.1 10.5z" /></Svg>;
 export const LogoutIcon = () => <Svg><P d="M10 3h9a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-9v-2h9V5h-9V3zm-1.6 4.6L9.8 9l-2 2H15v2H7.8l2 2-1.4 1.4L4 12l4.4-4.4z" /></Svg>;
 export const LockIcon = () => <span className="lock-icon" title="Locked"><Svg size={12}><P d="M12 2a5 5 0 0 0-5 5v3H5v12h14V10h-2V7a5 5 0 0 0-5-5zm-3 8V7a3 3 0 0 1 6 0v3H9z" /></Svg></span>;
+export const WarnIcon = () => <Svg size={22}><P d="M12 2 1 21h22L12 2zm1 15h-2v-2h2v2zm0-4h-2V9h2v4z" /></Svg>;
+export const TrashIcon = () => <Svg size={22}><P d="M9 3h6l1 2h4v2H4V5h4l1-2zM5 9h14l-1 12H6L5 9zm4 2v8h2v-8H9zm4 0v8h2v-8h-2z" /></Svg>;
+export const PauseIcon = () => <Svg size={22}><P d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM9 8h2v8H9V8zm4 0h2v8h-2V8z" /></Svg>;
+export const InfoIcon = () => <Svg size={22}><P d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" /></Svg>;
 export const StarIcon =() => <Svg><P d="M12 17.3 18.2 21l-1.6-7L22 9.2l-7.2-.6L12 2 9.2 8.6 2 9.2 7.4 14l-1.6 7z" /></Svg>;

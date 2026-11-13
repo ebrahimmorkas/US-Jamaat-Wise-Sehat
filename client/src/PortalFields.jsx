@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import Notice from "./components/Notice";
+import { confirmDialog } from "./components/ConfirmDialog";
 import { CheckIcon, ChevronLeft, ChevronRight, CloseIcon } from "./components/Icons";
 import {
   AuthError, fieldCreate, fieldDelete, fieldUpdate, fieldsGet, fieldsOrder, isServerStarting,
@@ -183,12 +184,18 @@ function FieldEditor({ field, meanings, sections, busy, act, onDeleted, showDele
     e.preventDefault();
     act(() => fieldUpdate(field.id, form), "Question saved.");
   };
-  const toggleActive = () => {
-    if (field.isActive && !window.confirm(`Mark “${field.label}” inactive?\n\nIt will disappear from the JC portal and the dashboard. Saved answers are kept.`)) return;
+  const toggleActive = async () => {
+    if (field.isActive && !(await confirmDialog({
+      tone: "warn", title: `Mark “${field.label}” inactive?`, confirmText: "Mark inactive",
+      message: "It will disappear from the JC portal and the dashboard. Saved answers are kept, and you can make it active again any time.",
+    }))) return;
     act(() => fieldUpdate(field.id, { isActive: !field.isActive }), `“${field.label}” is now ${field.isActive ? "inactive" : "active"}.`);
   };
   const remove = async () => {
-    if (!window.confirm(`Delete the question “${field.label}”?\n\nIt gets status D (deleted) and disappears from the JC portal and the dashboard. Nothing is erased; you can restore it from “Show deleted”.`)) return;
+    if (!(await confirmDialog({
+      tone: "danger", title: `Delete the question “${field.label}”?`, confirmText: "Delete",
+      message: "It gets status D (deleted) and disappears from the JC portal and the dashboard.\n\nNothing is erased; you can restore it from “Show deleted”.",
+    }))) return;
     if (await act(() => fieldDelete(field.id), `Deleted “${field.label}” (status D). Tick “Show deleted” to restore it.`)) onDeleted();
   };
 
@@ -386,7 +393,10 @@ function OptionsTable({ values: allValues, meanings, busy, usedLabel, placeholde
     e.preventDefault();
     const old = values.find((v) => v.id === edit.id);
     if (old && old.inUse && old.value !== edit.value.trim() &&
-      !window.confirm(`Rename “${old.value}” to “${edit.value.trim()}”?\n\nIt is used ${old.inUse} time${old.inUse === 1 ? "" : "s"}; those will be renamed too.`)) return;
+      !(await confirmDialog({
+        tone: "info", title: `Rename “${old.value}” to “${edit.value.trim()}”?`, confirmText: "Rename",
+        message: `It is used ${plural(old.inUse, "time")}; those will be renamed too.`,
+      }))) return;
     if (await onSave(old, withMeaning ? { value: edit.value, meaning: edit.meaning } : { value: edit.value })) setEdit(null);
   };
   const add = async (e) => {
@@ -444,7 +454,10 @@ function OptionsTable({ values: allValues, meanings, busy, usedLabel, placeholde
                     ) : (
                       <>
                         <button type="button" className="mini-btn" disabled={busy} onClick={() => setEdit({ id: v.id, value: v.value, meaning: v.meaning })}>Edit</button>
-                        <button type="button" className="mini-btn danger" disabled={busy || v.inUse > 0} onClick={() => window.confirm(`Delete “${v.value}”?\n\nIt gets status D (deleted) and is hidden. You can restore it from “Show deleted”.`) && onRemove(v)}
+                        <button type="button" className="mini-btn danger" disabled={busy || v.inUse > 0} onClick={async () => (await confirmDialog({
+                            tone: "danger", title: `Delete “${v.value}”?`, confirmText: "Delete",
+                            message: "It gets status D (deleted) and is hidden.\n\nNothing is erased; you can restore it from “Show deleted”.",
+                          })) && onRemove(v)}
                           title={v.inUse ? "In use: rename it instead" : "Delete (status D)"}>Delete</button>
                       </>
                     )}
