@@ -5,12 +5,14 @@ import Kpis from "./components/Kpis";
 import MetricCard from "./components/MetricCard";
 import SidePanel from "./components/SidePanel";
 import ListDialog from "./components/ListDialog";
+import CommentsDialog from "./components/CommentsDialog";
+import { CommentIcon } from "./components/Icons";
 import Skeleton from "./components/Skeleton";
 import { useDashboardData } from "./hooks/useDashboardData";
 import { useRealtimeStatus } from "./hooks/useRealtime";
 import Notice from "./components/Notice";
 import { ALL, NOT_FILLED, makeStatusHelpers, plural, scopeRows } from "./lib/helpers";
-import { logEvent } from "./lib/api";
+import { dashboardComments, logEvent } from "./lib/api";
 
 export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onToggleTheme }) {
   const [month, setMonth] = useState(""); // "" = current month (chosen by the server)
@@ -23,6 +25,8 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
   const [dialog, setDialog] = useState(null);   // { key, status }
   const [tip, setTip] = useState(null);         // { x, y, content }
   const [hiddenError, setHiddenError] = useState(""); // error message the user closed
+  const [comments, setComments] = useState(null);     // comments popup request
+  const closeComments = useCallback(() => setComments(null), []);
 
   const config = payload && payload.config;
   const data = payload && payload.data;
@@ -79,6 +83,19 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
 
   const submittedInScope = rows.filter((r) => r.submittedAt).length;
 
+  // Comments: only counts come with the dashboard; the text is loaded when the popup opens.
+  const commentCount = (key) => rows.reduce((n, r) => n + (r.commented || []).filter((k) => !key || k === key).length, 0);
+  const openComments = (metric) => {
+    const viewMonth = data.month, sj = currentJamiat, sm = currentJamaat;
+    setComments({
+      load: () => dashboardComments(viewMonth),
+      title: metric ? metric.label : "Comments",
+      question: metric ? metric.key : "",
+      scopeText: sj === ALL ? "All Jamiats" : sm === ALL ? sj : `${sm} · ${sj}`,
+      inScope: (c) => (sj === ALL || c.jamiat === sj) && (sj === ALL || sm === ALL || c.jamaat === sm),
+    });
+  };
+
   return (
     <>
       <AppBar
@@ -118,6 +135,10 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
                     <h2>Activity status</h2>
                     <p>Choose a status in any card to count Jamaats with it. Click the number to see the list.</p>
                   </div>
+                  <button type="button" className="btn btn-ghost cmt-btn" onClick={() => openComments(null)}
+                    title="Read the comments JCs added under the questions">
+                    <CommentIcon /> <span>Comments</span> <span className="cmt-count">{commentCount()}</span>
+                  </button>
                 </div>
                 <div className="cards" onPointerLeave={onTipHide}>
                   {metrics.map((m) => (
@@ -140,6 +161,8 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
                       }}
                       onTip={onTip}
                       onTipHide={onTipHide}
+                      comments={commentCount(m.key)}
+                      onComments={() => openComments(m)}
                     />
                   ))}
                 </div>
@@ -163,6 +186,7 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
         <div className="tooltip" role="tooltip" style={{ left: tip.x, top: tip.y }}>{tip.content}</div>
       )}
       <ListDialog view={view} onClose={() => setDialog(null)} />
+      <CommentsDialog request={comments} onClose={closeComments} onAuthExpired={onAuthExpired} />
     </>
   );
 }

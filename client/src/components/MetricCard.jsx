@@ -1,4 +1,5 @@
 import { NOT_FILLED, pct, plural, same } from "../lib/helpers";
+import { CommentIcon } from "./Icons";
 
 function distribution(metric, rows, helpers) {
   const set = helpers.statusesFor(metric);
@@ -17,7 +18,7 @@ function distribution(metric, rows, helpers) {
   return segs;
 }
 
-export default function MetricCard({ metric, rows, helpers, status, onStatus, onOpen, onTip, onTipHide }) {
+export default function MetricCard({ metric, rows, helpers, status, onStatus, onOpen, onTip, onTipHide, comments = 0, onComments }) {
   const total = rows.length;
   const segs = distribution(metric, rows, helpers);
   const n = (segs.find((s) => s.status === status) || { count: 0 }).count;
@@ -65,9 +66,16 @@ export default function MetricCard({ metric, rows, helpers, status, onStatus, on
         ))}
       </div>
 
-      <button type="button" className="card-link" onClick={() => onOpen(status)}>
-        View {n ? plural(n, "Jamaat") : "list"} <span aria-hidden="true">→</span>
-      </button>
+      <div className="card-foot">
+        <button type="button" className="card-link" onClick={() => onOpen(status)}>
+          View {n ? plural(n, "Jamaat") : "list"} <span aria-hidden="true">→</span>
+        </button>
+        {comments > 0 && (
+          <button type="button" className="card-cmt" onClick={onComments} title={`Read the comments on ${metric.label}`}>
+            <CommentIcon /> {plural(comments, "comment")}
+          </button>
+        )}
+      </div>
     </article>
   );
 }

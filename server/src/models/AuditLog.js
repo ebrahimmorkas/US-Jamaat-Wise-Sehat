@@ -19,6 +19,7 @@ const ACTIONS = [
   "portal_opened",        // a JC opened the JC portal
   "data_refresh",         // clicked the Refresh button
   "list_viewed",          // opened a list of Jamaats from a card
+  "comments_viewed",      // opened the JC comments (Sahebo dashboard or JC dashboard)
   "entry_viewed",         // a JC opened a Jamaat's monthly form
   "audit_viewed",
   // data changes (audit trail)

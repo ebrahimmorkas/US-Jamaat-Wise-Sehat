@@ -64,6 +64,10 @@ Rules that keep the masters clean:
 The JC form questions and their answers are managed in the Super Admin portal (**Portal Fields**);
 `server/src/formConfig.js` only holds the starting set, the answer meanings/colours and the months setting.
 Entries are saved per **month** (`YYYY-MM`, no day), so whatever day a JC fills November, it is found under November.
+**Comments** typed by JCs are not shown on the dashboards directly: the Sahebo dashboard and the JC dashboard only
+show how many there are (a **Comments** button, a link on each card / Jamaat row). Opening it loads the text
+(`GET /api/dashboard/comments`, `GET /api/portal/comments` — a JC only gets their own Jamaats) and logs `comments_viewed`.
+
 Months are chosen with a **Month + Year** picker (year defaults to the current year). JCs can fill any month from
 `firstMonth` (default `2025-01`) up to the current month — never a future month. The Sahebo dashboard offers the same
 range plus any older month that has entries.

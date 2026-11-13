@@ -15,7 +15,7 @@ const CATEGORIES = {
   signin: ["login_success", "login_failed", "login_blocked", "account_locked", "logout", "token_reuse_detected"],
   changes: ["user_created", "user_updated", "user_deleted", "user_restored", "user_password_reset", "dropdown_updated", "field_created", "field_updated", "field_deleted", "field_restored", "entry_submitted", "master_created", "master_updated", "master_deleted", "master_restored"],
   access: ["access_denied"],
-  activity: ["dashboard_opened", "admin_opened", "portal_opened", "data_refresh", "list_viewed", "entry_viewed", "audit_viewed"],
+  activity: ["dashboard_opened", "admin_opened", "portal_opened", "data_refresh", "list_viewed", "comments_viewed", "entry_viewed", "audit_viewed"],
 };
 
 // ---------- POST /api/audit/event ----------

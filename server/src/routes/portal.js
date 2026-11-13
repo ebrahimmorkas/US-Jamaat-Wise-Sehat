@@ -12,6 +12,7 @@ const Entry = require("../models/Entry");
 const { audit } = require("../services/audit");
 const { activeMasters } = require("../services/data");
 const { activeFields, portalShape } = require("../services/fields");
+const { commentsFor, commentedKeys } = require("../services/comments");
 const { clientIp } = require("../lib/clientIp");
 const realtime = require("../realtime");
 const { notDeleted } = require("../lib/softDelete");
@@ -55,6 +56,16 @@ function lockedChanges(sent, jm) {
     }
   }
   return out;
+}
+
+// The JC's assigned Jamaats (active, inside an assigned active Jamiat): [{ jm, jamiat }]
+function myJamaats(masters, access) {
+  const mine = [];
+  for (const j of masters) {
+    if (!access.jamiats.has(String(j._id))) continue;
+    for (const jm of j.jamaats) if (access.jamaats.has(String(jm._id))) mine.push({ jm, jamiat: j });
+  }
+  return mine;
 }
 
 function checkMonth(month) {
@@ -111,12 +122,8 @@ router.get("/summary", async (req, res, next) => {
       ...portalShape(f),
       done: f.options.filter((o) => o.meaning === "done").map((o) => o.value),
     }));
-    const mine = [];
-    for (const j of masters) {
-      if (!access.jamiats.has(String(j._id))) continue;
-      for (const jm of j.jamaats) if (access.jamaats.has(String(jm._id))) mine.push({ jm, jamiat: j });
-    }
-    const entries = await Entry.find({ month, jamaat: { $in: mine.map((x) => x.jm._id) } }).select("jamaat values updatedAt").lean();
+    const mine = myJamaats(masters, access);
+    const entries = await Entry.find({ month, jamaat: { $in: mine.map((x) => x.jm._id) } }).select("jamaat values comments updatedAt").lean();
     const byJamaat = new Map(entries.map((e) => [String(e.jamaat), e]));
     res.json({
       month,
@@ -127,10 +134,25 @@ router.get("/summary", async (req, res, next) => {
         const e = byJamaat.get(String(jm._id));
         const values = {};
         if (e) for (const q of questions) if (e.values && e.values[q.key]) values[q.key] = e.values[q.key];
-        return { id: String(jm._id), name: jm.name, jamiatId: String(jamiat._id), jamiat: jamiat.name, submittedAt: e ? e.updatedAt : null, values };
+        return { id: String(jm._id), name: jm.name, jamiatId: String(jamiat._id), jamiat: jamiat.name, submittedAt: e ? e.updatedAt : null, values, commented: commentedKeys(e) };
       }),
       loadedAt: new Date(),
     });
+  } catch (err) {
+    sendError(err, res, next);
+  }
+});
+
+// ---------- GET /api/portal/comments?month=YYYY-MM ----------  comments in the JC's own Jamaats
+// Loaded only when the JC opens "Comments"; each opening is logged.
+router.get("/comments", async (req, res, next) => {
+  try {
+    const month = req.query.month ? checkMonth(req.query.month) : portalMonths()[0];
+    const [masters, access] = await Promise.all([activeMasters(), accessOf(req)]);
+    const places = myJamaats(masters, access).map(({ jm, jamiat }) => ({ id: jm._id, name: jm.name, jamiatId: jamiat._id, jamiat: jamiat.name }));
+    const body = await commentsFor(month, places);
+    audit(req, "comments_viewed", { details: { month, count: body.comments.length } });
+    res.json(body);
   } catch (err) {
     sendError(err, res, next);
   }

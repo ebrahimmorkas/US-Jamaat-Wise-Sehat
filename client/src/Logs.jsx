@@ -22,6 +22,7 @@ const ACTION_LABELS = {
   portal_opened: "Opened the JC portal",
   data_refresh: "Clicked Refresh",
   list_viewed: "Viewed a Jamaat list",
+  comments_viewed: "Viewed comments",
   entry_viewed: "Opened a Jamaat form",
   audit_viewed: "Viewed the logs",
   user_created: "Added a user",

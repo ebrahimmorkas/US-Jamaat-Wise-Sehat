@@ -101,6 +101,9 @@ export const logEvent = (action, details) =>
 // ---- JC portal (signed-in JCs) ----
 export const portalOptions = () => request("/api/portal/options");
 export const portalSummary = (month) => request("/api/portal/summary" + monthQuery(month));
+// Comment text is fetched only when someone opens "Comments" (the server logs it).
+export const portalComments = (month) => request("/api/portal/comments" + monthQuery(month));
+export const dashboardComments = (month) => request("/api/dashboard/comments" + monthQuery(month));
 export const portalEntry = (jamaatId, month) =>
   request(`/api/portal/entry?jamaat=${encodeURIComponent(jamaatId)}&month=${encodeURIComponent(month)}`);
 export const portalSave = (body) => request("/api/portal/entry", { method: "POST", body });

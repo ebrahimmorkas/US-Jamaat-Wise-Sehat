@@ -1,5 +1,6 @@
 // Reads the masters and the monthly entries from MongoDB.
 const { dashboardMetrics } = require("./fields");
+const { commentedKeys } = require("./comments");
 const Jamiat = require("../models/Jamiat");
 const Jamaat = require("../models/Jamaat");
 const Entry = require("../models/Entry");
@@ -33,7 +34,7 @@ async function dashboardData(month) {
   const m = month || currentMonth();
   const [masters, months] = await Promise.all([activeMasters(), availableMonths()]);
   const ids = masters.flatMap((j) => j.jamaats.map((jm) => jm._id));
-  const entries = await Entry.find({ month: m, jamaat: { $in: ids } }).select("jamaat values remarks updatedAt").lean();
+  const entries = await Entry.find({ month: m, jamaat: { $in: ids } }).select("jamaat values comments remarks updatedAt").lean();
   const byJamaat = new Map(entries.map((e) => [String(e.jamaat), e]));
 
   const keys = (await dashboardMetrics()).map((m) => m.key);
@@ -43,7 +44,8 @@ async function dashboardData(month) {
       const e = byJamaat.get(String(jm._id));
       const values = {};
       for (const k of keys) values[k] = (e && e.values && e.values[k]) || "";
-      return { name: jm.name, values, remarks: (e && e.remarks) || "", submittedAt: e ? e.updatedAt : null };
+      // `commented` = keys of the questions with a comment (the text is loaded only on request)
+      return { id: String(jm._id), name: jm.name, values, commented: commentedKeys(e), remarks: (e && e.remarks) || "", submittedAt: e ? e.updatedAt : null };
     }),
   }));
 

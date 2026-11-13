@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AppBar from "./components/AppBar";
 import Notice from "./components/Notice";
 import MonthYearPicker from "./components/MonthYearPicker";
-import { BuildingIcon, CheckIcon, ClockIcon, StarIcon } from "./components/Icons";
-import { AuthError, isServerStarting, portalSummary } from "./lib/api";
+import CommentsDialog from "./components/CommentsDialog";
+import { BuildingIcon, CheckIcon, ClockIcon, CommentIcon, StarIcon } from "./components/Icons";
+import { AuthError, isServerStarting, portalComments, portalSummary } from "./lib/api";
 import { useRealtime, useRealtimeStatus } from "./hooks/useRealtime";
 import { navigate } from "./lib/router";
 import { pct, plural, same } from "./lib/helpers";
@@ -51,6 +52,8 @@ export default function JcDashboard({ user, onSignOut, onAuthExpired, theme, onT
   const [question, setQuestion] = useState(""); // show only Jamaats open on this question
   const [jamiat, setJamiat] = useState("");
   const [q, setQ] = useState("");
+  const [comments, setComments] = useState(null); // comments popup request
+  const closeComments = useCallback(() => setComments(null), []);
   const live = useRealtimeStatus();
 
   const monthRef = useRef(month);
@@ -139,6 +142,21 @@ export default function JcDashboard({ user, onSignOut, onAuthExpired, theme, onT
     .sort((a, b) => STATE[a.state].rank - STATE[b.state].rank || a.jamiat.localeCompare(b.jamiat) || a.name.localeCompare(b.name));
   const questionLabel = question && (data.questions.find((x) => x.key === question) || {}).label;
 
+  // Comments: only counts come with the summary; the text is loaded when the popup opens.
+  const commentTotal = scoped.reduce((n, r) => n + (r.commented || []).length, 0);
+  const openComments = (r) => {
+    const viewMonth = data.month, scopeJamiat = jamiat;
+    const jamiatName = scopeJamiat ? (jamiats.find(([id]) => id === scopeJamiat) || [])[1] : "";
+    setComments({
+      load: () => portalComments(viewMonth),
+      title: r ? `Comments · ${r.name}` : "Comments",
+      jamaatId: r ? r.id : "",
+      jamaatName: r ? r.name : "",
+      scopeText: r ? r.jamiat : jamiatName || "My Jamaats",
+      inScope: (c) => !scopeJamiat || c.jamiatId === scopeJamiat,
+    });
+  };
+
   const open = (r) => navigate(`/jc-portal/form?jamaat=${encodeURIComponent(r.id)}&month=${encodeURIComponent(data.month)}`);
 
   return (
@@ -199,6 +217,10 @@ export default function JcDashboard({ user, onSignOut, onAuthExpired, theme, onT
                     <h2>Jamaats</h2>
                     <p>Not submitted first, then the ones that need follow-up. Click Fill or Update to open the form.</p>
                   </div>
+                  <button type="button" className="btn btn-ghost cmt-btn" onClick={() => openComments(null)}
+                    title="Read the comments added under the questions">
+                    <CommentIcon /> <span>Comments</span> <span className="cmt-count">{commentTotal}</span>
+                  </button>
                 </div>
                 <div className="jc-tools">
                   <div className="seg-tabs" role="tablist" aria-label="Show">
@@ -230,6 +252,12 @@ export default function JcDashboard({ user, onSignOut, onAuthExpired, theme, onT
                             <td className="cell-main">
                               <span className="jm-name">{r.name}</span>
                               <span className="jm-sub">{r.jamiat}</span>
+                              {(r.commented || []).length > 0 && (
+                                <button type="button" className="row-cmt" onClick={() => openComments(r)}
+                                  title={`Read the comments for ${r.name}`} aria-label={`${plural(r.commented.length, "comment")} for ${r.name}`}>
+                                  <CommentIcon size={12} /> {r.commented.length}
+                                </button>
+                              )}
                             </td>
                             <td data-label="Status"><span className={`pill ${STATE[r.state].tone}`}><span className={`dot tone-${STATE[r.state].tone}`} />{STATE[r.state].label}</span></td>
                             <td data-label="Answers done" className={`tnum${r.submittedAt ? "" : " m-hide"}`}>
@@ -307,6 +335,7 @@ export default function JcDashboard({ user, onSignOut, onAuthExpired, theme, onT
           </>
         )}
       </main>
+      <CommentsDialog request={comments} onClose={closeComments} onAuthExpired={onAuthExpired} />
     </div>
   );
 }

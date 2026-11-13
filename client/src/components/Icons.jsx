@@ -20,4 +20,5 @@ export const WarnIcon = () => <Svg size={22}><P d="M12 2 1 21h22L12 2zm1 15h-2v-
 export const TrashIcon = () => <Svg size={22}><P d="M9 3h6l1 2h4v2H4V5h4l1-2zM5 9h14l-1 12H6L5 9zm4 2v8h2v-8H9zm4 0v8h2v-8h-2z" /></Svg>;
 export const PauseIcon = () => <Svg size={22}><P d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM9 8h2v8H9V8zm4 0h2v8h-2V8z" /></Svg>;
 export const InfoIcon = () => <Svg size={22}><P d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" /></Svg>;
+export const CommentIcon = ({ size = 14 }) => <Svg size={size}><P d="M5 3h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4.3A2 2 0 0 1 3 15V5a2 2 0 0 1 2-2zm2 4v2h10V7H7zm0 4v2h7v-2H7z" /></Svg>;
 export const StarIcon =() => <Svg><P d="M12 17.3 18.2 21l-1.6-7L22 9.2l-7.2-.6L12 2 9.2 8.6 2 9.2 7.4 14l-1.6 7z" /></Svg>;
