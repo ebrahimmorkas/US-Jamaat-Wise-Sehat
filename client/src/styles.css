@@ -381,8 +381,13 @@ select:focus-visible, input:focus-visible, button:focus-visible {
 .rank-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rank-name small { color: var(--muted); font-weight: 400; margin-left: 6px; }
 .rank-val { font-size: 13px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
-.rank-bar { grid-column: 1 / -1; height: 6px; border-radius: 999px; background: var(--s-empty); overflow: hidden; }
-.rank-bar > span { display: block; height: 100%; background: var(--s-warn); border-radius: 999px; transition: width .4s ease; }
+/* progress per Jamiat / Jamaat: done | not done yet | not applicable | not filled */
+.rank-bar { grid-column: 1 / -1; height: 8px; border-radius: 999px; background: var(--s-empty); overflow: hidden; }
+.rank-bar.stack { display: flex; gap: 2px; }
+.rank-bar .seg { cursor: inherit; }
+.rank-row:hover .rank-bar .seg { opacity: 1; }
+.rank-name small { display: block; margin: 2px 0 0; }
+.rank-legend { padding: 2px 8px 6px; }
 .rank-row.zero .rank-name, .rank-row.zero .rank-val { color: var(--muted); }
 
 .back-btn {
