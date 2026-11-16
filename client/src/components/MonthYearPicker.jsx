@@ -1,5 +1,6 @@
 // Hijri Month + Year picker. `months` = [{ key: "YYYY-MM", label, name, range }] the server allows
-// (newest first, never a future month for the JC portal); `value` = the chosen key. The year starts on
+// (newest first, never a future month for the JC portal); `value` = the chosen key. The month list always
+// shows all 12 Hijri months; months not in `months` are disabled. The year starts on
 // the current Hijri year (the server's default month). Changing the year keeps the same month when that
 // year has it, otherwise the nearest one. Under the pickers: the English dates the month covers.
 const split = (key) => { const [y, m] = String(key || "").split("-"); return { y, m }; };
@@ -11,9 +12,12 @@ export default function MonthYearPicker({ months, value, onChange, label = "Mont
   const chosen = keys.includes(value) ? value : keys[0];
   const cur = split(chosen);
   const info = list.find((x) => x.key === chosen) || {};
-  const nameOf = (m) => (list.find((x) => split(x.key).m === m) || {}).name || m;
+  const nameOf = (m) => (list.find((x) => split(x.key).m === m) || {}).name || `Month ${+m}`;
   const years = [...new Set(keys.map((k) => split(k).y))].sort().reverse();       // newest first
-  const inYear = (y) => keys.filter((k) => split(k).y === y).map((k) => split(k).m).sort(); // 1st..12th month
+  const inYear = (y) => keys.filter((k) => split(k).y === y).map((k) => split(k).m).sort(); // allowed months, 1st..12th
+  const ALL_MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
+  const allowed = new Set(inYear(cur.y));
+  const latest = inYear(cur.y).slice(-1)[0];
 
   const pickYear = (y) => {
     const ms = inYear(y);
@@ -28,7 +32,12 @@ export default function MonthYearPicker({ months, value, onChange, label = "Mont
       <span className="field-label">{label} <span className="optional">(Hijri)</span></span>
       <div className="my-pick">
         <select value={cur.m} onChange={(e) => onChange(`${cur.y}-${e.target.value}`)} aria-label="Hijri month">
-          {inYear(cur.y).map((m) => <option key={m} value={m}>{nameOf(m)}</option>)}
+          {/* all 12 months; the ones not offered (upcoming, or before the first month) are shown greyed out */}
+          {ALL_MONTHS.map((m) => (
+            <option key={m} value={m} disabled={!allowed.has(m)}>
+              {nameOf(m)}{allowed.has(m) ? "" : m > latest ? " (upcoming)" : " (not available)"}
+            </option>
+          ))}
         </select>
         <select value={cur.y} onChange={(e) => pickYear(e.target.value)} aria-label="Hijri year" disabled={years.length < 2}>
           {years.map((y) => <option key={y} value={y}>{y} H</option>)}

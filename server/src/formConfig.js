@@ -13,10 +13,10 @@ module.exports = {
   // A new day starts at midnight Indian time.
   timeZone: "Asia/Kolkata",
 
-  // The Month + Year pickers go from this Hijri month ("YYYY-MM", e.g. "1448-05" = Jumadal Ula 1448)
-  // up to the current month. A JC can fill (or update) any month in that range; future months are
-  // never offered. The Sahebo dashboard also shows any older month that has entries.
-  firstMonth: "1448-05",
+  // The Month + Year pickers go back this many full Hijri years (from Moharram), up to the current month:
+  // in 1448 with 3 -> Moharram 1445 .. now. A JC can fill (or update) any month in that range; future
+  // months are listed but can't be chosen. The Sahebo dashboard also shows any older month that has entries.
+  yearsBack: 3,
 
   // Names of the 12 Hijri months as shown on the pickers.
   hijriMonthNames: [

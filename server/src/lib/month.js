@@ -4,7 +4,7 @@
 //   - 11 leap years in every 30 years: years 2, 5, 8, 10, 13, 16, 19, 21, 24, 27, 29 of the cycle
 //   - day 1 (1 Moharram 1) = Thursday 15 July 622 (Julian)
 // A new day (and month) starts at midnight in formConfig.timeZone (Indian time).
-const { timeZone, firstMonth, hijriMonthNames } = require("../formConfig");
+const { timeZone, yearsBack = 3, hijriMonthNames } = require("../formConfig");
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const LEAP = new Set([2, 5, 8, 10, 13, 16, 19, 21, 24, 27, 29]);
@@ -90,7 +90,7 @@ function monthsSince(first) {
   return out;
 }
 
-/** Months the JC portal offers: formConfig.firstMonth .. current month, newest first. */
-const portalMonths = () => monthsSince(firstMonth);
+/** Months the JC portal offers: Moharram of (current year - formConfig.yearsBack) .. current month, newest first. */
+const portalMonths = () => monthsSince(key(parse(currentMonth())[0] - yearsBack, 1));
 
 module.exports = { isMonth, currentMonth, addMonths, monthLabel, monthName, monthRange, rangeText, monthInfo, monthsSince, portalMonths, fromGregorian };

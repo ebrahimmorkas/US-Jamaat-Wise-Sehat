@@ -72,8 +72,9 @@ show how many there are (a **Comments** button, a link on each card / Jamaat row
 Months are **Hijri months of the Misri (Fatemi) calendar** (calculated, as in Dawoodi Bohra calendars; see
 `server/src/lib/month.js`), e.g. Jumadal Ukhra 1448 = 10 Nov – 8 Dec 2026. They are chosen with a **Hijri Month + Year**
 picker (defaults to the current Hijri month; the English dates of the month are shown under it). JCs can fill any month
-from `firstMonth` (default `1448-05`) up to the current month — never a future month. The Sahebo dashboard offers the
-same range plus any older month that has entries. Month names are set in `formConfig.hijriMonthNames`.
+from Moharram `yearsBack` (default 3) Hijri years ago up to the current month. The pickers list all 12 months of each
+year; future months are shown but can't be chosen. The Sahebo dashboard offers the same range plus any older month that
+has entries. Month names are set in `formConfig.hijriMonthNames`.
 (Forms saved under English months before the switch were removed; a copy is in the `entries_gregorian_backup` collection.)
 
 **Monthly activities** (Tibb, Riyadah, Nazafat; any dropdown question can have them — Portal Fields → *Monthly
