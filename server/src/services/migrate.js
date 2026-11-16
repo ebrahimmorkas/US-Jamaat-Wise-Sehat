@@ -4,6 +4,7 @@ const User = require("../models/User");
 const Session = require("../models/Session");
 const PortalField = require("../models/PortalField");
 const Entry = require("../models/Entry");
+const Activity = require("../models/Activity");
 const AuditLog = require("../models/AuditLog");
 const { seedLists } = require("./lists");
 const { seedFields, invalidate } = require("./fields");
@@ -106,6 +107,35 @@ async function hijriActivities2026_11() {
   return changes;
 }
 
+// Nov 2026: the "No" answer is removed from every question, as asked by the client.
+//  - "No" gets status "D" (kept, restorable from Portal Fields).
+//  - Saved "No" answers (also of activities, "<key>:<activity id>") become "Pending" when the question has it.
+async function removeNo2026_11() {
+  const changes = [];
+  const fields = await PortalField.find({ "options.value": { $regex: /^\s*no\s*$/i } });
+  for (const f of fields) {
+    const drop = f.options.filter((o) => /^\s*no\s*$/i.test(o.value) && !isDeleted(o));
+    if (!drop.length) continue;
+    const pending = f.options.find((o) => o.meaning === "pending" && !isDeleted(o) && !drop.includes(o));
+    let n = 0;
+    if (pending) {
+      const keys = [f.key, ...(await Activity.find({ field: f.key }).select("_id").lean()).map((a) => `${f.key}:${a._id}`)];
+      for (const k of keys) {
+        for (const o of drop) {
+          n += (await Entry.updateMany({ [`values.${k}`]: o.value }, { $set: { [`values.${k}`]: pending.value } })).modifiedCount;
+        }
+      }
+    }
+    for (const o of drop) markDeleted(o, "system");
+    await f.save();
+    changes.push({
+      field: `${f.key}.options`, label: `Answer deleted (status D) from "${f.label}"`,
+      from: "No" + (n ? ` (${n} saved answer(s) set to ${pending.value})` : ""), to: null,
+    });
+  }
+  return changes;
+}
+
 async function migrate() {
   // 1) Old roles -> new roles. The old "admin"/"viewer" accounts (e.g. "sehhat") become Sahebs.
   const res = await User.collection.updateMany({ role: { $in: ["admin", "viewer"] } }, { $set: { role: "saheb" } });
@@ -132,6 +162,7 @@ async function migrate() {
   // 5) One-time form changes.
   await once("form-2026-11", formUpdate2026_11);
   await once("hijri-activities-2026-11", hijriActivities2026_11);
+  await once("remove-no-2026-11", removeNo2026_11);
 }
 
 module.exports = { migrate };

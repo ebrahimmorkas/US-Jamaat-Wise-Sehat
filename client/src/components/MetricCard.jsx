@@ -60,7 +60,8 @@ export default function MetricCard({ metric, rows, helpers, status, onStatus, on
 
       <div className="legend">
         {segs.map((s) => (
-          <button type="button" key={s.status} className={`lg-item${s.status === status ? " is-sel" : ""}`} onClick={() => pick(s)}>
+          <button type="button" key={s.status} className={`lg-item lg-${helpers.toneOf(s.status, metric)}${s.status === status ? " is-sel" : ""}`}
+            aria-pressed={s.status === status} onClick={() => pick(s)}>
             <span className={`dot tone-${helpers.toneOf(s.status, metric)}`} />
             {s.status} <b>{s.count}</b>
           </button>

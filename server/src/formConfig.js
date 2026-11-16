@@ -5,7 +5,7 @@
 //  only used the first time the server starts, to create the starting set.
 // ============================================================
 const PROGRESS = [["Completed", "done"], ["Pending", "pending"], ["In Progress", "progress"], ["Not Applicable", "na"]];
-const YES_NO = [["Yes", "done"], ["No", "notdone"], ["Pending", "pending"], ["Not Applicable", "na"]];
+const YES_NO = [["Yes", "done"], ["Pending", "pending"], ["Not Applicable", "na"]]; // no "No" answer (client, Nov 2026)
 const YES_PENDING = [["Yes", "done"], ["Pending", "pending"]];
 
 module.exports = {

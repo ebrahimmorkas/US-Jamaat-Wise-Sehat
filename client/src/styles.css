@@ -339,13 +339,18 @@ select:focus-visible, input:focus-visible, button:focus-visible {
 }
 
 .legend { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+/* every status is a circled chip; the chosen one gets a pale background of its own colour */
 .lg-item {
   display: inline-flex; align-items: center; gap: 6px;
-  border: 1px solid transparent; background: none; border-radius: 999px;
+  border: 1px solid var(--border-strong); background: var(--surface); border-radius: 999px;
   padding: 2px 8px 2px 6px; font-size: 12px; color: var(--ink-2); cursor: pointer;
 }
-.lg-item:hover { background: var(--surface); border-color: var(--border); }
-.lg-item.is-sel { background: var(--surface); border-color: var(--border-strong); color: var(--ink); font-weight: 600; }
+.lg-item:hover { border-color: var(--muted); }
+.lg-item.is-sel { color: var(--ink); font-weight: 600; background: var(--soft-na); }
+.lg-item.is-sel.lg-good { background: var(--soft-good); border-color: color-mix(in srgb, var(--s-good) 45%, transparent); }
+.lg-item.is-sel.lg-info { background: var(--soft-info); border-color: color-mix(in srgb, var(--s-info) 45%, transparent); }
+.lg-item.is-sel.lg-warn { background: var(--soft-warn); border-color: color-mix(in srgb, var(--s-warn) 55%, transparent); }
+.lg-item.is-sel.lg-bad  { background: var(--soft-bad);  border-color: color-mix(in srgb, var(--s-bad) 45%, transparent); }
 .lg-item b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 
