@@ -34,18 +34,19 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
   const metrics = useMemo(() => (config ? config.metrics : []), [config]);
   const helpers = useMemo(() => (config ? makeStatusHelpers() : null), [config]);
 
-  // Default each card's dropdown once the config arrives.
+  // Each card starts on its "done" answer (Completed / Yes) once the config arrives.
+  const startStatus = (m) => (m.done && m.done[0]) || m.defaultStatus || helpers.statusesFor(m)[0];
   useEffect(() => {
     if (!config || !helpers) return;
     setSelected((prev) => {
       const next = { ...prev };
       for (const m of config.metrics) {
         const opts = [...helpers.statusesFor(m), NOT_FILLED];
-        if (!opts.includes(next[m.key])) next[m.key] = m.defaultStatus || opts[0];
+        if (!opts.includes(next[m.key])) next[m.key] = startStatus(m);
       }
       return next;
     });
-  }, [config, helpers]);
+  }, [config, helpers]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep the selection valid after a refresh (e.g. a Jamiat/Jamaat was renamed).
   const jamiatNames = jamiats.map((j) => j.name);
@@ -126,8 +127,7 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
           <Skeleton />
         ) : (
           <>
-            <Kpis rows={rows} metrics={metrics} helpers={helpers} scopeSub={scopeSub}
-              submitted={submittedInScope} monthLabel={data.monthLabel} />
+            <Kpis rows={rows} scopeSub={scopeSub} submitted={submittedInScope} monthLabel={data.monthLabel} />
             <section className="layout">
               <div className="panel">
                 <div className="panel-head">
@@ -147,7 +147,7 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
                       metric={m}
                       rows={rows}
                       helpers={helpers}
-                      status={selected[m.key] || m.defaultStatus}
+                      status={selected[m.key] || startStatus(m)}
                       onStatus={(s) => setSelected((prev) => ({ ...prev, [m.key]: s }))}
                       onOpen={(s) => {
                         setDialog({ key: m.key, status: s });

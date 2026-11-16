@@ -234,6 +234,12 @@ export default function Users({ onAuthExpired }) {
       </div>
 
       <div className="panel users-list">
+        <div className="panel-head">
+          <div>
+            <h2>Everyone who can sign in</h2>
+            <p>Edit to change a role or the Jamiats / Jamaats a JC can fill. Deactivate stops sign-in without deleting.</p>
+          </div>
+        </div>
         <div className="add-line users-tools">
           <input className="input" type="search" placeholder="Search Gmail or name…" value={query}
             onChange={(e) => setQuery(e.target.value)} aria-label="Search users" />

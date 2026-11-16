@@ -2,7 +2,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import MonthYearPicker from "./components/MonthYearPicker";
 import Notice from "./components/Notice";
 import { confirmDialog } from "./components/ConfirmDialog";
-import { CheckIcon, ChevronLeft, ChevronRight, CloseIcon } from "./components/Icons";
+import { CheckIcon, ChevronLeft, ChevronRight, CloseIcon, CommentIcon } from "./components/Icons";
+
+// An on/off setting with a title and one line explaining it.
+function Switch({ checked, onChange, title, text }) {
+  return (
+    <label className={`switch-row${checked ? " is-on" : ""}`}>
+      <input type="checkbox" role="switch" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <span className="switch" aria-hidden="true" />
+      <span className="switch-text"><b>{title}</b><small>{text}</small></span>
+    </label>
+  );
+}
 import {
   AuthError, fieldCreate, fieldDelete, fieldUpdate, fieldsGet, fieldsOrder, isServerStarting,
   fieldRestore, activitiesGet, activityAdd, activityEdit, activityRemove, activityRestore, activitiesOrder, activitiesCopy, listAdd, listEdit, listOrder, listRemove, listRestore, listsGet, optionAdd, optionEdit, optionRemove, optionRestore, optionsOrder,
@@ -106,11 +117,12 @@ export default function PortalFields({ onAuthExpired }) {
           </div>
           <div className="side-body master-list">
             {fields.map((f, i) => (
-              <div key={f.id} className={`field-row${f.id === selected ? " is-sel" : ""}${f.isActive ? "" : " is-off"}`}>
+              <div key={f.id}>
+              {(i === 0 || fields[i - 1].section !== f.section) && <div className="field-group">{f.section || "No section"}</div>}
+              <div className={`field-row${f.id === selected ? " is-sel" : ""}${f.isActive ? "" : " is-off"}`}>
                 <button type="button" className="field-pick" onClick={() => { setSelected(f.id); setMsg(null); }}>
                   <span className="field-name">{f.label}</span>
                   <span className="field-meta">
-                    {f.section && <span>{f.section}</span>}
                     {f.type === "date" && <span className="pill info">Date</span>}
                     {f.hasActivities && <span className="pill info">Monthly activities</span>}
                     {!f.isActive && <span className="pill na">Inactive</span>}
@@ -127,7 +139,9 @@ export default function PortalFields({ onAuthExpired }) {
                   </button>
                 </span>
               </div>
+              </div>
             ))}
+            {showDeleted && deletedFields.length > 0 && <div className="field-group">Deleted</div>}
             {showDeleted && deletedFields.map((f) => (
               <div key={f.id} className={`field-row is-off is-deleted${f.id === selected ? " is-sel" : ""}`}>
                 <button type="button" className="field-pick" onClick={() => { setSelected(f.id); setMsg(null); }}>
@@ -136,7 +150,7 @@ export default function PortalFields({ onAuthExpired }) {
                 </button>
               </div>
             ))}
-            <div className="eyebrow list-sep">Jamaat details</div>
+            <div className="field-group list-sep">Jamaat details</div>
             <div className={`field-row${selected === MAUZE ? " is-sel" : ""}`}>
               <button type="button" className="field-pick" onClick={() => { setSelected(MAUZE); setMsg(null); }}>
                 <span className="field-name">Mauze Type</span>
@@ -166,9 +180,7 @@ export default function PortalFields({ onAuthExpired }) {
       </section>
 
       <p className="dd-note">
-        <b>Meaning</b> sets the colour of an answer on the dashboard and the completion rate: <i>Done</i> counts as done,
-        <i> Not applicable</i> is left out, everything else counts as not done yet. Answers or questions already used in saved
-        forms can't be deleted: rename an answer, or mark a question inactive (it disappears from the portal, history is kept).
+        Questions already used in saved forms can't be deleted: mark them inactive instead (they disappear from the portal, history is kept).
         Delete never erases anything: it gives status <b>D</b> (deleted) and hides it; tick <i>Show deleted</i> to restore.
       </p>
     </>
@@ -181,6 +193,14 @@ function FieldEditor({ field, meanings, sections, busy, act, onDeleted, showDele
   const [form, setForm] = useState({ label: field.label, section: field.section, hasComment: field.hasComment, hasActivities: field.hasActivities, required: field.required, showOnDashboard: field.showOnDashboard });
   const dirty = form.label !== field.label || form.section !== field.section || form.hasComment !== field.hasComment || form.hasActivities !== field.hasActivities || form.required !== field.required || form.showOnDashboard !== field.showOnDashboard;
   const toneOf = (m) => (meanings.find((x) => x.key === m) || {}).tone || "na";
+  const [tab, setTab] = useState("settings");
+  const tabs = [
+    ["settings", "Settings"],
+    ...(isDate ? [] : [["answers", "Answers", field.options.filter((o) => !o.deleted).length]]),
+    ...(field.hasActivities ? [["activities", "Monthly activities"]] : []),
+  ];
+  // The activities tab disappears when the switch is turned off.
+  useEffect(() => { if (!tabs.some(([k]) => k === tab)) setTab("settings"); }, [field.hasActivities]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = async (e) => {
     e.preventDefault();
@@ -236,6 +256,15 @@ function FieldEditor({ field, meanings, sections, busy, act, onDeleted, showDele
         </div>
       </div>
 
+      <div className="ed-tabs" role="tablist" aria-label="Question parts">
+        {tabs.map(([key, label, count]) => (
+          <button key={key} type="button" role="tab" aria-selected={tab === key} className={`ed-tab${tab === key ? " is-on" : ""}`} onClick={() => setTab(key)}>
+            {label}{count != null && <span className="seg-count">{count}</span>}
+          </button>
+        ))}
+      </div>
+
+      {tab === "settings" && <>
       <form className="field-form" onSubmit={save}>
         <label className="field">
           <span className="field-label">Question</span>
@@ -247,30 +276,46 @@ function FieldEditor({ field, meanings, sections, busy, act, onDeleted, showDele
             onChange={(e) => setForm({ ...form, section: e.target.value })} />
           <datalist id="sections">{sections.map((s) => <option key={s} value={s} />)}</datalist>
         </label>
-        <div className="checks">
-          <label className="check"><input type="checkbox" checked={form.required} onChange={(e) => setForm({ ...form, required: e.target.checked })} /> Required on the JC portal</label>
-          <label className="check"><input type="checkbox" checked={form.hasComment} onChange={(e) => setForm({ ...form, hasComment: e.target.checked })} /> Include comment box</label>
-          {!isDate && <label className="check"><input type="checkbox" checked={form.hasActivities} onChange={(e) => setForm({ ...form, hasActivities: e.target.checked })} /> Monthly activities <span className="optional">(JC picks the activity, then its status)</span></label>}
-          {!isDate && <label className="check"><input type="checkbox" checked={form.showOnDashboard} onChange={(e) => setForm({ ...form, showOnDashboard: e.target.checked })} /> Show a card on the dashboard</label>}
+        <div className="switches">
+          <Switch checked={form.required} onChange={(v) => setForm({ ...form, required: v })}
+            title="Required" text="The JC must answer it before submitting." />
+          <Switch checked={form.hasComment} onChange={(v) => setForm({ ...form, hasComment: v })}
+            title="Comment box" text="JCs can add a comment under the answer." />
+          {!isDate && <Switch checked={form.hasActivities} onChange={(v) => setForm({ ...form, hasActivities: v })}
+            title="Monthly activities" text="The JC picks one of this month's activities, then its status." />}
+          {!isDate && <Switch checked={form.showOnDashboard} onChange={(v) => setForm({ ...form, showOnDashboard: v })}
+            title="Show on dashboard" text="Gets a card on the Sahebo Dashboard and counts in its figures." />}
         </div>
         <div className="field-form-actions">
           <button type="submit" className="btn btn-primary" disabled={busy || !dirty}>Save question</button>
+          {dirty && <span className="unsaved">Unsaved changes</span>}
         </div>
       </form>
 
-      <div className="eyebrow sub-head">Preview on the JC portal</div>
-      <div className="dd-preview">
-        {isDate
-          ? <input className="input date-input" type="date" disabled aria-label="Date picker preview" />
-          : field.options.filter((o) => !o.deleted).map((o) => <span key={o.id} className={`pill ${toneOf(o.meaning)}`}>{o.value}</span>)}
-        {field.hasComment && <textarea className="input q-comment" rows={2} disabled placeholder="Comment (optional)" aria-label="Comment box preview" />}
+      <div className="preview-box">
+        <div className="eyebrow">Preview · how JCs see it</div>
+        <div className="preview-q">
+          <b>{field.label}{field.required && <span className="req-star"> *</span>}</b>
+          <div className="dd-preview">
+            {isDate
+              ? <input className="input date-input" type="date" disabled aria-label="Date picker preview" />
+              : field.hasActivities
+                ? <span className="muted">Choose the activity → then one of: {field.options.filter((o) => !o.deleted).map((o) => o.value).join(" / ")}</span>
+                : field.options.filter((o) => !o.deleted).map((o) => <span key={o.id} className={`pill ${toneOf(o.meaning)}`}>{o.value}</span>)}
+          </div>
+          {field.hasComment && <span className="add-comment is-static"><CommentIcon size={13} /> Add a comment</span>}
+        </div>
       </div>
+      </>}
 
-      {field.hasActivities && <ActivitiesEditor field={field} busy={busy} act={act} showDeleted={showDeleted} />}
+      {tab === "activities" && field.hasActivities && <ActivitiesEditor field={field} busy={busy} act={act} showDeleted={showDeleted} />}
 
-      {!isDate && (
+      {tab === "answers" && !isDate && (
         <>
-          <div className="eyebrow sub-head">Answers</div>
+          <p className="tab-help">
+            The answers JCs choose from. <b>Meaning</b> sets the colour on the dashboards: <i>Done</i> counts as done,
+            <i> Not applicable</i> is left out, everything else counts as not done yet. An answer used in saved forms can be renamed but not deleted.
+          </p>
           <OptionsTable
             values={field.options}
             meanings={meanings}
@@ -316,7 +361,7 @@ function ActivitiesEditor({ field, busy, act, showDeleted }) {
     return res;
   };
 
-  if (!data) return <div className="act-admin"><div className="eyebrow sub-head">Monthly activities</div><p className="muted">{loadErr || "Loading…"}</p></div>;
+  if (!data) return <div className="act-admin"><p className="tab-help">{loadErr || "Loading…"}</p></div>;
 
   const live = data.activities.filter((a) => !a.deleted);
   const deleted = showDeleted ? data.activities.filter((a) => a.deleted) : [];
@@ -339,7 +384,7 @@ function ActivitiesEditor({ field, busy, act, showDeleted }) {
 
   return (
     <div className="act-admin">
-      <div className="eyebrow sub-head">Monthly activities</div>
+      <p className="tab-help">Each month has its own list. JCs choose one of these activities on the form, then its status; each activity gets its own card on the dashboards.</p>
       <div className="act-admin-head">
         <MonthYearPicker months={data.months} value={data.month} onChange={(m) => { setMonth(m); setEdit(null); }} />
         {data.previous.count > 0 && (
@@ -349,7 +394,7 @@ function ActivitiesEditor({ field, busy, act, showDeleted }) {
           </button>
         )}
       </div>
-      <p className="act-admin-note">JCs choose one of these activities on the form for <b>{label}</b>, then its status. Each activity gets its own card on the dashboards.</p>
+      <p className="act-admin-note">Activities for <b>{label}</b>:</p>
 
       <form onSubmit={save} className="table-wrap">
         <table className="master-table dd-table card-rows">
@@ -459,11 +504,15 @@ function NewField({ meanings, sections, busy, onCancel, onCreate }) {
             <option value="date">Date picker</option>
           </select>
         </label>
-        <div className="checks">
-          <label className="check"><input type="checkbox" checked={f.required} onChange={(e) => setF({ ...f, required: e.target.checked })} /> Required on the JC portal</label>
-          <label className="check"><input type="checkbox" checked={f.hasComment} onChange={(e) => setF({ ...f, hasComment: e.target.checked })} /> Include comment box <span className="optional">(shown after the answers)</span></label>
-          {!isDate && <label className="check"><input type="checkbox" checked={f.hasActivities} onChange={(e) => setF({ ...f, hasActivities: e.target.checked })} /> Monthly activities <span className="optional">(add the activities of each month after creating it)</span></label>}
-          {!isDate && <label className="check"><input type="checkbox" checked={f.showOnDashboard} onChange={(e) => setF({ ...f, showOnDashboard: e.target.checked })} /> Show a card on the dashboard</label>}
+        <div className="switches">
+          <Switch checked={f.required} onChange={(v) => setF({ ...f, required: v })}
+            title="Required" text="The JC must answer it before submitting." />
+          <Switch checked={f.hasComment} onChange={(v) => setF({ ...f, hasComment: v })}
+            title="Comment box" text="JCs can add a comment under the answer." />
+          {!isDate && <Switch checked={f.hasActivities} onChange={(v) => setF({ ...f, hasActivities: v })}
+            title="Monthly activities" text="Add the activities of each month after creating it." />}
+          {!isDate && <Switch checked={f.showOnDashboard} onChange={(v) => setF({ ...f, showOnDashboard: v })}
+            title="Show on dashboard" text="Gets a card on the Sahebo Dashboard and counts in its figures." />}
         </div>
 
         {!isDate && <>
