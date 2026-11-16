@@ -7,7 +7,7 @@ const { parseGmail } = require("../lib/gmail");
 const { verifyGoogleCredential } = require("../lib/google");
 const auth = require("../services/auth");
 const { audit } = require("../services/audit");
-const { requireAuth } = require("../middleware/auth");
+const { requireAuth, checkAccess } = require("../middleware/auth");
 const { clientIp } = require("../lib/clientIp");
 const realtime = require("../realtime");
 
@@ -90,37 +90,62 @@ router.post("/dev-login", loginLimiter, dbGuard, async (req, res, next) => {
   }
 });
 
+// New cookies from the refresh token cookie. Resolves to { user } or { status, error, code }.
+async function refreshFrom(req, res) {
+  const token = req.cookies && req.cookies[auth.REFRESH_COOKIE];
+  if (!token) return { status: 401, error: "Please sign in.", code: "NO_TOKEN" };
+
+  let payload;
+  try {
+    payload = auth.verifyRefresh(token);
+  } catch {
+    auth.clearAuthCookies(res);
+    return { status: 401, error: "Session expired. Please sign in again.", code: "REFRESH_INVALID" };
+  }
+
+  const user = await User.findById(payload.sub);
+  if (!user || !user.isActive || !user.email) {
+    auth.clearAuthCookies(res);
+    return { status: 401, error: "Account disabled.", code: "USER_INACTIVE" };
+  }
+
+  const result = await auth.rotateSession(req, res, payload, user);
+  if (result.error) {
+    auth.clearAuthCookies(res);
+    if (result.reuse) {
+      audit(req, "token_reuse_detected", { user: user.toPublic(), success: false, details: { sessionId: payload.sid } });
+      realtime.disconnectSession(payload.sid);
+    }
+    return { status: 401, error: "Session ended. Please sign in again.", code: "SESSION_ENDED" };
+  }
+  audit(req, "token_refreshed", { user: user.toPublic(), details: { sessionId: payload.sid } });
+  return { user: user.toPublic() };
+}
+
 // ---------- POST /api/auth/refresh ----------
 router.post("/refresh", refreshLimiter, dbGuard, async (req, res, next) => {
   try {
-    const token = req.cookies && req.cookies[auth.REFRESH_COOKIE];
-    if (!token) return res.status(401).json({ error: "Please sign in.", code: "NO_TOKEN" });
+    const r = await refreshFrom(req, res);
+    if (!r.user) return res.status(r.status).json({ error: r.error, code: r.code });
+    res.json({ user: r.user });
+  } catch (err) {
+    next(err);
+  }
+});
 
-    let payload;
-    try {
-      payload = auth.verifyRefresh(token);
-    } catch {
-      auth.clearAuthCookies(res);
-      return res.status(401).json({ error: "Session expired. Please sign in again.", code: "REFRESH_INVALID" });
-    }
-
-    const user = await User.findById(payload.sub);
-    if (!user || !user.isActive || !user.email) {
-      auth.clearAuthCookies(res);
-      return res.status(401).json({ error: "Account disabled.", code: "USER_INACTIVE" });
-    }
-
-    const result = await auth.rotateSession(req, res, payload, user);
-    if (result.error) {
-      auth.clearAuthCookies(res);
-      if (result.reuse) {
-        audit(req, "token_reuse_detected", { user: user.toPublic(), success: false, details: { sessionId: payload.sid } });
-        realtime.disconnectSession(payload.sid);
-      }
-      return res.status(401).json({ error: "Session ended. Please sign in again.", code: "SESSION_ENDED" });
-    }
-    audit(req, "token_refreshed", { user: user.toPublic(), details: { sessionId: payload.sid } });
-    res.json({ user: user.toPublic() });
+// ---------- GET /api/auth/session ----------  (called once when the website opens)
+// Who is signed in: { user } or { user: null }. Renews an expired access token from the refresh
+// token on the way. Always 200 when not signed in, so the sign-in page has no errors in the console.
+router.get("/session", refreshLimiter, dbGuard, async (req, res, next) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    let r = await checkAccess(req);
+    if (r.status === 503) return res.status(503).json({ error: r.error, code: r.code });
+    if (!r.user && req.cookies && req.cookies[auth.REFRESH_COOKIE]) r = await refreshFrom(req, res);
+    if (!r.user) return res.json({ user: null });
+    req.user = r.user;
+    audit(req, { superadmin: "admin_opened", jc: "portal_opened" }[r.user.role] || "dashboard_opened");
+    res.json({ user: r.user });
   } catch (err) {
     next(err);
   }

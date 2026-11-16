@@ -133,7 +133,7 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
                 <div className="panel-head">
                   <div>
                     <h2>Activity status</h2>
-                    <p>Choose a status in any card to count Jamaats with it. Click the number to see the list.</p>
+                    <p>Click a status in any card to count Jamaats with it. Click the number to see the list.</p>
                   </div>
                   <button type="button" className="btn btn-ghost cmt-btn" onClick={() => openComments(null)}
                     title="Read the comments JCs added under the questions">

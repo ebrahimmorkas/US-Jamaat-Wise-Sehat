@@ -44,10 +44,7 @@ export default function MetricCard({ metric, rows, helpers, status, onStatus, on
           <span className={`value tone-text-${tone}`}>{n}</span>
           <span className="value-sub"><b>{pct(n, total)}%</b> of {total}</span>
         </button>
-        <select className="status-select" value={status} onChange={(e) => onStatus(e.target.value)}
-          aria-label={`${metric.label}: status to count`}>
-          {[...helpers.statusesFor(metric), NOT_FILLED].map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
+        {/* the status is chosen with the circled chips below */}
       </div>
 
       <div className="stack" role="img" aria-label={`${metric.label} status split: ${summary}`} onPointerLeave={onTipHide}>
@@ -60,7 +57,8 @@ export default function MetricCard({ metric, rows, helpers, status, onStatus, on
 
       <div className="legend">
         {segs.map((s) => (
-          <button type="button" key={s.status} className={`lg-item${s.status === status ? " is-sel" : ""}`} onClick={() => pick(s)}>
+          <button type="button" key={s.status} className={`lg-item lg-${helpers.toneOf(s.status, metric)}${s.status === status ? " is-sel" : ""}`}
+            aria-pressed={s.status === status} onClick={() => pick(s)}>
             <span className={`dot tone-${helpers.toneOf(s.status, metric)}`} />
             {s.status} <b>{s.count}</b>
           </button>

@@ -5,36 +5,47 @@ const Session = require("../models/Session");
 const { ACCESS_COOKIE, verifyAccess } = require("../services/auth");
 const { audit } = require("../services/audit");
 
-// Requires a valid access token cookie AND an active session (so logout works immediately).
-async function requireAuth(req, res, next) {
+/**
+ * Checks the access token cookie AND that its session is still active (so logout works immediately).
+ * Resolves to { user, sessionId } or { status, error, code } (never sends a response itself).
+ */
+async function checkAccess(req) {
   const token = req.cookies && req.cookies[ACCESS_COOKIE];
-  if (!token) return res.status(401).json({ error: "Please sign in.", code: "NO_TOKEN" });
+  if (!token) return { status: 401, error: "Please sign in.", code: "NO_TOKEN" };
 
   let payload;
   try {
     payload = verifyAccess(token);
   } catch (err) {
     const expired = err.name === "TokenExpiredError";
-    return res.status(401).json({ error: expired ? "Session expired." : "Invalid session.", code: expired ? "TOKEN_EXPIRED" : "TOKEN_INVALID" });
+    return { status: 401, error: expired ? "Session expired." : "Invalid session.", code: expired ? "TOKEN_EXPIRED" : "TOKEN_INVALID" };
   }
 
-  if (!isDbReady()) return res.status(503).json({ error: "Database is starting, please try again in a moment.", code: "DB_UNAVAILABLE" });
+  if (!isDbReady()) return { status: 503, error: "Database is starting, please try again in a moment.", code: "DB_UNAVAILABLE" };
 
+  const [session, user] = await Promise.all([
+    Session.findById(payload.sid).select("revokedAt expiresAt user").lean(),
+    User.findById(payload.sub).select("username email name role isActive").lean(),
+  ]);
+  if (!session || session.revokedAt || session.expiresAt < new Date() || String(session.user) !== payload.sub) {
+    return { status: 401, error: "Session ended.", code: "SESSION_ENDED" };
+  }
+  // Accounts without a Gmail (old username/password accounts) can no longer use the site.
+  if (!user || !user.isActive || !user.email) return { status: 401, error: "Account disabled.", code: "USER_INACTIVE" };
+
+  return {
+    user: { id: String(user._id), username: user.email, email: user.email, name: user.name || "", role: user.role },
+    sessionId: payload.sid,
+  };
+}
+
+// Requires a signed-in user with an active session.
+async function requireAuth(req, res, next) {
   try {
-    const [session, user] = await Promise.all([
-      Session.findById(payload.sid).select("revokedAt expiresAt user").lean(),
-      User.findById(payload.sub).select("username email name role isActive").lean(),
-    ]);
-    if (!session || session.revokedAt || session.expiresAt < new Date() || String(session.user) !== payload.sub) {
-      return res.status(401).json({ error: "Session ended.", code: "SESSION_ENDED" });
-    }
-    // Accounts without a Gmail (old username/password accounts) can no longer use the site.
-    if (!user || !user.isActive || !user.email) {
-      return res.status(401).json({ error: "Account disabled.", code: "USER_INACTIVE" });
-    }
-
-    req.user = { id: String(user._id), username: user.email, email: user.email, name: user.name || "", role: user.role };
-    req.sessionId = payload.sid;
+    const r = await checkAccess(req);
+    if (!r.user) return res.status(r.status).json({ error: r.error, code: r.code });
+    req.user = r.user;
+    req.sessionId = r.sessionId;
     next();
   } catch (err) {
     next(err);
@@ -78,4 +89,4 @@ function requireSameOrigin(req, res, next) {
   next();
 }
 
-module.exports = { requireAuth, optionalAuth, requireRole, requireSameOrigin };
+module.exports = { checkAccess, requireAuth, optionalAuth, requireRole, requireSameOrigin };

@@ -11,7 +11,7 @@ import { deletedLine, plural } from "./lib/helpers";
 
 const MAUZE = "__mauze";
 const PRESETS = {
-  "Yes / No": [["Yes", "done"], ["No", "notdone"], ["Pending", "pending"], ["Not Applicable", "na"]],
+  "Yes / Pending": [["Yes", "done"], ["Pending", "pending"], ["Not Applicable", "na"]],
   Progress: [["Completed", "done"], ["Pending", "pending"], ["In Progress", "progress"], ["Not Applicable", "na"]],
 };
 const blankNew = () => ({ label: "", section: "", type: "select", hasComment: true, hasActivities: false, required: true, showOnDashboard: true, options: [{ value: "", meaning: "" }, { value: "", meaning: "" }] });

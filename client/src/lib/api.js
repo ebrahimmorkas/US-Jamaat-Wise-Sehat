@@ -89,7 +89,12 @@ export const isServerStarting = (err) =>
 const monthQuery = (month) => (month ? `?month=${encodeURIComponent(month)}` : "");
 export const fetchDashboard = (month) => request("/api/dashboard" + monthQuery(month));
 export const refreshDashboard = (month) => request("/api/refresh" + monthQuery(month), { method: "POST" });
-export const getMe = () => request("/api/auth/me");
+// Who is signed in (renews the session if needed). Signed out -> AuthError, without a 401 in the console.
+export const getMe = () =>
+  raw("/api/auth/session").then((r) => {
+    if (!r || !r.user) throw new AuthError("Please sign in.", 401, "SIGNED_OUT");
+    return r;
+  });
 export const authConfig = () => raw("/api/auth/config");
 export const googleLogin = (credential) => raw("/api/auth/google", { method: "POST", body: { credential } });
 export const devLogin = (email) => raw("/api/auth/dev-login", { method: "POST", body: { email } });

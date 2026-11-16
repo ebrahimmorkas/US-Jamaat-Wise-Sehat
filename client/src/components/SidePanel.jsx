@@ -1,11 +1,24 @@
-import { ALL, NOT_FILLED, plural } from "../lib/helpers";
+import { ALL, NOT_FILLED, pct, plural } from "../lib/helpers";
 import { ChevronLeft, ChevronRight } from "./Icons";
 import StatusPill from "./StatusPill";
 
 export default function SidePanel({ jamiats, rows, jamiat, jamaat, metrics, helpers, onJamiat, onJamaat }) {
   const activities = plural(metrics.length, "activity", "activities");
-  const pendingIn = (list) =>
-    list.reduce((sum, jm) => sum + metrics.filter((m) => helpers.isPending(jm.values[m.key], m)).length, 0);
+  // Every answer expected from these Jamaats: done / not done yet / not applicable / not filled.
+  const progressOf = (list) => {
+    let done = 0, open = 0, na = 0, empty = 0, submitted = 0;
+    for (const jm of list) {
+      if (jm.submittedAt) submitted++;
+      for (const m of metrics) {
+        const v = jm.values[m.key];
+        if (!v) empty++;
+        else if (helpers.isDone(v, m)) done++;
+        else if (helpers.isNA(v, m)) na++;
+        else open++;
+      }
+    }
+    return { done, open, na, empty, submitted, rate: pct(done, done + open + empty) };
+  };
 
   const back =
     jamiat === ALL ? null : (
@@ -55,27 +68,47 @@ export default function SidePanel({ jamiats, rows, jamiat, jamaat, metrics, help
       </>
     );
   } else {
-    // ---- ranking: Jamiats (All) or Jamaats of one Jamiat ----
+    // ---- progress: Jamiats (All) or Jamaats of one Jamiat, in name order ----
     const byJamiat = jamiat === ALL;
     const items = (byJamiat
-      ? jamiats.map((j) => ({ name: j.name, sub: plural(j.jamaats.length, "Jamaat"), value: pendingIn(j.jamaats) }))
-      : rows.map((r) => ({ name: r.name, sub: "", value: pendingIn([r]) }))
-    ).sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
-    const max = Math.max(1, ...items.map((i) => i.value));
-    title = byJamiat ? "Pending by Jamiat" : "Pending by Jamaat";
-    sub = `Pending entries across all ${activities} · click to open`;
+      ? jamiats.map((j) => ({ name: j.name, p: progressOf(j.jamaats), count: j.jamaats.length }))
+      : rows.map((r) => ({ name: r.name, p: progressOf([r]), count: 1 }))
+    ).sort((a, b) => a.name.localeCompare(b.name));
+    const subOf = ({ p, count }) =>
+      byJamiat
+        ? `${p.submitted}/${count} submitted${p.open ? ` · ${p.open} not done` : ""}`
+        : !p.submitted ? "Not submitted" : p.open ? `${p.open} not done yet` : "All done";
+    title = byJamiat ? "Progress by Jamiat" : "Progress by Jamaat";
+    sub = `Answers done across all ${activities} · click to open`;
     body = items.length ? (
-      items.map((i) => (
-        <button type="button" key={i.name} className={`rank-row${i.value ? "" : " zero"}`} title={`Open ${i.name}`}
-          onClick={() => {
-            if (byJamiat) onJamiat(i.name); else onJamaat(i.name);
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          }}>
-          <span className="rank-name">{i.name}{i.sub && <small>{i.sub}</small>}</span>
-          <span className="rank-val">{i.value}</span>
-          <span className="rank-bar"><span style={{ width: `${(i.value / max) * 100}%` }} /></span>
-        </button>
-      ))
+      <>
+        <div className="q-legend rank-legend" aria-hidden="true">
+          <span><span className="dot tone-good" />Done</span>
+          <span><span className="dot tone-warn" />Not done yet</span>
+          <span><span className="dot tone-na" />Not applicable</span>
+          <span><span className="dot tone-empty" />Not filled</span>
+        </div>
+        {items.map((i) => {
+          const { p } = i;
+          const label = `${i.name}: ${p.rate}% done — ${p.done} done, ${p.open} not done yet, ${p.na} not applicable, ${p.empty} not filled`;
+          return (
+            <button type="button" key={i.name} className={`rank-row${p.submitted ? "" : " zero"}`} title={label} aria-label={`Open ${label}`}
+              onClick={() => {
+                if (byJamiat) onJamiat(i.name); else onJamaat(i.name);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}>
+              <span className="rank-name">{i.name}<small>{subOf(i)}</small></span>
+              <span className="rank-val">{p.rate}%</span>
+              <span className="rank-bar stack">
+                {p.done > 0 && <span className="seg tone-good" style={{ flexGrow: p.done }} />}
+                {p.open > 0 && <span className="seg tone-warn" style={{ flexGrow: p.open }} />}
+                {p.na > 0 && <span className="seg tone-na" style={{ flexGrow: p.na }} />}
+                {p.empty > 0 && <span className="seg tone-empty" style={{ flexGrow: p.empty }} />}
+              </span>
+            </button>
+          );
+        })}
+      </>
     ) : (
       <div className="empty-state">No Jamaats found.</div>
     );

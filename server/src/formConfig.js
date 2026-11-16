@@ -5,7 +5,7 @@
 //  only used the first time the server starts, to create the starting set.
 // ============================================================
 const PROGRESS = [["Completed", "done"], ["Pending", "pending"], ["In Progress", "progress"], ["Not Applicable", "na"]];
-const YES_NO = [["Yes", "done"], ["No", "notdone"], ["Pending", "pending"], ["Not Applicable", "na"]];
+const YES_NO = [["Yes", "done"], ["Pending", "pending"], ["Not Applicable", "na"]]; // no "No" answer (client, Nov 2026)
 const YES_PENDING = [["Yes", "done"], ["Pending", "pending"]];
 
 module.exports = {
@@ -13,10 +13,10 @@ module.exports = {
   // A new day starts at midnight Indian time.
   timeZone: "Asia/Kolkata",
 
-  // The Month + Year pickers go from this Hijri month ("YYYY-MM", e.g. "1448-05" = Jumadal Ula 1448)
-  // up to the current month. A JC can fill (or update) any month in that range; future months are
-  // never offered. The Sahebo dashboard also shows any older month that has entries.
-  firstMonth: "1448-05",
+  // The Month + Year pickers go back this many full Hijri years (from Moharram), up to the current month:
+  // in 1448 with 3 -> Moharram 1445 .. now. A JC can fill (or update) any month in that range; future
+  // months are listed but can't be chosen. The Sahebo dashboard also shows any older month that has entries.
+  yearsBack: 3,
 
   // Names of the 12 Hijri months as shown on the pickers.
   hijriMonthNames: [
