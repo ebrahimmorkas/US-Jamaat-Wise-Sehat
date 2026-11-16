@@ -136,7 +136,9 @@ router.post("/refresh", refreshLimiter, dbGuard, async (req, res, next) => {
 // ---------- GET /api/auth/session ----------  (called once when the website opens)
 // Who is signed in: { user } or { user: null }. Renews an expired access token from the refresh
 // token on the way. Always 200 when not signed in, so the sign-in page has no errors in the console.
-router.get("/session", refreshLimiter, dbGuard, async (req, res, next) => {
+// No rate limit here (it runs on every page load, and many JCs may share one network address);
+// renewing needs a valid refresh token, which is checked and rotated as in /refresh.
+router.get("/session", dbGuard, async (req, res, next) => {
   try {
     res.set("Cache-Control", "no-store");
     let r = await checkAccess(req);

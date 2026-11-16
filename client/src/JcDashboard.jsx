@@ -3,13 +3,16 @@ import AppBar from "./components/AppBar";
 import Notice from "./components/Notice";
 import MonthYearPicker from "./components/MonthYearPicker";
 import CommentsDialog from "./components/CommentsDialog";
-import { BuildingIcon, CheckIcon, ClockIcon, CommentIcon, StarIcon } from "./components/Icons";
+import { BuildingIcon, CheckIcon, ClockIcon, CommentIcon, FormIcon, GridIcon, PencilIcon } from "./components/Icons";
 import { AuthError, isServerStarting, portalComments, portalSummary } from "./lib/api";
 import { useRealtime, useRealtimeStatus } from "./hooks/useRealtime";
 import { navigate } from "./lib/router";
 import { pct, plural, same } from "./lib/helpers";
 
-export const JC_NAV = [{ to: "/jc-portal", label: "Dashboard" }, { to: "/jc-portal/form", label: "Fill form" }];
+export const JC_NAV = [
+  { to: "/jc-portal", label: "Dashboard", icon: <GridIcon /> },
+  { to: "/jc-portal/form", label: "Fill form", icon: <PencilIcon /> },
+];
 const LIVE_DEBOUNCE_MS = 400;
 
 // Work state of one Jamaat for the month.
@@ -113,10 +116,8 @@ export default function JcDashboard({ user, onSignOut, onAuthExpired, theme, onT
   const scoped = jamiat ? rows.filter((r) => r.jamiatId === jamiat) : rows;
 
   const counts = { all: scoped.length, todo: 0, follow: 0, done: 0 };
-  let applicable = 0, done = 0;
-  for (const r of scoped) { counts[r.state]++; applicable += r.applicable; done += r.done; }
+  for (const r of scoped) counts[r.state]++;
   const submitted = counts.follow + counts.done;
-  const rate = pct(done, applicable);
 
   // Per question: how many submitted Jamaats are done / still open / not applicable.
   const perQuestion = useMemo(() => {
@@ -198,16 +199,14 @@ export default function JcDashboard({ user, onSignOut, onAuthExpired, theme, onT
             <section className="kpis jc-kpis" aria-label="Key figures">
               <Kpi icon={<BuildingIcon />} tone="brand" label="My Jamaats" value={scoped.length}
                 sub={jamiat ? (jamiats.find(([id]) => id === jamiat) || [])[1] : `in ${plural(jamiats.length, "Jamiat")}`} />
-              <Kpi icon={<CheckIcon />} tone="good" label="Submitted" value={<>{submitted}<small>/ {scoped.length}</small></>}
+              <Kpi icon={<FormIcon />} tone="brand" label="Submitted" value={<>{submitted}<small>/ {scoped.length}</small></>}
                 sub={counts.todo ? `${counts.todo} still to submit for ${data.monthLabel}` : `All submitted for ${data.monthLabel}`}>
                 <Bar value={pct(submitted, scoped.length)} label="Submitted" />
               </Kpi>
-              <Kpi icon={<StarIcon />} tone="good" label="Completion rate" value={<>{rate}<small>%</small></>}
-                sub={`${done} of ${applicable} applicable answers done`}>
-                <Bar value={rate} label="Completion rate" />
-              </Kpi>
               <Kpi icon={<ClockIcon />} tone="warn" label="Needs follow-up" value={counts.follow}
                 sub={counts.follow ? "submitted, with answers not done yet" : "nothing pending in submitted forms"} />
+              <Kpi icon={<CheckIcon />} tone="good" label="All done" value={counts.done}
+                sub={counts.done ? "submitted, every answer done" : "none fully done yet"} />
             </section>
 
             <section className="layout">
@@ -270,10 +269,11 @@ export default function JcDashboard({ user, onSignOut, onAuthExpired, theme, onT
                             </td>
                             <td data-label="Not done yet" className={`wide${r.open.length ? "" : " m-hide"}`}>
                               {r.open.length ? (
-                                <span className="open-list">
-                                  {r.open.map((o) => (
-                                    <span key={o.key} className={`pill ${o.tone}`} title={`${o.label}: ${o.value}`}><span className={`dot tone-${o.tone}`} />{o.label}: {o.value}</span>
+                                <span className="open-list" title={r.open.map((o) => `${o.label}: ${o.value}`).join("\n")}>
+                                  {r.open.slice(0, 3).map((o) => (
+                                    <span key={o.key} className="open-item"><span className={`dot tone-${o.tone}`} /><span className="open-q">{o.label}</span><b className={`tone-text-${o.tone}`}>{o.value}</b></span>
                                   ))}
+                                  {r.open.length > 3 && <span className="open-more">+{r.open.length - 3} more</span>}
                                 </span>
                               ) : <span className="muted">{r.submittedAt ? "Nothing" : "—"}</span>}
                             </td>

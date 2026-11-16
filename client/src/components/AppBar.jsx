@@ -28,7 +28,7 @@ export default function AppBar({ title = "Umoor Sehhat", subtitle = "Monthly Coo
                     if (page === n.to || !canLeave || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
                     e.preventDefault(); // wait for the answer (it may show a popup), then go
                     Promise.resolve(canLeave()).then((ok) => ok && navigate(n.to));
-                  }}>{n.label}</Link>
+                  }}>{n.icon}<span>{n.label}</span></Link>
               ))}
             </nav>
           )}

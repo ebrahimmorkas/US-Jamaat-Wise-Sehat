@@ -22,3 +22,9 @@ export const PauseIcon = () => <Svg size={22}><P d="M12 2a10 10 0 1 0 0 20 10 10
 export const InfoIcon = () => <Svg size={22}><P d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" /></Svg>;
 export const CommentIcon = ({ size = 14 }) => <Svg size={size}><P d="M5 3h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4.3A2 2 0 0 1 3 15V5a2 2 0 0 1 2-2zm2 4v2h10V7H7zm0 4v2h7v-2H7z" /></Svg>;
 export const StarIcon =() => <Svg><P d="M12 17.3 18.2 21l-1.6-7L22 9.2l-7.2-.6L12 2 9.2 8.6 2 9.2 7.4 14l-1.6 7z" /></Svg>;
+export const UsersIcon = () => <Svg><P d="M9 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm0 2c-3.3 0-7 1.7-7 4v2h14v-2c0-2.3-3.7-4-7-4zm7.5-2a3.5 3.5 0 1 0-1-6.9 6 6 0 0 1 0 6.8c.3.1.7.1 1 .1zm1.4 2.1A5 5 0 0 1 20 18v2h3v-2c0-1.8-2.4-3.3-5.1-3.9z" /></Svg>;
+export const ListIcon = () => <Svg><P d="M3 5h2v2H3V5zm4 0h14v2H7V5zM3 11h2v2H3v-2zm4 0h14v2H7v-2zm-4 6h2v2H3v-2zm4 0h14v2H7v-2z" /></Svg>;
+export const FormIcon = () => <Svg><P d="M6 2h9l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm8 1.5V8h4.5L14 3.5zM7 12v2h10v-2H7zm0 4v2h7v-2H7z" /></Svg>;
+export const HistoryIcon = () => <Svg><P d="M13 3a9 9 0 0 0-9 9H1l4 4 4-4H6a7 7 0 1 1 2.1 5l-1.4 1.4A9 9 0 1 0 13 3zm-1 5v5l4.3 2.5.7-1.2-3.5-2.1V8H12z" /></Svg>;
+export const GridIcon = () => <Svg><P d="M3 3h8v8H3V3zm10 0h8v5h-8V3zM3 13h8v8H3v-8zm10-3h8v11h-8V10z" /></Svg>;
+export const PencilIcon = () => <Svg><P d="M3 17.3V21h3.8L17.8 9.9 14.1 6.2 3 17.3zM20.7 7a1 1 0 0 0 0-1.4l-2.3-2.3a1 1 0 0 0-1.4 0l-1.8 1.8 3.7 3.7L20.7 7z" /></Svg>;
