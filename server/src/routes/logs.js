@@ -76,4 +76,54 @@ router.get("/errors", requireAuth, requireRole("superadmin"), async (req, res, n
   }
 });
 
+// ---------- POST /api/logs/purge ----------  (Super Admin) delete logs permanently
+// { kind: "activity"|"errors"|"both", range: "older"|"between"|"all", days, from, to, dryRun, confirm: "DELETE" }
+// dryRun: true only counts. A real delete needs confirm "DELETE"; one "logs_deleted" entry is then written
+// (who deleted what), so the deletion itself stays on record.
+const AuditLog = require("../models/AuditLog");
+router.post("/purge", requireAuth, requireRole("superadmin"), async (req, res, next) => {
+  try {
+    if (!isDbReady()) return res.status(503).json({ error: "Database is starting, please try again in a moment." });
+    const b = req.body || {};
+    const kind = ["activity", "errors", "both"].includes(b.kind) ? b.kind : null;
+    if (!kind) return res.status(400).json({ error: "Choose which logs to delete." });
+
+    const at = {};
+    if (b.range === "older") {
+      const days = parseInt(b.days, 10);
+      if (!(days >= 1 && days <= 3650)) return res.status(400).json({ error: "Enter a number of days." });
+      at.$lt = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    } else if (b.range === "between") {
+      const from = new Date(b.from); const to = new Date(b.to);
+      if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return res.status(400).json({ error: "Choose both dates." });
+      if (from > to) return res.status(400).json({ error: "The From date is after the To date." });
+      at.$gte = from; at.$lte = to;
+    } else if (b.range !== "all") {
+      return res.status(400).json({ error: "Choose which dates to delete." });
+    }
+    const filter = Object.keys(at).length ? { at } : {};
+    const models = { activity: [AuditLog], errors: [ErrorLog], both: [AuditLog, ErrorLog] }[kind];
+
+    if (b.dryRun) {
+      const [activity, errors] = await Promise.all([
+        models.includes(AuditLog) ? AuditLog.countDocuments(filter) : 0,
+        models.includes(ErrorLog) ? ErrorLog.countDocuments(filter) : 0,
+      ]);
+      res.set("Cache-Control", "no-store");
+      return res.json({ activity, errors });
+    }
+    if (b.confirm !== "DELETE") return res.status(400).json({ error: 'Type DELETE to confirm.' });
+
+    const [a, e] = await Promise.all([
+      models.includes(AuditLog) ? AuditLog.deleteMany(filter) : { deletedCount: 0 },
+      models.includes(ErrorLog) ? ErrorLog.deleteMany(filter) : { deletedCount: 0 },
+    ]);
+    const deleted = { activity: a.deletedCount || 0, errors: e.deletedCount || 0 };
+    audit(req, "logs_deleted", { details: { kind, range: b.range, days: b.range === "older" ? parseInt(b.days, 10) : undefined, from: at.$gte, to: at.$lte, ...deleted } });
+    res.json(deleted);
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;
