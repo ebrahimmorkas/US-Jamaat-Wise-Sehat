@@ -122,6 +122,8 @@ const qs = (params) => {
 };
 export const auditList = (params) => request("/api/audit" + qs(params));
 export const errorList = (params) => request("/api/logs/errors" + qs(params));
+// Permanently delete logs. { kind, range, days, from, to, dryRun, confirm }
+export const purgeLogs = (body) => request("/api/logs/purge", { method: "POST", body });
 
 // ---- JC users (Super Admin) ----
 export const usersList = () => request("/api/users");
