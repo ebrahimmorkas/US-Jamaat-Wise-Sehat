@@ -1340,8 +1340,21 @@ tbody tr:last-child td { border-bottom: 0; }
 /* ---------- Logs: tighter rows ---------- */
 .log-row { padding: 9px 20px; }
 .log-item { padding: 0; }
-.jc-table td.wide { min-width: 280px; }
-.jc-table .open-list { max-width: 360px; }
+/* JC table fits its panel (no sideways scroll): the "Not done yet" column takes the spare room
+   and long question names end in "…" (full list in the tooltip). */
+.jc-table { min-width: 0; width: 100%; }
+.jc-table td.wide { width: 40%; max-width: 0; }
+.jc-table .open-list { max-width: none; }
+.jc-table thead th, .jc-table .pill { white-space: nowrap; }
+@media (max-width: 1000px) {
+  .jc-table td.nowrap, .jc-table .pill { white-space: normal; }
+  .jc-table td, .jc-table th { padding-left: 8px; padding-right: 8px; }
+}
+@media (max-width: 640px) { .jc-table.card-rows td.wide { width: auto; max-width: none; } }
+/* top bar never wider than the screen: tab icons only where there is room */
+@media (max-width: 1024px) { .app-nav a svg { display: none; } .app-nav { margin-left: 8px; } }
+@media (max-width: 720px) { .app-nav { margin: 0 -16px; } }
+@media (max-width: 860px) { .user-text { display: none; } .user-menu { padding-left: 10px; gap: 8px; } }
 .jcq-label { align-content: flex-start; align-self: start; }
 @media (max-width: 860px) {
   .kpis-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
