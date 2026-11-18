@@ -22,6 +22,7 @@ const { ACCESS_COOKIE, verifyAccess } = require("./services/auth");
 const logsRoutes = require("./routes/logs");
 const realtimeRoutes = require("./routes/realtime");
 const chatRoutes = require("./routes/chat");
+const dataRoutes = require("./routes/data");
 const { notifyOnSuccess } = require("./realtime");
 const { TOPICS, EVENTS } = require("./realtime/topics");
 
@@ -74,6 +75,7 @@ app.use("/api/audit", auditRoutes);
 app.use("/api/logs", logsRoutes);
 app.use("/api/realtime", realtimeRoutes);
 app.use("/api/chat", chatRoutes); // the assistant (every role; data limited by role)
+app.use("/api/data", dataRoutes); // Data tab (Excel upload by Super Admin; JCs see their Jamaats)
 app.use("/api/portal", portalRoutes); // publishes its own live update (with the month)
 // Super Admin changes that the dashboards show -> open Saheb and JC dashboards reload at once.
 app.use("/api/masters",

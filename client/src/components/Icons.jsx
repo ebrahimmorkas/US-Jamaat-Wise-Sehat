@@ -30,3 +30,6 @@ export const GridIcon = () => <Svg><P d="M3 3h8v8H3V3zm10 0h8v5h-8V3zM3 13h8v8H3
 export const PencilIcon = () => <Svg><P d="M3 17.3V21h3.8L17.8 9.9 14.1 6.2 3 17.3zM20.7 7a1 1 0 0 0 0-1.4l-2.3-2.3a1 1 0 0 0-1.4 0l-1.8 1.8 3.7 3.7L20.7 7z" /></Svg>;
 export const SparkIcon = ({ size = 22 }) => <Svg size={size}><P d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9L12 2zm7 11 .9 2.6 2.6.9-2.6.9L19 20l-.9-2.6-2.6-.9 2.6-.9L19 13zM5 15l.7 1.8 1.8.7-1.8.7L5 20l-.7-1.8-1.8-.7 1.8-.7L5 15z" /></Svg>;
 export const SendIcon = ({ size = 18 }) => <Svg size={size}><P d="M3 20.5 21 12 3 3.5 3 10l12 2-12 2z" /></Svg>;
+export const TableIcon = () => <Svg><P d="M3 4h18a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm1 5v4h6V9H4zm8 0v4h8V9h-8zm-8 6v3h6v-3H4zm8 0v3h8v-3h-8zM4 6v1h16V6H4z" /></Svg>;
+export const DownloadIcon = () => <Svg><P d="M11 3h2v9.2l3.3-3.3 1.4 1.4L12 16l-5.7-5.7 1.4-1.4 3.3 3.3V3zM4 18h16v2H4v-2z" /></Svg>;
+export const UploadIcon = () => <Svg><P d="M11 16h2V6.8l3.3 3.3 1.4-1.4L12 3 6.3 8.7l1.4 1.4L11 6.8V16zM4 18h16v2H4v-2z" /></Svg>;

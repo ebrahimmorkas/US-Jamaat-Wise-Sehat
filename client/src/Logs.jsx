@@ -27,6 +27,12 @@ const ACTION_LABELS = {
   entry_viewed: "Opened a Jamaat form",
   audit_viewed: "Viewed the logs",
   chat_asked: "Asked the assistant",
+  data_viewed: "Opened the Data tab",
+  data_downloaded: "Downloaded the Data Excel",
+  data_uploaded: "Uploaded a Data Excel file",
+  data_cleared: "Removed the uploaded data",
+  data_changed: "Changed a Data value",
+  data_choices_changed: "Changed the Data dropdown choices",
   logs_deleted: "Deleted logs permanently",
   user_created: "Added a user",
   user_updated: "Changed a user",
@@ -81,6 +87,8 @@ function detailLine(item) {
   if (d.savedFormsRenamed) parts.push(`renamed in ${d.savedFormsRenamed} saved form(s)`);
   if (d.jamaatsRenamed) parts.push(`renamed in ${d.jamaatsRenamed} Jamaat(s)`);
   if (d.method === "dev") parts.push("local test sign-in");
+  if (item.action === "data_uploaded") parts.push(d.file || "", `${d.rows} rows`, d.unmatched ? `${d.unmatched} left out` : "", d.kept != null ? `${d.kept} kept, ${d.added} new, ${d.removed} removed` : "");
+  if (item.action === "data_downloaded" || item.action === "data_viewed" || item.action === "data_cleared") parts.push(`${d.rows} rows`);
   if (item.action === "chat_asked") parts.push(`“${d.question}”`, d.read === "ai" ? "read by AI" : "read by built-in reader");
   if (item.action === "logs_deleted") {
     parts.push({ activity: "activity logs", errors: "error logs", both: "activity + error logs" }[d.kind] || d.kind);
@@ -89,7 +97,7 @@ function detailLine(item) {
     if (d.range === "between") parts.push(`${fmtDay(d.from)} – ${fmtDay(d.to)}`);
     parts.push(`${d.activity || 0} activity, ${d.errors || 0} errors deleted`);
   }
-  return parts.join(" · ");
+  return parts.filter(Boolean).join(" · ");
 }
 
 // Super Admin: everything that happened in the software.

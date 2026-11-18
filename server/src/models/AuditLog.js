@@ -23,7 +23,13 @@ const ACTIONS = [
   "entry_viewed",         // a JC opened a Jamaat's monthly form
   "audit_viewed",
   "logs_deleted",
-  "chat_asked",           // a question to the assistant (the question and how it was read; not the answer)         // a Super Admin permanently deleted logs (details: which, dates, counts)
+  "chat_asked",           // a question to the assistant (the question and how it was read; not the answer)
+  "data_viewed",          // a JC opened the Data tab
+  "data_downloaded",      // the Data tab's Excel was downloaded
+  "data_uploaded",        // the Super Admin uploaded a new Data Excel file
+  "data_cleared",         // the Super Admin removed the uploaded data
+  "data_changed",         // a JC changed a dropdown cell on the Data tab
+  "data_choices_changed", // the Super Admin changed the Data dropdown choices
   // data changes (audit trail)
   "user_created",
   "user_updated",

@@ -4,12 +4,14 @@ import Users from "./Users";
 import Masters from "./Masters";
 import PortalFields from "./PortalFields";
 import Logs from "./Logs";
-import { FormIcon, HistoryIcon, ListIcon, UsersIcon } from "./components/Icons";
+import DataAdmin from "./DataAdmin";
+import { FormIcon, HistoryIcon, ListIcon, TableIcon, UsersIcon } from "./components/Icons";
 
 const NAV = [
   { to: "/admin/users", label: "Users", icon: <UsersIcon /> },
   { to: "/admin/masters", label: "Masters", icon: <ListIcon /> },
   { to: "/admin/fields", label: "Portal Fields", icon: <FormIcon /> },
+  { to: "/admin/data", label: "Data", icon: <TableIcon /> },
   { to: "/admin/logs", label: "Logs", icon: <HistoryIcon /> },
 ];
 
@@ -31,6 +33,7 @@ export default function AdminPortal({ path, user, onSignOut, onAuthExpired, them
         {page === "/admin/users" && <Users onAuthExpired={onAuthExpired} />}
         {page === "/admin/masters" && <Masters onAuthExpired={onAuthExpired} />}
         {page === "/admin/fields" && <PortalFields onAuthExpired={onAuthExpired} />}
+        {page === "/admin/data" && <DataAdmin onAuthExpired={onAuthExpired} />}
         {page === "/admin/logs" && <Logs onAuthExpired={onAuthExpired} />}
       </main>
     </>

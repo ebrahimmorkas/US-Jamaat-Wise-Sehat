@@ -13,23 +13,30 @@ export class ApiError extends Error {
 /** Thrown when the user must sign in again. */
 export class AuthError extends ApiError {}
 
-async function raw(path, { method = "GET", body } = {}) {
+// file: a File sent as the request body (Excel upload); blob: the answer is a file ({ blob, name }).
+async function raw(path, { method = "GET", body, file, blob } = {}) {
   let res;
   try {
     res = await fetch(API_BASE + path, {
       method,
       credentials: "include",
       headers: {
-        Accept: "application/json",
+        Accept: blob ? "*/*" : "application/json",
         "X-Requested-With": "fetch",
         ...(body ? { "Content-Type": "application/json" } : {}),
+        ...(file ? { "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(file.name || "") } : {}),
       },
-      body: body ? JSON.stringify(body) : undefined,
+      body: file || (body ? JSON.stringify(body) : undefined),
     });
   } catch {
     throw new ApiError("Can't reach the server. Check your internet connection.", 0, "NETWORK");
   }
   if (res.status === 204) return null;
+  if (blob && res.ok) {
+    const cd = res.headers.get("content-disposition") || "";
+    const m = /filename="([^"]+)"/.exec(cd);
+    return { blob: await res.blob(), name: m ? m[1] : "download" };
+  }
   let data = null;
   try { data = await res.json(); } catch { /* not JSON */ }
   if (!res.ok) {
@@ -100,6 +107,28 @@ export const googleLogin = (credential) => raw("/api/auth/google", { method: "PO
 export const devLogin = (email) => raw("/api/auth/dev-login", { method: "POST", body: { email } });
 export const logout = () => raw("/api/auth/logout", { method: "POST" }).catch(() => null);
 export const realtimeTicket = () => request("/api/realtime/ticket", { method: "POST" });
+// Data tab (Excel data per Jamaat).
+export const fetchData = () => request("/api/data");
+export const setDataCell = (id, column, value, version) => request(`/api/data/rows/${id}`, { method: "PATCH", body: { column, value, version } });
+export const fetchDataAdmin = () => request("/api/data/admin");
+const dataOpts = (o) => `?o=${encodeURIComponent(JSON.stringify(o || {}))}`;
+export const previewData = (file, opts) => request("/api/data/preview" + dataOpts(opts), { method: "POST", file });
+export const uploadData = (file, opts) => request("/api/data/upload" + dataOpts(opts), { method: "POST", file });
+export const saveDataChoices = (choices) => request("/api/data/choices", { method: "PUT", body: { choices } });
+export const clearData = () => request("/api/data/clear", { method: "POST", body: { confirm: "CLEAR" } });
+/** Downloads the Data Excel file (a JC gets their Jamaats, the Super Admin everything). */
+export async function downloadData() {
+  const { blob, name } = await request("/api/data/download", { blob: true });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
 // The assistant: { blocks, intent, source }. history = [{ q, intent }] of earlier questions.
 export const chatAsk = (message, history) => request("/api/chat", { method: "POST", body: { message, history } });
 export const logEvent = (action, details) =>

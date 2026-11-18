@@ -3,6 +3,7 @@ import Dashboard from "./Dashboard";
 import AdminPortal from "./AdminPortal";
 import JcPortal from "./JcPortal";
 import JcDashboard from "./JcDashboard";
+import JcData from "./JcData";
 import ErrorPage from "./ErrorPage";
 import AccessDenied from "./AccessDenied";
 import LoginPage from "./components/LoginPage";
@@ -115,8 +116,8 @@ function Main({ path, theme, onToggleTheme }) {
   let page;
   if (role === "superadmin") page = <AdminPortal key={auth.user.id} {...common} path={belongsTo(role, path) ? path : homeOf(role)} />;
   else if (role === "jc") {
-    page = path === "/jc-portal/form"
-      ? <JcPortal key={auth.user.id} {...common} />
+    page = path === "/jc-portal/form" ? <JcPortal key={auth.user.id} {...common} />
+      : path === "/jc-portal/data" ? <JcData key={auth.user.id} {...common} />
       : <JcDashboard key={auth.user.id} {...common} />;
   } else page = <Dashboard key={auth.user.id} {...common} />;
   return (
