@@ -5,6 +5,7 @@ import JcPortal from "./JcPortal";
 import JcDashboard from "./JcDashboard";
 import JcData from "./JcData";
 import JcMetrics from "./JcMetrics";
+import SahebMetrics from "./SahebMetrics";
 import ErrorPage from "./ErrorPage";
 import AccessDenied from "./AccessDenied";
 import LoginPage from "./components/LoginPage";
@@ -121,7 +122,7 @@ function Main({ path, theme, onToggleTheme }) {
       : path === "/jc-portal/data" ? <JcData key={auth.user.id} {...common} />
       : path === "/jc-portal/metrics" ? <JcMetrics key={auth.user.id} {...common} />
       : <JcDashboard key={auth.user.id} {...common} />;
-  } else page = <Dashboard key={auth.user.id} {...common} />;
+  } else page = path === "/jc-metrics" ? <SahebMetrics key={auth.user.id} {...common} /> : <Dashboard key={auth.user.id} {...common} />;
   return (
     <>
       {page}

@@ -40,7 +40,7 @@ export default function AdminPortal({ path, user, onSignOut, onAuthExpired, them
           <>
             <section className="page-head"><div className="page-title"><h1>Metrics</h1>
               <p className="page-sub">The permanent work each JC handles besides their Jamaats, as entered by the JC on the JC Portal.</p></div></section>
-            <JcMetricsPanel admin onAuthExpired={onAuthExpired} />
+            <JcMetricsPanel admin heading={false} onAuthExpired={onAuthExpired} />
           </>
         )}
         {page === "/admin/logs" && <Logs onAuthExpired={onAuthExpired} />}

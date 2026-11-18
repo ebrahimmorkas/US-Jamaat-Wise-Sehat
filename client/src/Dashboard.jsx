@@ -6,7 +6,7 @@ import MetricCard from "./components/MetricCard";
 import SidePanel from "./components/SidePanel";
 import ListDialog from "./components/ListDialog";
 import CommentsDialog from "./components/CommentsDialog";
-import { CommentIcon } from "./components/Icons";
+import { BriefcaseIcon, CommentIcon, GridIcon } from "./components/Icons";
 import Skeleton from "./components/Skeleton";
 import { useDashboardData } from "./hooks/useDashboardData";
 import { useRealtimeStatus } from "./hooks/useRealtime";
@@ -14,6 +14,12 @@ import Notice from "./components/Notice";
 import JcMetricsPanel from "./components/JcMetricsPanel";
 import { ALL, NOT_FILLED, makeStatusHelpers, plural, scopeRows } from "./lib/helpers";
 import { dashboardComments, logEvent } from "./lib/api";
+
+// The Saheb's tabs.
+export const SAHEB_NAV = [
+  { to: "/", label: "Dashboard", icon: <GridIcon /> },
+  { to: "/jc-metrics", label: "JC Metrics", icon: <BriefcaseIcon /> },
+];
 
 export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onToggleTheme }) {
   const [month, setMonth] = useState(""); // "" = current month (chosen by the server)
@@ -103,7 +109,8 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
   return (
     <>
       <AppBar
-        page="dashboard"
+        nav={SAHEB_NAV}
+        page="/"
         sync={{ syncedAt: data && data.loadedAt, loading, failed: !!error && !data, live, onRefresh: refresh }}
         theme={theme}
         onToggleTheme={onToggleTheme}
@@ -130,8 +137,8 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
           <Skeleton />
         ) : (
           <>
-            {/* First thing on the dashboard: what each JC handles. */}
-            <JcMetricsPanel compact onAuthExpired={onAuthExpired} jamiat={currentJamiat === ALL ? "" : currentJamiat} />
+            {/* First thing on the dashboard: a one-line summary of what JCs handle ("View all" -> JC Metrics tab). */}
+            <JcMetricsPanel summary onAuthExpired={onAuthExpired} jamiat={currentJamiat === ALL ? "" : currentJamiat} />
             <Kpis rows={rows} scopeSub={scopeSub} submitted={submittedInScope} monthLabel={data.monthLabel} />
             <section className="layout">
               <div className="panel">
