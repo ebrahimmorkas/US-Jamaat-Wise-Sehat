@@ -92,7 +92,7 @@ OUTPUT: only a JSON object with these keys (omit keys that don't apply):
    "help" (what can you do), "greeting" (hello/salaam/thanks only),
    "off_topic" (anything not about this software's data: general knowledge, weather, news, maths, coding, jokes, advice, other websites),
    "unclear" (about this data but too vague; then add "clarify": a short question back),
- "question": the question key from the list above (e.g. "tibb"),
+ "question": ONLY one of the question keys from the list above (e.g. "tibb"); omit it otherwise. Sent/submitted/filled the monthly form (no question named) is intent "submission", never a question,
  "activity": the activity name as listed (e.g. "Injection"),
  "status": the meaning: "done" | "pending" | "progress" | "notdone" | "na" | "answered" (filled/updated, any answer) | "not_answered" (not filled/empty) — map the user's words: complete/completed/finished/conducted/yes -> done; not yet/remaining/due -> pending; ongoing/started -> progress,
  "jamiat": Jamiat name as the user wrote it, "jamaat": Jamaat name as the user wrote it,
@@ -102,14 +102,24 @@ OUTPUT: only a JSON object with these keys (omit keys that don't apply):
  "english_date": "YYYY-MM-15" if they name an English month (e.g. November 2026),
  "person": a user's name or Gmail (users intent), "role_filter": "jc" | "saheb" | "superadmin" (users intent)}
 Use earlier turns to fill in what a follow-up leaves out (e.g. "and in Barwani?" keeps the previous question and status).
-Questions about anything outside this software's data are "off_topic", even if they mention health or Jamaats in general.`;
+"filled"/"updated"/"entered" a question (e.g. "which jamiat has filled tibb") -> "list" with status "answered".
+A question about Jamaats, Jamiats, the form, answers, activities, comments or users is NEVER off_topic, even when a name or activity is not in the lists above (the user may misspell it, or it may not exist, or this person may not have access): copy the name as written into "jamiat"/"jamaat"/"activity" and the software will reply. E.g. "which jamaats have yoga done" -> {"intent":"list","question":"tibb","activity":"yoga","status":"done"}; "show the answers of Surat" -> {"intent":"jamaat_detail","jamaat":"Surat"}; "how many jamaats in Pune" -> {"intent":"masters","jamiat":"Pune"}.
+Only questions about something else (general knowledge, weather, news, maths, coding, jokes, advice) are "off_topic", even if they mention health or a city.`;
 }
 
 /** Asks Groq for the intent. Throws on any failure (the caller falls back). */
+// Groq's free plan allows a few questions a minute; when it says "try again in 1.4s", wait that long once.
+function retryWait(res, text) {
+  const h = Number(res.headers.get("retry-after"));
+  const m = /try again in (?:(\d+)m)?([\d.]+)(ms|s)/i.exec(text);
+  let ms = m ? (Number(m[1] || 0) * 60000 + Number(m[2]) * (m[3] === "ms" ? 1 : 1000)) : (h > 0 ? h * 1000 : NaN);
+  return ms > 0 && ms <= 8000 ? Math.ceil(ms) + 250 : 0;
+}
+
 async function aiIntent(cat, message, history) {
   if (!config.groqApiKey) throw new Error("no key");
   const messages = [{ role: "system", content: systemPrompt(cat) }];
-  for (const h of history) {
+  for (const h of history.slice(-3)) {
     messages.push({ role: "user", content: h.q });
     messages.push({ role: "assistant", content: JSON.stringify(h.intent) });
   }
@@ -118,19 +128,25 @@ async function aiIntent(cat, message, history) {
     model: config.groqModel,
     messages,
     temperature: 0,
-    max_completion_tokens: 1200,
+    // The answer is a small JSON object; Groq's free plan counts this reserve against 8,000 tokens a minute.
+    max_completion_tokens: 450,
     response_format: { type: "json_object" },
   };
   if (/gpt-oss/.test(config.groqModel)) body.reasoning_effort = "low";
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20000);
   try {
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const call = () => fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: `Bearer ${config.groqApiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: ctrl.signal,
     });
+    let res = await call();
+    if (res.status === 429) {
+      const wait = retryWait(res, await res.clone().text());
+      if (wait) { await new Promise((r) => setTimeout(r, wait)); res = await call(); }
+    }
     if (!res.ok) {
       const err = new Error(`Groq ${res.status}: ${(await res.text()).slice(0, 300)}`);
       err.status = res.status;
@@ -153,6 +169,9 @@ const DOMAIN = ["jamiat", "jamiats", "jamaat", "jamaats", "form", "forms", "subm
 const OFF_WORDS = ["weather", "temperature", "rain", "news", "price", "prices", "cost", "recipe", "cricket", "match", "movie", "film", "song",
   "population", "capital", "history", "distance", "train", "flight", "hotel", "restaurant", "stock", "share", "gold", "time zone", "joke",
   "medicine for", "doctor", "hospital", "disease", "symptoms", "cure", "president", "prime minister", "election"];
+
+// "not yet submitted" wording (norm() turns "haven't" into "haven t").
+const NOT_YET = /(^| )(not|no|haven t|hasn t|didn t|don t|doesn t|havent|hasnt|didnt|yet to|pending|remaining|missing|left|without|never|unsubmitted)( |$)/;
 
 /** Reads a question with keywords and names. Good for clear questions; says "unclear" otherwise. */
 function basicIntent(cat, message, history) {
@@ -230,7 +249,17 @@ async function readQuestion(user, message, history) {
   const cat = await catalog(user);
   if (config.groqApiKey) {
     try {
-      return { intent: await aiIntent(cat, message, history), source: "ai" };
+      let intent = await aiIntent(cat, message, history);
+      const basic = basicIntent(cat, message, history);
+      // A count/list needs a question; without one, the built-in reading (e.g. "who hasn't submitted") is better.
+      if ((intent.intent === "count" || intent.intent === "list") && !intent.question && basic.intent === "submission") intent = { ...basic, month: intent.month, english_date: intent.english_date };
+      // Submitted or not: the words decide ("haven't sent", "not submitted", "pending", "remaining").
+      if (intent.intent === "submission") intent = { ...intent, submitted: !NOT_YET.test(norm(message)) };
+      // Safety net: if the AI calls it off-topic but the question clearly names this data, use the built-in reading.
+      if (intent.intent === "off_topic") {
+        if (!["off_topic", "unclear", "greeting", "help"].includes(basic.intent)) return { intent: basic, source: "basic" };
+      }
+      return { intent, source: "ai" };
     } catch (err) {
       console.warn("[chat] Groq failed, using the built-in reader:", err.message);
       return { intent: basicIntent(cat, message, history), source: "basic", aiError: err.status === 429 ? "busy" : "failed" };

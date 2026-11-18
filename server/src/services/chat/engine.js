@@ -243,7 +243,9 @@ function listByStatus(scope, intent) {
   const places = pickPlaces(scope, intent);
   if (places.error) return [text(places.error)];
   const pool = places.pool;
-  if (!intent.status) return countByStatus(scope, intent); // no answer named: show the split
+  // "which jamiats have tibb" (no answer named, no activity) means filled it; with an activity, show the split.
+  if (!intent.status && !intent.activity && q.targets.length > 1) intent = { ...intent, status: "answered" };
+  else if (!intent.status) return countByStatus(scope, intent);
   const head = `${monthText(scope.month)} · ${places.label}`;
   const subs = submittedCount(scope, pool);
   const out = [];
@@ -518,7 +520,7 @@ function help(scope) {
 /** Runs one intent; returns the reply blocks. */
 async function runIntent(user, intent) {
   if (!intent || intent.intent === "off_topic") return [text(NOT_MINE)];
-  const kind = intent.intent;
+  let kind = intent.intent;
   if (kind === "greeting") {
     const scope = await loadScope(user, null);
     return [text("Salaam! Ask me anything about the JC form data."), ...help(scope).slice(1)];
@@ -529,6 +531,14 @@ async function runIntent(user, intent) {
   if (!scope.jamaats.length && kind !== "help") {
     return [text(scope.role === "jc" ? "No Jamaats are assigned to you yet, so there is no data to answer from. Ask the Super Admin to assign your Jamaats." : "There are no active Jamiats or Jamaats yet.")];
   }
+  // "count/list of question 'submission'/'form'" = who submitted the form.
+  if ((kind === "count" || kind === "list") && /^(submission|submissions|submitted|submit|form|forms|monthly form)$/i.test(String(intent.question || "").trim())) {
+    const not = ["not_answered", "pending", "notdone"].includes(statusOf(intent.status)) || intent.submitted === false;
+    intent = { ...intent, intent: "submission", submitted: !not, status: undefined };
+    kind = "submission";
+  }
+  // A question name only matters for these; elsewhere a made-up one ("submission") is dropped, not an error.
+  if (intent.question && ["submission", "masters", "users", "help", "questions"].includes(kind)) intent = { ...intent, question: undefined };
   switch (kind) {
     case "list": return listByStatus(scope, intent);
     case "count": return countByStatus(scope, intent);
