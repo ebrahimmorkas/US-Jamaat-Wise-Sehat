@@ -11,6 +11,7 @@ import Skeleton from "./components/Skeleton";
 import { useDashboardData } from "./hooks/useDashboardData";
 import { useRealtimeStatus } from "./hooks/useRealtime";
 import Notice from "./components/Notice";
+import JcMetricsPanel from "./components/JcMetricsPanel";
 import { ALL, NOT_FILLED, makeStatusHelpers, plural, scopeRows } from "./lib/helpers";
 import { dashboardComments, logEvent } from "./lib/api";
 
@@ -180,6 +181,7 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
                 onJamaat={setJamaat}
               />
             </section>
+            <JcMetricsPanel onAuthExpired={onAuthExpired} jamiat={currentJamiat === ALL ? "" : currentJamiat} />
           </>
         )}
       </main>

@@ -30,6 +30,9 @@ const ACTIONS = [
   "data_cleared",         // the Super Admin removed the uploaded data
   "data_changed",         // a JC changed a dropdown cell on the Data tab
   "data_choices_changed", // the Super Admin changed the Data dropdown choices
+  "metric_added",         // a JC added a metric (permanent work they handle)
+  "metric_updated",       // a JC changed a metric
+  "metric_deleted",       // a JC removed a metric
   // data changes (audit trail)
   "user_created",
   "user_updated",

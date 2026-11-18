@@ -11,6 +11,7 @@ const TOPICS = {
 const EVENTS = {
   dashboardChanged: "dashboard:changed", // { reason: "entry"|"masters"|"fields"|"lists", month? }
   portalChanged: "portal:changed",       // { reason: "entry"|"masters"|"fields"|"access", month?, jamaat? (id) }
+  metricsChanged: "metrics:changed",     // a JC added / changed / removed a metric (dashboard topic)
 };
 
 registerTopic(TOPICS.dashboard, { roles: ["saheb"] });

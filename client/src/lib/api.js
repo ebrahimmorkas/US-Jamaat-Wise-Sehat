@@ -107,6 +107,13 @@ export const googleLogin = (credential) => raw("/api/auth/google", { method: "PO
 export const devLogin = (email) => raw("/api/auth/dev-login", { method: "POST", body: { email } });
 export const logout = () => raw("/api/auth/logout", { method: "POST" }).catch(() => null);
 export const realtimeTicket = () => request("/api/realtime/ticket", { method: "POST" });
+// JC Metrics (permanent work a JC handles).
+export const fetchMyMetrics = () => request("/api/metrics/mine");
+export const addMetric = (text) => request("/api/metrics", { method: "POST", body: { text } });
+export const updateMetric = (id, text) => request(`/api/metrics/${id}`, { method: "PATCH", body: { text } });
+export const deleteMetric = (id) => request(`/api/metrics/${id}`, { method: "DELETE" });
+export const fetchAllMetrics = () => request("/api/metrics");
+
 // Data tab (Excel data per Jamaat).
 export const fetchData = () => request("/api/data");
 export const setDataCell = (id, column, value, version) => request(`/api/data/rows/${id}`, { method: "PATCH", body: { column, value, version } });
