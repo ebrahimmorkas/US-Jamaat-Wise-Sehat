@@ -1610,3 +1610,12 @@ dialog.purge-dlg { width: min(560px, calc(100vw - 32px)); }
 .jcm-card li svg { flex: none; margin-top: 2px; color: var(--muted); width: 14px; height: 14px; }
 .jcm-none { font-size: 13px; margin: 0; }
 @media (max-width: 720px) { .jcm-grid, .jcm-tools { padding-left: 16px; padding-right: 16px; } .jcm-count { margin-left: 0; } .metric-panel { padding: 16px; } }
+/* JC Metrics at the top of the Sahebo Dashboard: compact, scrolls inside once there are many JCs */
+.jcm-panel.is-compact { margin: 0 0 16px; padding-bottom: 14px; }
+.jcm-panel.is-compact .panel-head { padding-bottom: 8px; align-items: flex-start; }
+.jcm-panel.is-compact .jcm-tools { padding-bottom: 10px; }
+.jcm-panel.is-compact .jcm-grid { max-height: 260px; overflow-y: auto; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+.jcm-panel.is-compact .jcm-card { padding: 10px 12px; }
+.jcm-panel.is-compact .jcm-card header { margin-bottom: 6px; }
+.jcm-panel.is-compact .jcm-card .avatar { width: 30px; height: 30px; font-size: 13px; }
+.jcm-panel.is-compact .jcm-count { margin-left: 0; white-space: nowrap; padding-top: 4px; }

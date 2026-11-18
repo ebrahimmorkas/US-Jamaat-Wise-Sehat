@@ -6,7 +6,8 @@ import { BriefcaseIcon } from "./Icons";
 
 // The metrics JCs entered (permanent work they handle), one card per JC.
 // Sahebo Dashboard: follows the Jamiat filter and updates live. Super Admin: also shows the Gmail.
-export default function JcMetricsPanel({ onAuthExpired, jamiat, admin = false }) {
+// compact: top of the Sahebo Dashboard (tools beside the title, cards scroll inside the box).
+export default function JcMetricsPanel({ onAuthExpired, jamiat, admin = false, compact = false }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
@@ -36,12 +37,13 @@ export default function JcMetricsPanel({ onAuthExpired, jamiat, admin = false })
   const metricCount = shown.reduce((n, u) => n + u.metrics.length, 0);
 
   return (
-    <section className="panel jcm-panel" aria-label="JC Metrics">
+    <section className={`panel jcm-panel${compact ? " is-compact" : ""}`} aria-label="JC Metrics">
       <div className="panel-head">
         <div>
           <h2>JC Metrics</h2>
           <p>Work each JC handles besides their Jamaats, as entered by the JC{jamiat ? ` · JCs of ${jamiat}` : ""}.</p>
         </div>
+        {compact && data && <span className="muted jcm-count">{plural(shown.length, "JC")} · {plural(metricCount, "metric")}</span>}
       </div>
       {error && <p className="jcm-error">{error}</p>}
       {!data ? (!error && <p className="empty-state">Loading…</p>) : (
@@ -49,7 +51,7 @@ export default function JcMetricsPanel({ onAuthExpired, jamiat, admin = false })
           <div className="jcm-tools">
             <input className="input" type="search" value={query} placeholder="Search JCs or metrics…" aria-label="Search JCs or metrics" onChange={(e) => setQuery(e.target.value)} />
             <label className="check"><input type="checkbox" checked={onlyWith} onChange={(e) => setOnlyWith(e.target.checked)} /> Only JCs with metrics</label>
-            <span className="muted jcm-count">{plural(shown.length, "JC")} · {plural(metricCount, "metric")}</span>
+            {!compact && <span className="muted jcm-count">{plural(shown.length, "JC")} · {plural(metricCount, "metric")}</span>}
           </div>
           {!shown.length ? <p className="empty-state">{data.jcs.length ? "No JC matches." : "There are no JCs yet."}</p> : (
             <div className="jcm-grid">

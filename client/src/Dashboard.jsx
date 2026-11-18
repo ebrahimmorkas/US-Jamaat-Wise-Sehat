@@ -130,6 +130,8 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
           <Skeleton />
         ) : (
           <>
+            {/* First thing on the dashboard: what each JC handles. */}
+            <JcMetricsPanel compact onAuthExpired={onAuthExpired} jamiat={currentJamiat === ALL ? "" : currentJamiat} />
             <Kpis rows={rows} scopeSub={scopeSub} submitted={submittedInScope} monthLabel={data.monthLabel} />
             <section className="layout">
               <div className="panel">
@@ -181,7 +183,6 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
                 onJamaat={setJamaat}
               />
             </section>
-            <JcMetricsPanel onAuthExpired={onAuthExpired} jamiat={currentJamiat === ALL ? "" : currentJamiat} />
           </>
         )}
       </main>
