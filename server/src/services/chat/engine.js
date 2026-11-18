@@ -15,6 +15,7 @@ const JcRating = require("../../models/JcRating");
 const { activeMasters } = require("../data");
 const { activeFields, formFields } = require("../fields");
 const { notDeleted } = require("../../lib/softDelete");
+const { runQuery } = require("./query");
 const { currentMonth, monthLabel, rangeText, portalMonths, isMonth, fromGregorian } = require("../../lib/month");
 
 const NOT_MINE = "I am not responsible for this.";
@@ -103,7 +104,7 @@ async function loadScope(user, month) {
   }
   const jamaats = jamiats.flatMap((j) => j.jamaats.map((jm) => ({
     _id: jm._id, id: String(jm._id), name: jm.name, jamiat: j.name, jamiatId: String(j._id),
-    mauzeType: jm.mauzeType || "", houseCount: jm.houseCount == null ? null : jm.houseCount,
+    mauzeType: jm.mauzeType || "", houseCount: jm.houseCount == null ? null : jm.houseCount, children: jm.children == null ? null : jm.children,
   })));
   const [parents, fields, entries] = await Promise.all([
     activeFields(),
@@ -180,6 +181,11 @@ function resolveQuestion(scope, intent, { needed = true } = {}) {
   let parent = null;
   if (intent.question) {
     parent = parents.find((p) => p.key === intent.question) || matchName(intent.question, parents, (p) => p.label)[0] || null;
+  }
+  // An activity given as the question ("status of medicine"): use its question + that activity.
+  if (!parent && intent.question && !intent.activity) {
+    const act = scope.fields.find((f) => f.parentKey && f.activity && matchName(intent.question, [f.activity], (a) => a.name)[0]);
+    if (act) return resolveQuestion(scope, { ...intent, question: act.parentKey, activity: act.activity.name }, { needed });
   }
   // Only an activity named ("injection"): find its question.
   if (!parent && intent.activity) {
@@ -686,6 +692,7 @@ async function runIntent(user, intent) {
     case "questions": return questions(scope, intent);
     case "comments": return comments(scope, intent);
     case "users": return users(scope, intent, user);
+    case "query": return runQuery(intent, scope, user);
     case "help": return help(scope);
     case "unclear":
     default:

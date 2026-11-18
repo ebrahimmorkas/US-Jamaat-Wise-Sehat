@@ -70,6 +70,9 @@ const config = {
   // database. Without a key, a simpler built-in reader is used.
   groqApiKey: (process.env.GROQ_API_KEY || "").trim(),
   groqModel: (process.env.GROQ_MODEL || "openai/gpt-oss-120b").trim(),
+  // Tried in this order when a model's free allowance is used up (Groq counts each model separately).
+  groqFallbackModels: (process.env.GROQ_FALLBACK_MODELS || "openai/gpt-oss-20b,qwen/qwen3.8-27b")
+    .split(",").map((s) => s.trim()).filter(Boolean),
 
   // ---- Stats images (ImageKit, imagekit.io) ----
   // Files are private; the server hands signed links that expire. The URL endpoint is optional

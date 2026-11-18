@@ -9,8 +9,9 @@ const User = require("../../models/User");
 const { currentMonth, monthLabel, rangeText, portalMonths } = require("../../lib/month");
 const { hijriMonthNames } = require("../../formConfig");
 const { norm, STATUS_WORDS } = require("./engine");
+const { schemaFor, describeSchema, OPS } = require("./query");
 
-const INTENTS = ["list", "count", "submission", "jamaat_detail", "masters", "questions", "comments", "users", "help", "greeting", "off_topic", "unclear"];
+const INTENTS = ["list", "count", "submission", "jamaat_detail", "masters", "questions", "comments", "query", "users", "help", "greeting", "off_topic", "unclear"];
 const str = (v, n = 80) => (typeof v === "string" && v.trim() ? v.trim().slice(0, n) : null);
 
 /** Keeps only known fields, with safe types and lengths. */
@@ -28,9 +29,9 @@ function cleanIntent(raw) {
   if (["jc", "saheb", "superadmin"].includes(r.role_filter)) out.role_filter = r.role_filter;
   // users intent: which details, filters, order, how many
   if (Array.isArray(r.fields)) {
-    const f = [...new Set(r.fields.map((x) => String(x).toLowerCase().replace(/^gmail$|^mail$/, "email").replace(/^stars?$|^ratings$/, "rating")))]
-      .filter((x) => ["name", "email", "role", "active", "jamiats", "jamaats", "metrics", "rating"].includes(x));
-    if (f.length) out.fields = f;
+    const f = [...new Set(r.fields.map((x) => String(x).toLowerCase().trim().replace(/^gmail$|^mail$/, "email").replace(/^stars?$|^ratings$/, "rating")))].filter(Boolean).slice(0, 12);
+    if (f.length) out.fields = intent === "users" ? f.filter((x) => ["name", "email", "role", "active", "jamiats", "jamaats", "metrics", "rating"].includes(x)) : f;
+    if (out.fields && !out.fields.length) delete out.fields;
   }
   if (r.metrics === "none" || r.metrics === "some") out.metrics = r.metrics;
   const mt = str(r.metric); if (mt) out.metric = mt;
@@ -39,6 +40,21 @@ function cleanIntent(raw) {
   for (const k of ["stars_min", "stars_max"]) { const n = Number(r[k]); if (Number.isInteger(n) && n >= 1 && n <= 5) out[k] = n; }
   if (["metrics_desc", "metrics_asc", "rating_desc", "rating_asc"].includes(r.sort)) out.sort = r.sort;
   { const n = Number(r.limit); if (Number.isInteger(n) && n >= 1 && n <= 100) out.limit = n; }
+  // query intent: dataset, conditions, columns, order, how many
+  if (intent === "query") {
+    const key = (v) => (typeof v === "string" ? v.trim().toLowerCase().slice(0, 60) : null);
+    out.dataset = key(r.dataset) || "";
+    if (Array.isArray(r.where)) {
+      out.where = r.where.slice(0, 10).filter((c) => c && typeof c === "object" && key(c.field)).map((c) => ({
+        field: key(c.field),
+        op: OPS.includes(c.op) ? c.op : "is",
+        ...(c.value === undefined || c.value === null ? {} : { value: Array.isArray(c.value) ? c.value.slice(0, 10).map((x) => String(x).slice(0, 100)) : typeof c.value === "boolean" || typeof c.value === "number" ? c.value : String(c.value).slice(0, 100) }),
+      }));
+    }
+    if (r.sort && typeof r.sort === "object" && key(r.sort.field)) out.sort = { field: key(r.sort.field), dir: r.sort.dir === "asc" ? "asc" : "desc" };
+    if (r.count_only === true) out.count_only = true;
+    if (key(r.group_by)) out.group_by = key(r.group_by);
+  }
   const c = str(r.clarify, 300);
   if (c && intent === "unclear") out.clarify = c;
   return out;
@@ -56,8 +72,10 @@ async function catalog(user) {
     jamiats = masters.filter((j) => js.has(String(j._id))).map((j) => ({ ...j, jamaats: j.jamaats.filter((x) => jm.has(String(x._id))) })).filter((j) => j.jamaats.length);
   }
   const months = portalMonths();
+  const schema = await schemaFor(user.role);
   return {
     role: user.role,
+    schema,
     month,
     first: months[months.length - 1],
     parents,
@@ -101,7 +119,7 @@ OUTPUT: only a JSON object with these keys (omit keys that don't apply):
    "masters" (Jamiats, Jamaats in a Jamiat, a Jamaat's Mauze Type / House Count, how many Jamaats),
    "questions" (what questions / activities / answer options exist; with "question" when one is named, e.g. "which are the activities in Tibb" -> {"intent":"questions","question":"tibb"}),
    "comments" (comments or remarks written by JCs),
-   "users" (about the JCs / users: who they are, who is assigned to a Jamiat or Jamaat, their Gmail, their metrics, their star rating),
+   "query" (anything else about the stored lists: JCs, users, Jamiats, Jamaats, metrics, star ratings, Stats images, the Data sheet - see QUERIES),
    "help" (what can you do), "greeting" (hello/salaam/thanks only),
    "off_topic" (anything not about this software's data: general knowledge, weather, news, maths, coding, jokes, advice, other websites),
    "unclear" (about this data but too vague; then add "clarify": a short question back),
@@ -113,16 +131,20 @@ OUTPUT: only a JSON object with these keys (omit keys that don't apply):
  "submitted": true (submitted/filled the form) or false (not submitted),
  "month": "YYYY-MM" Hijri month if they name one (year defaults to the latest one not after ${cat.month}), or
  "english_date": "YYYY-MM-15" if they name an English month (e.g. November 2026),
- "person": a user's name or Gmail (users intent), "role_filter": "jc" | "saheb" | "superadmin" (users intent)${cat.role === "jc" ? "" : `,
- users intent only:
- "fields": ONLY the details the user asked to see, from ["name","email","role","active","jamiats","jamaats","metrics","rating"] ("Gmail"/"mail" = email; "just the name", "only names" -> ["name"]); omit when they don't say,
- "metrics": "none" (JCs with zero / no metrics) | "some" (JCs who added metrics), "metric": text of a metric (work a JC handles, e.g. "IT"),
- "assigned_all": true (assigned all / every Jamiat),
- "stars_min"/"stars_max": 1-5 (star rating), "unrated": true (not rated yet),
- "sort": "metrics_desc" | "metrics_asc" | "rating_desc" | "rating_asc", "limit": how many (e.g. "the JC with the most metrics" -> sort metrics_desc, limit 1; "top 3 rated" -> rating_desc, limit 3)`}}
-${cat.role === "jc" ? "" : `JC "metrics" = permanent work a JC handles (entered by the JC); "rating" = the Super Admin's 1-5 star rating of a JC.
-Users examples: "Name of JC who has zero metrics" -> {"intent":"users","role_filter":"jc","metrics":"none","fields":["name"]}; "Just give me the email of JC who has been assigned all the jamiats" -> {"intent":"users","role_filter":"jc","assigned_all":true,"fields":["email"]}; "Who all has been assigned the Mumbai Jamiat?" -> {"intent":"users","role_filter":"jc","jamiat":"Mumbai"}; "Which JC has the most metrics?" -> {"intent":"users","role_filter":"jc","sort":"metrics_desc","limit":1}; "Which JCs handle IT?" -> {"intent":"users","role_filter":"jc","metric":"IT"}; "JCs rated 4 stars or more" -> {"intent":"users","role_filter":"jc","stars_min":4}.
-`}Use earlier turns to fill in what a follow-up leaves out (e.g. "and in Barwani?" keeps the previous question and status).
+ "query" fields (see QUERIES below)}
+
+QUERIES - for anything about the stored lists below (people, places, metrics, ratings, images, the Data sheet), use
+{"intent":"query","dataset":<one of the datasets>,"where":[{"field":<field>,"op":<op>,"value":<value>}],"fields":[<only the fields the user asked to SEE; omit if not said>],"sort":{"field":<field>,"dir":"desc"|"asc"},"limit":<n>,"count_only":true (only "how many"),"group_by":<field> ("how many per ...")}
+ops: is, is_not, contains, not_contains, gt, gte, lt, lte, empty, not_empty. (list) fields hold several names: use "contains". (bool): value true/false. (date): value "YYYY-MM-DD" or "YYYY-MM". (stars): 1-5.
+"fields", "where" and "sort" use ONLY the field names of the chosen dataset. EVERY condition in the question must become a "where" item or the sort/limit; never drop one. If a condition fits no field, still write it with the closest field name (the software will explain).
+Datasets this person may ask about:
+${describeSchema(cat.schema)}
+Examples: ${cat.role === "jc" ? "" : `"JC with 2 stars rating" -> {"intent":"query","dataset":"jcs","where":[{"field":"rating","op":"is","value":2}]}; "Name of JC who has zero metrics" -> {"intent":"query","dataset":"jcs","where":[{"field":"metric_count","op":"is","value":0}],"fields":["name"]}; "Just give me the email of JC who has been assigned all the jamiats" -> {"intent":"query","dataset":"jcs","where":[{"field":"all_jamiats","op":"is","value":true}],"fields":["email"]}; "Who all has been assigned the Mumbai Jamiat?" -> {"intent":"query","dataset":"jcs","where":[{"field":"jamiats","op":"contains","value":"Mumbai"}],"fields":["name"]}; "Which JC has the most metrics?" -> {"intent":"query","dataset":"jcs","sort":{"field":"metric_count","dir":"desc"},"limit":1}; "which jamaats are assigned to Ebrahim" -> {"intent":"query","dataset":"jcs","where":[{"field":"name","op":"contains","value":"Ebrahim"}],"fields":["name","jamaats"]}; "who is the JC of Dhar" -> {"intent":"query","dataset":"jcs","where":[{"field":"jamaats","op":"contains","value":"Dhar"}],"fields":["name"]} (a Jamaat name -> jamaats, a Jamiat name -> jamiats); "top rated JC" / "best JC" / "highest rated" -> {"intent":"query","dataset":"jcs","sort":{"field":"rating","dir":"desc"},"limit":1} (a ranking, NOT rating = 5; "top 3" -> limit 3); "JCs rated 4 or more" -> where rating gte 4;"JCs not rated yet" -> where rating empty; `}"Jamaats with more than 100 houses in Barwani" -> {"intent":"query","dataset":"jamaats","where":[{"field":"houses","op":"gt","value":100},{"field":"jamiat","op":"is","value":"Barwani"}]}; "how many Jamaats are Ummal" -> {"intent":"query","dataset":"jamaats","where":[{"field":"mauze_type","op":"is","value":"Ummal"}],"count_only":true}; "Jamaats per Mauze Type" -> {"intent":"query","dataset":"jamaats","group_by":"mauze_type"}; "when was the Ahmedabad stats image uploaded" -> {"intent":"query","dataset":"stats","where":[{"field":"jamiat","op":"is","value":"Ahmedabad"},{"field":"current","op":"is","value":true}]}.
+${cat.role === "jc" ? `Questions about other JCs, Sahebs or users (who they are, what they handle, their metrics or anything about them) -> {"intent":"query","dataset":"jcs"} (the software replies).
+"my Jamaats"/"my Jamiats" = this person's own; e.g. "how many jamaats do I have" -> {"intent":"query","dataset":"jamaats","count_only":true}.
+` : `JC "metrics" = permanent work a JC handles (entered by the JC); "rating" = the Super Admin's 1-5 star rating of a JC.
+`}Use "list"/"count"/"submission"/"jamaat_detail"/"comments" (not query) for the JC form's answers, activities and comments.
+Use earlier turns to fill in what a follow-up leaves out (e.g. "and in Barwani?" keeps the previous question and status).
 "filled"/"updated"/"entered" a question (e.g. "which jamiat has filled tibb") -> "list" with status "answered".
 A question about Jamaats, Jamiats, the form, answers, activities, comments or users is NEVER off_topic, even when a name or activity is not in the lists above (the user may misspell it, or it may not exist, or this person may not have access): copy the name as written into "jamiat"/"jamaat"/"activity" and the software will reply. E.g. "which jamaats have yoga done" -> {"intent":"list","question":"tibb","activity":"yoga","status":"done"}; "show the answers of Surat" -> {"intent":"jamaat_detail","jamaat":"Surat"}; "how many jamaats in Pune" -> {"intent":"masters","jamiat":"Pune"}.
 Only questions about something else (general knowledge, weather, news, maths, coding, jokes, advice) are "off_topic", even if they mention health or a city.`;
@@ -139,6 +161,31 @@ function retryWait(res, text) {
 
 async function aiIntent(cat, message, history) {
   if (!config.groqApiKey) throw new Error("no key");
+  const models = [config.groqModel, ...config.groqFallbackModels.filter((m) => m !== config.groqModel)];
+  let last;
+  // Each model has its own free allowance (tokens a minute, a day). Busy -> the next model; all busy for a
+  // few seconds only -> wait for the first one to free up and try once more (better than a weaker answer).
+  for (let round = 0; round < 2; round++) {
+    for (const model of models) {
+      if (exhausted.get(model) > Date.now()) continue;
+      try {
+        return await aiIntentWith(model, cat, message, history);
+      } catch (err) {
+        last = err;
+        if (err.status === 429) { exhausted.set(model, Date.now() + (err.daily ? 30 * 60000 : Math.max(err.retryMs || 0, 2000))); continue; }
+        if (err.status === 404 || err.status === 400 || err.status === 503 || err instanceof SyntaxError) continue;
+        throw err;
+      }
+    }
+    const soonest = Math.min(...models.map((m) => exhausted.get(m) || 0)) - Date.now();
+    if (round === 0 && soonest > 0 && soonest <= 15000) await new Promise((r) => setTimeout(r, soonest + 200));
+    else break;
+  }
+  throw last || new Error("no model");
+}
+const exhausted = new Map(); // model -> time it may be tried again
+
+async function aiIntentWith(model, cat, message, history) {
   const messages = [{ role: "system", content: systemPrompt(cat) }];
   for (const h of history.slice(-3)) {
     messages.push({ role: "user", content: h.q });
@@ -146,16 +193,17 @@ async function aiIntent(cat, message, history) {
   }
   messages.push({ role: "user", content: message });
   const body = {
-    model: config.groqModel,
+    model,
     messages,
     temperature: 0,
     // The answer is a small JSON object; Groq's free plan counts this reserve against 8,000 tokens a minute.
     max_completion_tokens: 450,
     response_format: { type: "json_object" },
   };
-  if (/gpt-oss/.test(config.groqModel)) body.reasoning_effort = "low";
+  if (/gpt-oss/.test(model)) body.reasoning_effort = "low";
+  if (/qwen/.test(model)) body.reasoning_effort = "none";
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 20000);
+  const timer = setTimeout(() => ctrl.abort(), 25000);
   try {
     const call = () => fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -169,8 +217,12 @@ async function aiIntent(cat, message, history) {
       if (wait) { await new Promise((r) => setTimeout(r, wait)); res = await call(); }
     }
     if (!res.ok) {
-      const err = new Error(`Groq ${res.status}: ${(await res.text()).slice(0, 300)}`);
+      const t = (await res.text()).slice(0, 400);
+      const err = new Error(`Groq ${model} ${res.status}: ${t}`);
       err.status = res.status;
+      err.daily = /per day|TPD|RPD/i.test(t);
+      const m = /try again in (?:(\d+)m)?([\d.]+)(ms|s)/i.exec(t);
+      err.retryMs = m ? Number(m[1] || 0) * 60000 + Number(m[2]) * (m[3] === "ms" ? 1 : 1000) : Number(res.headers.get("retry-after")) * 1000 || 0;
       throw err;
     }
     const data = await res.json();
@@ -184,7 +236,7 @@ async function aiIntent(cat, message, history) {
 // ---------- built-in reader (no AI) ----------
 const has = (t, words) => words.some((w) => new RegExp(`(^| )${w}( |$)`).test(t));
 const DOMAIN = ["jamiat", "jamiats", "jamaat", "jamaats", "form", "forms", "submitted", "submit", "filled", "fill", "question", "questions", "activity", "activities",
-  "status", "comment", "comments", "remarks", "jc", "jcs", "user", "users", "saheb", "admin", "month", "mauze", "house", "houses", "answer", "answers", "report"];
+  "status", "comment", "comments", "remarks", "jc", "jcs", "user", "users", "saheb", "admin", "month", "mauze", "house", "houses", "answer", "answers", "report", "metric", "metrics", "handles", "handle", "rating", "rated", "stars"];
 
 // Subjects that are never about this data, even next to a place name.
 const OFF_WORDS = ["weather", "temperature", "rain", "news", "price", "prices", "cost", "recipe", "cricket", "match", "movie", "film", "song",
@@ -235,20 +287,8 @@ function basicIntent(cat, message, history) {
   // Only a place name: about the place's data only when nothing points elsewhere ("weather in Mumbai" is not).
   if (!dataWords && (out.jamiat || out.jamaat) && has(t, OFF_WORDS)) return { intent: "off_topic" };
   if (!dataWords && !out.jamiat && !out.jamaat) return { intent: "off_topic" };
-  if (has(t, ["user", "users", "jc", "jcs", "who is", "assigned", "saheb", "admin", "metric", "metrics", "rating", "rated", "stars"]) && !out.question) {
-    const u = { intent: "users", jamiat: out.jamiat, jamaat: out.jamaat, role_filter: has(t, ["jc", "jcs", "metric", "metrics", "rating", "rated"]) ? "jc" : undefined };
-    if (/(zero|no|without|0) metrics?/.test(t) || /(not|haven t|hasn t) added (any )?metrics?/.test(t)) u.metrics = "none";
-    else if (/(most|highest|maximum|max) metrics?/.test(t)) { u.sort = "metrics_desc"; u.limit = 1; }
-    else if (/(least|fewest|lowest|minimum|min) metrics?/.test(t)) { u.sort = "metrics_asc"; u.limit = 1; }
-    if (/(all|every) (the )?jamiats?/.test(t)) u.assigned_all = true;
-    if (/not rated|unrated|no rating/.test(t)) u.unrated = true;
-    else if (/(highest|best|top) rated|most stars/.test(t)) { u.sort = "rating_desc"; u.limit = 1; }
-    else if (/(lowest|worst|least) rated|fewest stars/.test(t)) { u.sort = "rating_asc"; u.limit = 1; }
-    const f = [];
-    if (/(only|just) (the )?names?|names? only/.test(t) || /^names? of/.test(t)) f.push("name");
-    if (/(e ?mail|gmail|mail)/.test(t)) f.push("email");
-    if (f.length) u.fields = f;
-    return cleanIntent(u);
+  if (has(t, ["user", "users", "jc", "jcs", "who is", "assigned", "saheb", "admin", "metric", "metrics", "rating", "rated", "star", "stars", "handles", "handle", "handling"]) && !out.question) {
+    return basicPeople(t, out, cat);
   }
   if (has(t, ["comment", "comments", "remark", "remarks"])) return cleanIntent({ ...out, intent: "comments" });
   // "jamaats in <a name we don't know>": let the engine say it isn't found (instead of listing everything).
@@ -272,6 +312,42 @@ function basicIntent(cat, message, history) {
   return cleanIntent({ ...out, intent: out.status ? "list" : "count" });
 }
 
+// The built-in reader for questions about JCs / users. It only answers what it fully understood:
+// anything left over that looks like a condition (a number, "more than", a field word) -> "unclear".
+function basicPeople(t, out, cat) {
+  const where = [];
+  const q = { intent: "query", dataset: has(t, ["user", "users", "saheb", "admin", "everyone"]) && !has(t, ["jc", "jcs"]) ? "users" : "jcs" };
+  let rest = ` ${t} `;
+  const eat = (re) => { const m = re.exec(rest); if (m) rest = rest.replace(m[0], " "); return m; };
+  let m;
+  const cmp = (w) => (/(more than|above|over|greater than)/.test(w) ? "gt" : /(less than|below|under|fewer than)/.test(w) ? "lt" : /(at least|or more|minimum|min)/.test(w) ? "gte" : /(at most|or less|maximum|max)/.test(w) ? "lte" : "is");
+  if ((m = eat(/ (with |having |who has |has )?(more than|above|over|greater than|less than|below|under|fewer than|at least|at most|exactly )?([1-5]) (star|stars)( rating| rated)?( or more| or less)? /))) where.push({ field: "rating", op: cmp(`${m[2] || ""} ${m[6] || ""}`), value: Number(m[3]) });
+  else if ((m = eat(/ (rated|rating( of)?|with a rating( of)?) (more than |above |over |less than |below |under |at least |at most )?([1-5])( stars?)?( or more| or less)? /))) where.push({ field: "rating", op: cmp(`${m[4] || ""} ${m[7] || ""}`), value: Number(m[5]) });
+  if (eat(/ (not rated|unrated|no rating|without (a )?rating)( yet)? /)) where.push({ field: "rating", op: "empty" });
+  if ((m = eat(/ (with |having |who has |has )?(zero|no|0) metrics? /)) || eat(/ (not|haven t|hasn t) added (any )?metrics? /)) where.push({ field: "metric_count", op: "is", value: 0 });
+  else if ((m = eat(/ (with |having |who has |has )?(more than|above|over|less than|below|under|fewer than|at least|at most|exactly )?(\d+) metrics? /))) where.push({ field: "metric_count", op: cmp(m[2] || ""), value: Number(m[3]) });
+  if (eat(/ (has |have |with |assigned |handles? )?(all|every) (the )?jamiats? /)) where.push({ field: "all_jamiats", op: "is", value: true });
+  if (out.jamiat) { where.push({ field: "jamiats", op: "contains", value: out.jamiat }); rest = rest.replace(` ${norm(out.jamiat)} `, " "); }
+  if (out.jamaat && q.dataset === "jcs") { where.push({ field: "jamaats", op: "contains", value: out.jamaat }); rest = rest.replace(` ${norm(out.jamaat)} `, " "); }
+  if ((m = eat(/ (who|which jcs?|jcs?) (handles?|handling|looks? after|manages?|is in charge of) (the )?(.+?)( department| work)? $/))) where.push({ field: "metrics", op: "contains", value: m[4].trim() });
+  if (eat(/ (most|highest|maximum|max) metrics? /)) { q.sort = { field: "metric_count", dir: "desc" }; q.limit = 1; }
+  else if (eat(/ (least|fewest|lowest|minimum|min) metrics? /)) { q.sort = { field: "metric_count", dir: "asc" }; q.limit = 1; }
+  else if (eat(/ (highest|best|top) (rated|rating)|most stars /)) { q.sort = { field: "rating", dir: "desc" }; q.limit = 1; }
+  else if (eat(/ (lowest|worst|least) (rated|rating)|fewest stars /)) { q.sort = { field: "rating", dir: "asc" }; q.limit = 1; }
+  const fields = [];
+  if (/(only|just) (the )?names?|names? only|^names? of/.test(t)) fields.push("name");
+  if (/(e ?mail|gmail| mail )/.test(` ${t} `)) fields.push("email");
+  if (/ (their|the) metrics /.test(rest)) fields.push("metrics");
+  if (fields.length) q.fields = fields;
+  if (/^(how many|count|number of)/.test(t)) q.count_only = true;
+  // Left-over conditions we didn't understand: don't guess.
+  if (/\d/.test(rest) || /(more than|less than|at least|at most|above|below|between|greater|fewer|before|after|since|rated|rating|stars?|metric|login|sign ?in|house|children|mauze)/.test(rest)) {
+    return { intent: "unclear", clarify: "I couldn't read every part of that question precisely right now. Please try again in a minute." };
+  }
+  if (where.length) q.where = where;
+  return cleanIntent(q);
+}
+
 /** History sent by the browser: only earlier questions and how they were read (checked again here). */
 function cleanHistory(h) {
   if (!Array.isArray(h)) return [];
@@ -288,6 +364,8 @@ async function readQuestion(user, message, history) {
       if ((intent.intent === "count" || intent.intent === "list") && !intent.question && basic.intent === "submission") intent = { ...basic, month: intent.month, english_date: intent.english_date };
       // Submitted or not: the words decide ("haven't sent", "not submitted", "pending", "remaining").
       if (intent.intent === "submission") intent = { ...intent, submitted: !NOT_YET.test(norm(message)) };
+      // "Which Jamiat(s) …": the answer is by Jamiat, even if the AI left that out.
+      if (["list", "count", "submission"].includes(intent.intent) && !intent.level && basic.level === "jamiat") intent = { ...intent, level: "jamiat" };
       // Safety net: if the AI calls it off-topic but the question clearly names this data, use the built-in reading.
       if (intent.intent === "off_topic") {
         if (!["off_topic", "unclear", "greeting", "help"].includes(basic.intent)) return { intent: basic, source: "basic" };
