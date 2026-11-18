@@ -1,12 +1,14 @@
 // JC "Metrics": permanent work a JC handles (free text, as many as needed).
 //   JC:                 GET /mine, POST / { text }, PATCH /:id { text }, DELETE /:id   (only their own)
-//   Saheb, Super Admin: GET /   every active JC with their metrics (Saheb: name + Jamiats only, no email)
+//   Saheb, Super Admin: GET /   every active JC with their metrics and star rating (Saheb: name + Jamiats only, no email)
+//   Super Admin:        PUT /rating/:userId { stars: 1-5 | null }   (JCs never see ratings)
 const express = require("express");
 const { isDbReady } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const User = require("../models/User");
 const Jamiat = require("../models/Jamiat");
 const JcMetric = require("../models/JcMetric");
+const JcRating = require("../models/JcRating");
 const { audit } = require("../services/audit");
 const { InputError, requireId, sendError } = require("../lib/validate");
 const { publish } = require("../realtime");
@@ -92,11 +94,13 @@ router.delete("/:id", requireRole("jc"), async (req, res, next) => {
 router.get("/", requireRole("saheb", "superadmin"), async (req, res, next) => {
   try {
     const admin = req.user.role === "superadmin";
-    const [jcs, metrics, jamiats] = await Promise.all([
+    const [jcs, metrics, jamiats, ratings] = await Promise.all([
       User.find({ role: "jc", isActive: true, ...notDeleted() }).select("name email jamiats").lean(),
       JcMetric.find({}).sort({ createdAt: 1 }).lean(),
       Jamiat.find(notDeleted()).select("name").lean(),
+      JcRating.find({}).select("user stars updatedAt").lean(),
     ]);
+    const stars = new Map(ratings.map((r) => [String(r.user), r]));
     const jName = new Map(jamiats.map((j) => [String(j._id), j.name]));
     const byUser = new Map();
     for (const m of metrics) {
@@ -111,10 +115,35 @@ router.get("/", requireRole("saheb", "superadmin"), async (req, res, next) => {
         ...(admin ? { email: u.email } : {}),
         jamiats: (u.jamiats || []).map((id) => jName.get(String(id))).filter(Boolean).sort(),
         metrics: byUser.get(String(u._id)) || [],
+        stars: stars.has(String(u._id)) ? stars.get(String(u._id)).stars : null,
+        ratedAt: stars.has(String(u._id)) ? stars.get(String(u._id)).updatedAt : null,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
     res.json({ jcs: list, total: list.reduce((n, u) => n + u.metrics.length, 0) });
   } catch (err) { next(err); }
+});
+
+router.put("/rating/:userId", requireRole("superadmin"), async (req, res, next) => {
+  try {
+    const id = requireId(req.params.userId, "JC");
+    const jc = await User.findOne({ _id: id, role: "jc", ...notDeleted() }).select("name email").lean();
+    if (!jc) throw new InputError("This JC was not found. Reload the page.", 404);
+    const raw = req.body ? req.body.stars : undefined;
+    const stars = raw === null || raw === 0 ? null : Number(raw);
+    if (stars !== null && !(Number.isInteger(stars) && stars >= 1 && stars <= 5)) throw new InputError("Choose 1 to 5 stars.");
+    const before = await JcRating.findOne({ user: id }).lean();
+    const from = before ? before.stars : null;
+    if (from !== stars) {
+      if (stars === null) await JcRating.deleteOne({ user: id });
+      else await JcRating.updateOne({ user: id }, { $set: { stars, ratedBy: req.user.id } }, { upsert: true });
+      audit(req, "jc_rated", {
+        target: { type: "user", id: String(id), label: jc.name || jc.email },
+        changes: [{ field: "stars", label: "Star rating", from: from ? `${from} ★` : null, to: stars ? `${stars} ★` : null }],
+      });
+      changed();
+    }
+    res.json({ id: String(id), stars });
+  } catch (err) { sendError(err, res, next); }
 });
 
 module.exports = router;

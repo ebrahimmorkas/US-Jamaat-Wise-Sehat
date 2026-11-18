@@ -113,6 +113,7 @@ export const addMetric = (text) => request("/api/metrics", { method: "POST", bod
 export const updateMetric = (id, text) => request(`/api/metrics/${id}`, { method: "PATCH", body: { text } });
 export const deleteMetric = (id) => request(`/api/metrics/${id}`, { method: "DELETE" });
 export const fetchAllMetrics = () => request("/api/metrics");
+export const setJcRating = (userId, stars) => request(`/api/metrics/rating/${userId}`, { method: "PUT", body: { stars } });
 
 // Data tab (Excel data per Jamaat).
 export const fetchData = () => request("/api/data");

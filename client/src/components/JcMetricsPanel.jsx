@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AuthError, fetchAllMetrics } from "../lib/api";
+import { AuthError, fetchAllMetrics, setJcRating } from "../lib/api";
 import { useRealtime } from "../hooks/useRealtime";
 import { plural } from "../lib/helpers";
 import { Link } from "../lib/router";
@@ -15,6 +15,9 @@ export default function JcMetricsPanel({ onAuthExpired, jamiat: outerJamiat, adm
   const [query, setQuery] = useState("");
   const [onlyWith, setOnlyWith] = useState(false);
   const [ownJamiat, setOwnJamiat] = useState("");
+  const [sort, setSort] = useState("most"); // most | fewest | best | worst
+  const [rating, setRating] = useState(""); // JC id being saved
+  const [rateError, setRateError] = useState("");
   const jamiat = outerJamiat === undefined ? ownJamiat : outerJamiat;
 
   const load = useCallback(async () => {
@@ -36,8 +39,22 @@ export default function JcMetricsPanel({ onAuthExpired, jamiat: outerJamiat, adm
     return data.jcs
       .filter((u) => !jamiat || u.jamiats.includes(jamiat))
       .filter((u) => !onlyWith || u.metrics.length)
-      .filter((u) => !q || u.name.toLowerCase().includes(q) || (u.email || "").includes(q) || u.metrics.some((m) => m.text.toLowerCase().includes(q)));
-  }, [data, jamiat, query, onlyWith]);
+      .filter((u) => !q || u.name.toLowerCase().includes(q) || (u.email || "").includes(q) || u.metrics.some((m) => m.text.toLowerCase().includes(q)))
+      .sort(SORTS[sort].by);
+  }, [data, jamiat, query, onlyWith, sort]);
+
+  // Super Admin: click a star to rate (clicking the current rating again clears it).
+  const rate = async (u, n) => {
+    const stars = u.stars === n ? null : n;
+    setRating(u.id); setRateError("");
+    try {
+      await setJcRating(u.id, stars);
+      setData((d) => ({ ...d, jcs: d.jcs.map((x) => (x.id === u.id ? { ...x, stars } : x)) }));
+    } catch (err) {
+      if (err instanceof AuthError) return onAuthExpired();
+      setRateError(`Rating not saved: ${err.message}`);
+    } finally { setRating(""); }
+  };
   const metricCount = shown.reduce((n, u) => n + u.metrics.length, 0);
   const jamiatOptions = useMemo(() => (data ? [...new Set(data.jcs.flatMap((u) => u.jamiats))].sort() : []), [data]);
 
@@ -69,6 +86,7 @@ export default function JcMetricsPanel({ onAuthExpired, jamiat: outerJamiat, adm
         </div>
       </div>}
       {error && <p className="jcm-error">{error}</p>}
+      {rateError && <p className="jcm-error">{rateError}</p>}
       {!data ? (!error && <p className="empty-state">Loading…</p>) : (
         <>
           <div className="jcm-tools">
@@ -79,6 +97,9 @@ export default function JcMetricsPanel({ onAuthExpired, jamiat: outerJamiat, adm
                 {jamiatOptions.map((j) => <option key={j} value={j}>{j}</option>)}
               </select>
             )}
+            <select className="jcm-sort" value={sort} aria-label="Sort JCs" onChange={(e) => setSort(e.target.value)}>
+              {Object.entries(SORTS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
             <label className="check"><input type="checkbox" checked={onlyWith} onChange={(e) => setOnlyWith(e.target.checked)} /> Only JCs with metrics</label>
             <span className="muted jcm-count">{plural(shown.length, "JC")} · {plural(metricCount, "metric")}</span>
           </div>
@@ -91,10 +112,13 @@ export default function JcMetricsPanel({ onAuthExpired, jamiat: outerJamiat, adm
                     <div className="jcm-who">
                       <b>{u.name}</b>
                       {admin && u.email && u.email !== u.name && <small>{u.email}</small>}
-                      <small className="muted">{u.jamiats.length ? u.jamiats.join(", ") : "No Jamiat assigned"}</small>
+                      <small className="muted" title={u.jamiats.length > 3 ? u.jamiats.join(", ") : undefined}>
+                        {!u.jamiats.length ? "No Jamiat assigned" : u.jamiats.length > 3 ? `${u.jamiats.slice(0, 3).join(", ")} +${u.jamiats.length - 3} more` : u.jamiats.join(", ")}
+                      </small>
                     </div>
                     <span className="jcm-badge" title="Metrics">{u.metrics.length}</span>
                   </header>
+                  <Stars value={u.stars} edit={admin} busy={rating === u.id} name={u.name} onRate={(n) => rate(u, n)} />
                   {u.metrics.length ? (
                     <ul>{u.metrics.map((m) => <li key={m.id}><BriefcaseIcon /><span>{m.text}</span></li>)}</ul>
                   ) : <p className="muted jcm-none">No metrics added yet.</p>}
@@ -105,5 +129,29 @@ export default function JcMetricsPanel({ onAuthExpired, jamiat: outerJamiat, adm
         </>
       )}
     </section>
+  );
+}
+
+// Sort orders. Unrated JCs go last in both rating orders; ties by name.
+const byName = (a, b) => a.name.localeCompare(b.name);
+const SORTS = {
+  most: { label: "Most metrics first", by: (a, b) => b.metrics.length - a.metrics.length || byName(a, b) },
+  fewest: { label: "Fewest metrics first", by: (a, b) => a.metrics.length - b.metrics.length || byName(a, b) },
+  best: { label: "Highest rated first", by: (a, b) => (b.stars || 0) - (a.stars || 0) || byName(a, b) },
+  worst: { label: "Lowest rated first", by: (a, b) => (a.stars || 6) - (b.stars || 6) || byName(a, b) },
+};
+
+// 1-5 stars. Read-only for the Saheb; buttons for the Super Admin.
+function Stars({ value, edit, busy, name, onRate }) {
+  const label = value ? `${value} of 5 stars` : "Not rated";
+  return (
+    <div className={`stars${edit ? " is-edit" : ""}${busy ? " is-busy" : ""}`} role={edit ? "group" : "img"} aria-label={edit ? `Star rating for ${name}: ${label}` : label} title={edit ? undefined : label}>
+      {[1, 2, 3, 4, 5].map((n) => edit ? (
+        <button key={n} type="button" className={n <= (value || 0) ? "on" : ""} disabled={busy}
+          aria-label={value === n ? `Clear rating (${n} star${n > 1 ? "s" : ""})` : `Rate ${n} star${n > 1 ? "s" : ""}`}
+          title={value === n ? "Click again to clear" : `${n} star${n > 1 ? "s" : ""}`} onClick={() => onRate(n)}>★</button>
+      ) : <span key={n} className={n <= (value || 0) ? "on" : ""} aria-hidden="true">★</span>)}
+      {!value && <small className="muted">{edit ? "Not rated · click to rate" : "Not rated"}</small>}
+    </div>
   );
 }

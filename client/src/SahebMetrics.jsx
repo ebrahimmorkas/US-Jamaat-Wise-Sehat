@@ -11,7 +11,7 @@ export default function SahebMetrics({ user, onSignOut, onAuthExpired, theme, on
         <section className="page-head">
           <div className="page-title">
             <h1>JC Metrics</h1>
-            <p className="page-sub">The permanent work each JC handles besides their Jamaats, as entered by the JC. Updates live.</p>
+            <p className="page-sub">The permanent work each JC handles besides their Jamaats (entered by the JC) and each JC's star rating (given by the Super Admin; JCs don't see it). Updates live.</p>
           </div>
         </section>
         <JcMetricsPanel heading={false} onAuthExpired={onAuthExpired} />

@@ -1620,3 +1620,14 @@ dialog.purge-dlg { width: min(560px, calc(100vw - 32px)); }
 .jcm-jamiat { flex: 0 1 200px; }
 @media (max-width: 520px) { .jcm-summary { flex-wrap: wrap; } .jcm-sum-btn { width: 100%; justify-content: center; } }
 .jcm-panel.no-head { padding-top: 18px; }
+/* JC star ratings (Saheb / Super Admin only) */
+.stars { display: flex; align-items: center; gap: 2px; margin: 0 0 8px; font-size: 18px; line-height: 1; }
+.stars span, .stars button { color: var(--border-strong, #cbd5e1); }
+.stars .on { color: #f59e0b; }
+.stars button { background: none; border: 0; padding: 2px 1px; cursor: pointer; font-size: 20px; line-height: 1; border-radius: 4px; }
+.stars.is-edit:hover button { color: #f59e0b; }
+.stars.is-edit button:hover ~ button { color: var(--border-strong, #cbd5e1); }
+.stars button:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.stars.is-busy { opacity: .55; }
+.stars small { font-size: 12px; margin-left: 6px; }
+.jcm-sort { flex: 0 1 200px; }

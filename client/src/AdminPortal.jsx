@@ -13,7 +13,7 @@ const NAV = [
   { to: "/admin/masters", label: "Masters", icon: <ListIcon /> },
   { to: "/admin/fields", label: "Portal Fields", icon: <FormIcon /> },
   { to: "/admin/data", label: "Data", icon: <TableIcon /> },
-  { to: "/admin/metrics", label: "Metrics", icon: <BriefcaseIcon /> },
+  { to: "/admin/metrics", label: "Metrics & Ratings", icon: <BriefcaseIcon /> },
   { to: "/admin/logs", label: "Logs", icon: <HistoryIcon /> },
 ];
 
@@ -38,8 +38,8 @@ export default function AdminPortal({ path, user, onSignOut, onAuthExpired, them
         {page === "/admin/data" && <DataAdmin onAuthExpired={onAuthExpired} />}
         {page === "/admin/metrics" && (
           <>
-            <section className="page-head"><div className="page-title"><h1>Metrics</h1>
-              <p className="page-sub">The permanent work each JC handles besides their Jamaats, as entered by the JC on the JC Portal.</p></div></section>
+            <section className="page-head"><div className="page-title"><h1>Metrics &amp; Star Ratings</h1>
+              <p className="page-sub">The permanent work each JC handles (entered by the JC) and your star rating of each JC. Click a star to rate; click it again to clear. Only you and the Saheb see the ratings — JCs never do.</p></div></section>
             <JcMetricsPanel admin heading={false} onAuthExpired={onAuthExpired} />
           </>
         )}
