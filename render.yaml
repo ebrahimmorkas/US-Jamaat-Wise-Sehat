@@ -31,6 +31,8 @@ services:
       - key: MONGODB_URI
         sync: false
       # Google sign-in Client ID (not a secret)
+      - key: GROQ_API_KEY
+        sync: false
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: CORS_ORIGIN

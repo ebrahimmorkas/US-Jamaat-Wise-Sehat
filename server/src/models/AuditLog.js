@@ -22,7 +22,8 @@ const ACTIONS = [
   "comments_viewed",      // opened the JC comments (Sahebo dashboard or JC dashboard)
   "entry_viewed",         // a JC opened a Jamaat's monthly form
   "audit_viewed",
-  "logs_deleted",         // a Super Admin permanently deleted logs (details: which, dates, counts)
+  "logs_deleted",
+  "chat_asked",           // a question to the assistant (the question and how it was read; not the answer)         // a Super Admin permanently deleted logs (details: which, dates, counts)
   // data changes (audit trail)
   "user_created",
   "user_updated",

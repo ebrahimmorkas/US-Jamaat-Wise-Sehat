@@ -26,6 +26,7 @@ const ACTION_LABELS = {
   comments_viewed: "Viewed comments",
   entry_viewed: "Opened a Jamaat form",
   audit_viewed: "Viewed the logs",
+  chat_asked: "Asked the assistant",
   logs_deleted: "Deleted logs permanently",
   user_created: "Added a user",
   user_updated: "Changed a user",
@@ -80,6 +81,7 @@ function detailLine(item) {
   if (d.savedFormsRenamed) parts.push(`renamed in ${d.savedFormsRenamed} saved form(s)`);
   if (d.jamaatsRenamed) parts.push(`renamed in ${d.jamaatsRenamed} Jamaat(s)`);
   if (d.method === "dev") parts.push("local test sign-in");
+  if (item.action === "chat_asked") parts.push(`“${d.question}”`, d.read === "ai" ? "read by AI" : "read by built-in reader");
   if (item.action === "logs_deleted") {
     parts.push({ activity: "activity logs", errors: "error logs", both: "activity + error logs" }[d.kind] || d.kind);
     if (d.range === "all") parts.push("all dates");

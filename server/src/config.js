@@ -64,6 +64,12 @@ const config = {
     : process.env.NODE_ENV === "production" ? 4 : 0,
 
   auditRetentionDays: num(process.env.AUDIT_RETENTION_DAYS, 365),
+
+  // ---- Assistant (chat) ----
+  // Free Groq key (console.groq.com). It only reads the wording of questions; answers come from the
+  // database. Without a key, a simpler built-in reader is used.
+  groqApiKey: (process.env.GROQ_API_KEY || "").trim(),
+  groqModel: (process.env.GROQ_MODEL || "openai/gpt-oss-120b").trim(),
 };
 
 // JWT secrets: required in production; a temporary random one is used in development.

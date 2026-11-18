@@ -8,6 +8,7 @@ import AccessDenied from "./AccessDenied";
 import LoginPage from "./components/LoginPage";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ConfirmHost } from "./components/ConfirmDialog";
+import ChatWidget from "./components/ChatWidget";
 import { useAuth } from "./hooks/useAuth";
 import { useTheme } from "./hooks/useTheme";
 import { navigate, usePath } from "./lib/router";
@@ -111,11 +112,18 @@ function Main({ path, theme, onToggleTheme }) {
   }
 
   const common = { user: auth.user, onSignOut: auth.signOut, onAuthExpired: auth.expire, theme, onToggleTheme };
-  if (role === "superadmin") return <AdminPortal key={auth.user.id} {...common} path={belongsTo(role, path) ? path : homeOf(role)} />;
-  if (role === "jc") {
-    return path === "/jc-portal/form"
+  let page;
+  if (role === "superadmin") page = <AdminPortal key={auth.user.id} {...common} path={belongsTo(role, path) ? path : homeOf(role)} />;
+  else if (role === "jc") {
+    page = path === "/jc-portal/form"
       ? <JcPortal key={auth.user.id} {...common} />
       : <JcDashboard key={auth.user.id} {...common} />;
-  }
-  return <Dashboard key={auth.user.id} {...common} />;
+  } else page = <Dashboard key={auth.user.id} {...common} />;
+  return (
+    <>
+      {page}
+      {/* The assistant, on every portal (answers limited to what this role may see). */}
+      <ChatWidget key={`chat-${auth.user.id}`} user={auth.user} onAuthExpired={auth.expire} raised={path === "/jc-portal/form"} />
+    </>
+  );
 }
