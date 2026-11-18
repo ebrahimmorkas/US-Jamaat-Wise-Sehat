@@ -1,11 +1,16 @@
-// "Stats": an image the Super Admin uploads, shown on every portal with the history of earlier images.
-//   Everyone signed in: GET /  (list, newest first = current; each with a signed ImageKit link that expires)
-//   Super Admin:        POST / (raw image body, X-File-Name, ?title=), DELETE /:id
+// "Stats": images per Jamiat, uploaded by the Super Admin, shown on every portal with each Jamiat's history.
+//   Everyone signed in: GET /  -> { jamiats: [{ id, name, images (newest first = current) }] }
+//                       JC: only the Jamiats assigned to them; Saheb / Super Admin: every Jamiat.
+//                       Each image has a signed ImageKit link that expires.
+//   Super Admin:        POST /?jamiat=<id>&title=  (raw image body, X-File-Name), DELETE /:id
 // The pictures are private files in ImageKit (services/imagekit.js).
 const express = require("express");
 const { isDbReady } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const StatImage = require("../models/StatImage");
+const User = require("../models/User");
+const Jamiat = require("../models/Jamiat");
+const { notDeleted } = require("../lib/softDelete");
 const { audit } = require("../services/audit");
 const { InputError, requireId, sendError } = require("../lib/validate");
 const { publish } = require("../realtime");
@@ -28,7 +33,7 @@ function imageType(b) {
   return "";
 }
 const out = (s) => ({
-  id: String(s._id), title: s.title || "", fileName: s.fileName || "", type: s.type, size: s.size,
+  id: String(s._id), jamiat: String(s.jamiat), title: s.title || "", fileName: s.fileName || "", type: s.type, size: s.size,
   width: s.width || 0, height: s.height || 0, uploadedAt: s.createdAt,
   src: storage.signedUrl(s), // opens the private picture for LINK_HOURS
 });
@@ -42,8 +47,18 @@ const clean = (v, n) => String(v == null ? "" : v).replace(/\s+/g, " ").trim().s
 router.get("/", async (req, res, next) => {
   try {
     res.set("Cache-Control", "no-store");
-    const list = await StatImage.find({}).sort({ createdAt: -1 }).lean();
-    res.json({ images: list.map(out), linkHours: storage.LINK_HOURS, ready: storage.ready() });
+    let only = null; // JC: their Jamiats
+    if (req.user.role === "jc") {
+      const u = await User.findById(req.user.id).select("jamiats").lean();
+      only = ((u && u.jamiats) || []).map(String);
+    }
+    const [jamiats, images] = await Promise.all([
+      Jamiat.find({ ...notDeleted(), ...(only ? { _id: { $in: only } } : {}) }).select("name").sort({ name: 1 }).lean(),
+      StatImage.find(only ? { jamiat: { $in: only } } : {}).sort({ createdAt: -1 }).lean(),
+    ]);
+    const byJamiat = new Map(jamiats.map((j) => [String(j._id), { id: String(j._id), name: j.name, images: [] }]));
+    for (const s of images) { const g = byJamiat.get(String(s.jamiat)); if (g) g.images.push(out(s)); }
+    res.json({ jamiats: [...byJamiat.values()], linkHours: storage.LINK_HOURS, ready: storage.ready() });
   } catch (err) { next(err); }
 });
 
@@ -55,16 +70,19 @@ router.post("/", requireRole("superadmin"), express.raw({ type: "application/oct
     let fileName = "";
     try { fileName = clean(decodeURIComponent(String(req.get("x-file-name") || "")), 150); } catch { /* keep empty */ }
     const title = clean(req.query.title, 150);
+    const jamiatId = requireId(req.query.jamiat, "Jamiat");
+    const jamiat = await Jamiat.findOne({ _id: jamiatId, ...notDeleted() }).select("name").lean();
+    if (!jamiat) throw new InputError("Choose the Jamiat this image is for.");
     const stamp = new Date().toISOString().slice(0, 10);
     const kept = await storage.uploadImage(req.body, { fileName: `stats-${stamp}.${EXT[type]}`, type });
     let s;
     try {
-      s = await StatImage.create({ title, fileName, type, size: req.body.length, ...kept, uploadedBy: req.user.id });
+      s = await StatImage.create({ jamiat: jamiat._id, title, fileName, type, size: req.body.length, ...kept, uploadedBy: req.user.id });
     } catch (err) {
       storage.deleteImage(kept.fileId).catch(() => {}); // don't leave an unlisted file behind
       throw err;
     }
-    audit(req, "stats_uploaded", { target: { type: "stats", id: String(s._id), label: title || fileName || "Stats image" }, details: { size: s.size, type } });
+    audit(req, "stats_uploaded", { target: { type: "stats", id: String(s._id), label: `${jamiat.name}: ${title || fileName || "Stats image"}` }, details: { jamiat: jamiat.name, size: s.size, type } });
     changed();
     res.status(201).json(out(s));
   } catch (err) {
@@ -81,7 +99,8 @@ router.delete("/:id", requireRole("superadmin"), async (req, res, next) => {
     if (!s) throw new InputError("This image was already removed. Reload the page.", 404);
     await storage.deleteImage(s.fileId); // first: if ImageKit fails, the image stays listed (try again)
     await StatImage.deleteOne({ _id: id });
-    audit(req, "stats_deleted", { target: { type: "stats", id: String(id), label: s.title || s.fileName || "Stats image" }, details: { uploadedAt: s.createdAt } });
+    const jm = await Jamiat.findById(s.jamiat).select("name").lean();
+    audit(req, "stats_deleted", { target: { type: "stats", id: String(id), label: `${jm ? jm.name : "Jamiat"}: ${s.title || s.fileName || "Stats image"}` }, details: { jamiat: jm && jm.name, uploadedAt: s.createdAt } });
     changed();
     res.json({ ok: true });
   } catch (err) {

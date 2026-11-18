@@ -9,7 +9,7 @@ export default function SahebStats({ user, onSignOut, onAuthExpired, theme, onTo
       <AppBar nav={SAHEB_NAV} page="/stats" theme={theme} onToggleTheme={onToggleTheme} user={user} onSignOut={onSignOut} />
       <main className="container">
         <section className="page-head"><div className="page-title"><h1>Stats</h1>
-          <p className="page-sub">Shared by the Super Admin. The latest image is shown first; earlier ones are in the history below.</p></div></section>
+          <p className="page-sub">Shared by the Super Admin for each Jamiat. Choose a Jamiat to see its latest image; earlier ones are in the history below.</p></div></section>
         <StatsView topic="dashboard" onAuthExpired={onAuthExpired} />
       </main>
     </>

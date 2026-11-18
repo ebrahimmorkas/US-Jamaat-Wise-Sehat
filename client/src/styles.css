@@ -1716,3 +1716,12 @@ dialog.purge-dlg { width: min(560px, calc(100vw - 32px)); }
 .stats-thumb .stat-img-loading, .stats-thumb .stat-img-missing { position: absolute; inset: 0; }
 /* Stats picture still downloading: a soft placeholder in its own shape (width/height attributes). */
 .stats-main-img.is-loading, .stats-viewer-img.is-loading { background: var(--surface-2, #f1f5f9); }
+
+/* Stats: Jamiat picker */
+.stats-pick { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 18px; padding: 14px 20px; }
+.stats-pick .field { flex: 0 1 420px; min-width: 0; }
+.stats-pick select { width: 100%; }
+.stats-one { display: grid; gap: 4px; }
+.stats-one b { font-size: 16px; }
+.stats-pick-sum { margin: 0 0 10px; font-size: 13px; }
+@media (max-width: 720px) { .stats-pick { padding: 14px 16px; } .stats-pick .field { flex-basis: 100%; } }

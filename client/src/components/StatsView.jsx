@@ -5,8 +5,9 @@ import { confirmDialog } from "./ConfirmDialog";
 import Notice from "./Notice";
 import { ChevronLeft, ChevronRight, CloseIcon, ImageIcon, TrashIcon, UploadIcon } from "./Icons";
 
-// "Stats": the image the Super Admin uploads, shown on every portal, whole (never cropped), with its date,
-// and the history of earlier images. admin = upload / remove. topic = live updates ("portal" / "dashboard").
+// "Stats", Jamiat-wise: each Jamiat has its current image (shown whole, never cropped, with its date) and
+// its history. JCs get only their Jamiats (the server decides). admin = upload for a Jamiat / remove.
+// topic = live updates ("portal" / "dashboard").
 const MAX_MB = 8;
 const fmtDate = (d) => new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 const fmtTime = (d) => new Date(d).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
@@ -32,7 +33,8 @@ function StatImg({ image, alt, className, onClick, onStale }) {
 }
 
 export default function StatsView({ onAuthExpired, admin = false, topic }) {
-  const [list, setList] = useState(null);
+  const [groups, setGroups] = useState(null); // [{ id, name, images }]
+  const [sel, setSel] = useState("");          // Jamiat shown
   const [error, setError] = useState("");
   const [msg, setMsg] = useState(null);
   const [view, setView] = useState(-1); // index open full size
@@ -45,7 +47,9 @@ export default function StatsView({ onAuthExpired, admin = false, topic }) {
   const load = useCallback(async (tries = 0) => {
     try {
       const r = await fetchStats();
-      setList(r.images);
+      setGroups(r.jamiats);
+      // Keep the chosen Jamiat; else the first one that has an image; else the first.
+      setSel((cur) => (r.jamiats.some((g) => g.id === cur) ? cur : ((r.jamiats.find((g) => g.images.length) || r.jamiats[0] || {}).id || "")));
       setError("");
     } catch (err) {
       if (err instanceof AuthError) return onAuthExpired();
@@ -59,6 +63,11 @@ export default function StatsView({ onAuthExpired, admin = false, topic }) {
   }, [onAuthExpired]);
   useEffect(() => { load(); return () => clearTimeout(retry.current); }, [load]);
   useRealtime(topic, "stats:changed", () => load(), { enabled: !!topic, onReconnect: () => load() });
+
+  const group = groups && groups.find((g) => g.id === sel);
+  const list = groups ? (group ? group.images : []) : null;
+  const setList = (fn) => setGroups((gs) => gs.map((g) => (g.id === sel ? { ...g, images: fn(g.images) } : g)));
+  const choose = (id) => { setSel(id); setView(-1); setMsg(null); };
 
   const fail = (err, what) => {
     if (err instanceof AuthError) return onAuthExpired();
@@ -84,11 +93,11 @@ export default function StatsView({ onAuthExpired, admin = false, topic }) {
     if (!file || busy) return;
     setBusy(true);
     try {
-      const s = await uploadStat(file, title);
-      setList((l) => [s, ...(l || [])]);
+      const s = await uploadStat(file, title, sel);
+      setList((l) => [s, ...l]);
       setFile(null); setTitle("");
       if (fileRef.current) fileRef.current.value = "";
-      setMsg({ type: "ok", text: "Uploaded. Every portal now shows the new image; the previous one moved to the history." });
+      setMsg({ type: "ok", text: `Uploaded for ${group.name}. Its JCs, the Saheb and you now see the new image; the previous one moved to ${group.name}'s history.` });
     } catch (err) { fail(err, "Not uploaded"); } finally { setBusy(false); }
   };
 
@@ -96,8 +105,8 @@ export default function StatsView({ onAuthExpired, admin = false, topic }) {
     const ok = await confirmDialog({
       tone: "danger", title: "Remove this image?", confirmText: "Remove",
       message: i === 0 && list.length > 1
-        ? `The current image (uploaded ${fmtDate(s.uploadedAt)}) will be removed from every portal. The image uploaded ${fmtDate(list[1].uploadedAt)} becomes the current one again.`
-        : `The image uploaded ${fmtDate(s.uploadedAt)} will be removed from every portal. This can't be undone.`,
+        ? `${group.name}'s current image (uploaded ${fmtDate(s.uploadedAt)}) will be removed from every portal. The image uploaded ${fmtDate(list[1].uploadedAt)} becomes the current one again.`
+        : `${group.name}'s image uploaded ${fmtDate(s.uploadedAt)} will be removed from every portal. This can't be undone.`,
     });
     if (!ok) return;
     setBusy(true);
@@ -129,13 +138,37 @@ export default function StatsView({ onAuthExpired, admin = false, topic }) {
 
   return (
     <div className="stats-view">
-      {error && <Notice type={list ? "error" : "info"} text={error} onClose={list ? () => setError("") : undefined} />}
+      {error && <Notice type={groups ? "error" : "info"} text={error} onClose={groups ? () => setError("") : undefined} />}
       {msg && <Notice type={msg.type} text={msg.text} onClose={() => setMsg(null)} />}
 
-      {admin && (
+      {groups && groups.length === 0 && (
+        <section className="panel stats-empty"><ImageIcon /><p>{admin ? "There are no Jamiats yet. Add them in Masters first." : "No Jamiat is assigned to you yet."}</p></section>
+      )}
+
+      {groups && groups.length > 0 && (
+        <section className="panel stats-pick">
+          {groups.length > 1 ? (
+            <label className="field">
+              <span className="field-label">Jamiat</span>
+              <select value={sel} onChange={(e) => choose(e.target.value)} aria-label="Jamiat">
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>{g.name} — {g.images.length ? `updated ${fmtDate(g.images[0].uploadedAt)}` : "no image yet"}</option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <div className="stats-one"><span className="field-label">Jamiat</span><b>{group && group.name}</b></div>
+          )}
+          {groups.length > 1 && (
+            <p className="muted stats-pick-sum">{groups.filter((g) => g.images.length).length} of {groups.length} Jamiats have an image</p>
+          )}
+        </section>
+      )}
+
+      {admin && group && (
         <section className="panel stats-upload">
-          <div className="panel-head"><div><h2>Upload a new image</h2>
-            <p>It replaces the current image on every portal (JC, Saheb, Super Admin). The current one moves to the history with its date. PNG, JPG, WebP or GIF, up to {MAX_MB} MB.</p></div></div>
+          <div className="panel-head"><div><h2>Upload a new image for {group.name}</h2>
+            <p>It becomes {group.name}&apos;s current image for its JCs, the Saheb and you. The current one moves to {group.name}&apos;s history with its date. To upload for another Jamiat, choose it above. PNG, JPG, WebP or GIF, up to {MAX_MB} MB.</p></div></div>
           <div className="stats-upload-body">
             <label className="stats-drop">
               <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => pick(e.target.files[0])} />
@@ -156,14 +189,14 @@ export default function StatsView({ onAuthExpired, admin = false, topic }) {
         </section>
       )}
 
-      {!list ? (!error && <div className="panel portal-empty">Loading…</div>) : !current ? (
-        <section className="panel stats-empty"><ImageIcon /><p>{admin ? "No image uploaded yet. Upload one above." : "No stats have been shared yet."}</p></section>
+      {!groups ? (!error && <div className="panel portal-empty">Loading…</div>) : !group ? null : !current ? (
+        <section className="panel stats-empty"><ImageIcon /><p>{admin ? `No image for ${group.name} yet. Upload one above.` : `No stats have been shared for ${group.name} yet.`}</p></section>
       ) : (
         <>
           <section className="panel stats-current" aria-label="Current stats image">
             <header className="stats-head">
               <div>
-                <span className="stats-tag">Current</span>
+                <span className="stats-tag">Current</span> <span className="stats-tag old">{group.name}</span>
                 <h2>{name(current)}</h2>
                 <p className="muted">Uploaded on <b>{fmtDate(current.uploadedAt)}</b> at {fmtTime(current.uploadedAt)}</p>
               </div>

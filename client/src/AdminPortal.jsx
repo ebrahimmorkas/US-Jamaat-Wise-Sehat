@@ -41,7 +41,7 @@ export default function AdminPortal({ path, user, onSignOut, onAuthExpired, them
         {page === "/admin/stats" && (
           <>
             <section className="page-head"><div className="page-title"><h1>Stats</h1>
-              <p className="page-sub">Upload an image that every portal shows (it is the first tab on the JC Portal). Each new upload keeps the earlier images in the history with their dates.</p></div></section>
+              <p className="page-sub">Images per Jamiat. Choose a Jamiat, then upload its image: that Jamiat's JCs see it (first tab of the JC Portal), and so do the Saheb and you. Each new upload keeps the Jamiat's earlier images in its history with their dates.</p></div></section>
             <StatsView admin onAuthExpired={onAuthExpired} />
           </>
         )}

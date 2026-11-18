@@ -109,7 +109,7 @@ export const logout = () => raw("/api/auth/logout", { method: "POST" }).catch(()
 export const realtimeTicket = () => request("/api/realtime/ticket", { method: "POST" });
 // Stats images (Super Admin uploads; every portal sees them).
 export const fetchStats = () => request("/api/stats");
-export const uploadStat = (file, title) => request(`/api/stats?title=${encodeURIComponent(title || "")}`, { method: "POST", file });
+export const uploadStat = (file, title, jamiat) => request(`/api/stats?jamiat=${encodeURIComponent(jamiat)}&title=${encodeURIComponent(title || "")}`, { method: "POST", file });
 export const deleteStat = (id) => request(`/api/stats/${id}`, { method: "DELETE" });
 
 // JC Metrics (permanent work a JC handles).

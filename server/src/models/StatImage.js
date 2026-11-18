@@ -1,9 +1,11 @@
-// "Stats" images uploaded by the Super Admin and shown on every portal. Newest = current; the rest = history.
+// "Stats" images, Jamiat-wise: the Super Admin uploads one for a Jamiat; per Jamiat the newest is current and
+// the rest is its history. JCs see only their Jamiats; Saheb / Super Admin see all.
 // The picture itself lives in ImageKit as a private file; this keeps where it is and its details.
 const { mongoose } = require("../db");
 
 const statImageSchema = new mongoose.Schema(
   {
+    jamiat: { type: mongoose.Schema.Types.ObjectId, ref: "Jamiat", required: true },
     title: { type: String, trim: true, maxlength: 150, default: "" },
     fileName: { type: String, trim: true, maxlength: 150, default: "" },
     type: { type: String, required: true }, // image/png | image/jpeg | image/webp | image/gif
@@ -19,6 +21,6 @@ const statImageSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
-statImageSchema.index({ createdAt: -1 });
+statImageSchema.index({ jamiat: 1, createdAt: -1 });
 
 module.exports = mongoose.model("StatImage", statImageSchema);
