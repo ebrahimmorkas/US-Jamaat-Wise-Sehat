@@ -189,7 +189,7 @@ function UploadPreview({ file, plan, opts, busy, onChange, onToggle, onSave, onC
             <p><b>{s.matched} of {plural(s.read, "row")}</b> match a Jamiat and Jamaat in Masters ({plural(s.jamiats, "Jamiat")}, {plural(s.jamaats, "Jamaat")}).</p>
             {s.hadData && <p>Compared with the current data: <b>{s.kept}</b> same (keep their statuses) · <b>{s.added}</b> new · <b>{s.removed}</b> to be removed.</p>}
             {s.hadData && s.compared.length > 0 && <p className="muted">“Same” = same Jamaat and same {s.compared.join(", ")}.</p>}
-            {s.statusColumns && s.statusColumns.length > 0 && <p className="muted">Status columns found for {s.statusColumns.join(", ")}: {plural(s.filePicks, "status", "statuses")} taken from the file{s.hadData ? " (a status already chosen on the portal is kept)" : ""}.</p>}
+            {s.filePicks > 0 && <p className="muted">{plural(s.filePicks, "status", "statuses")} read from the cell colours in the file{s.hadData ? " (a status already chosen on the portal is kept)" : ""}.</p>}
           </div>
 
           <h3 className="data-sub">Columns <span className="muted">· tick the ones that get a status dropdown (the Excel value stays as it is)</span></h3>
@@ -243,14 +243,15 @@ function Choices({ info, onSaved, onMsg, onFail }) {
   const [list, setList] = useState(fromInfo);
   const [saving, setSaving] = useState(false);
   useEffect(() => { setList(fromInfo()); }, [fromInfo]);
-  const colours = Object.entries(info.palette);
+  // Colours offered for a new choice (any colour can then be picked).
+  const STARTERS = ["#8fd19e", "#f4a3a3", "#9ec5f0", "#f7d774", "#f8b98a", "#c9b3f2", "#f3abcf", "#8fd8d2", "#c9ced6"];
   const dirty = JSON.stringify(list.map(({ id, value, color }) => [id, value, color])) !== JSON.stringify(info.choices.map(({ id, value, color }) => [id, value, color]));
 
   const set = (k, patch) => setList((l) => l.map((c) => (c.key === k ? { ...c, ...patch } : c)));
   const move = (n, d) => setList((l) => { const a = [...l]; [a[n], a[n + d]] = [a[n + d], a[n]]; return a; });
   const add = () => {
-    const used = new Set(list.map((c) => c.color));
-    const color = (colours.find(([k]) => !used.has(k)) || colours[0])[0];
+    const used = new Set(list.map((c) => c.color.toLowerCase()));
+    const color = STARTERS.find((k) => !used.has(k)) || `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, "0")}`;
     setList((l) => [...l, { key: `new${++tmpId}`, id: "", value: "", color }]);
   };
 
@@ -271,18 +272,17 @@ function Choices({ info, onSaved, onMsg, onFail }) {
   return (
     <section className="panel data-card">
       <div className="panel-head"><div><h2>Dropdown choices</h2>
-        <p>One list for every status dropdown, with the colour shown on the Data tab and in the downloaded Excel. Renaming a choice renames it in the data too.</p></div></div>
+        <p>One list for every status dropdown. Pick any colour: it is shown on the Data tab and as the cell's background in the downloaded Excel (so each choice needs its own colour). Renaming a choice renames it in the data too.</p></div></div>
       <div className="choice-list">
         {list.map((c, n) => (
           <div key={c.key} className="choice-row">
-            <span className="dchip has" style={colourStyle(info.palette, c.color)}>{c.value || "New choice"}</span>
+            <span className="dchip has" style={colourStyle(c.color)}>{c.value || "New choice"}</span>
             <input className="input" value={c.value} maxLength={30} placeholder="Choice name" aria-label={`Choice ${n + 1} name`} onChange={(e) => set(c.key, { value: e.target.value })} />
-            <div className="swatches" role="radiogroup" aria-label={`Colour of ${c.value || "choice " + (n + 1)}`}>
-              {colours.map(([k, p]) => (
-                <button key={k} type="button" role="radio" aria-checked={c.color === k} title={p.label} aria-label={p.label}
-                  className={`swatch${c.color === k ? " is-on" : ""}`} style={colourStyle(info.palette, k)} onClick={() => set(c.key, { color: k })} />
-              ))}
-            </div>
+            <label className="color-pick" title="Pick a colour">
+              <input type="color" value={c.color} onChange={(e) => set(c.key, { color: e.target.value.toLowerCase() })} aria-label={`Colour of ${c.value || "choice " + (n + 1)}`} />
+              <span className="color-code">{c.color.toUpperCase()}</span>
+              <span className="muted">Change colour</span>
+            </label>
             <div className="choice-btns">
               <button type="button" className="icon-btn" disabled={n === 0} onClick={() => move(n, -1)} title="Move up" aria-label="Move up"><span className="rot"><ChevronLeft /></span></button>
               <button type="button" className="icon-btn" disabled={n === list.length - 1} onClick={() => move(n, 1)} title="Move down" aria-label="Move down"><span className="rot"><ChevronRight /></span></button>

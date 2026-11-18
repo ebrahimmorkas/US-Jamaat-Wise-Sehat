@@ -182,7 +182,7 @@ export default function JcData({ user, onSignOut, onAuthExpired, theme, onToggle
               {hasDrop && (
                 <div className="data-legend" aria-label="Choices">
                   {choices.map((c) => (
-                    <span key={c.id} className="dchip" style={choiceStyle(data.palette, choices, c.value)}>{c.value} <b>{counts[c.value] || 0}</b></span>
+                    <span key={c.id} className="dchip" style={choiceStyle(choices, c.value)}>{c.value} <b>{counts[c.value] || 0}</b></span>
                   ))}
                   <span className="dchip empty">Not set <b>{counts[""] || 0}</b></span>
                 </div>
@@ -211,7 +211,7 @@ export default function JcData({ user, onSignOut, onAuthExpired, theme, onToggle
                                 {/* The Excel value (read-only) and its status dropdown. */}
                                 <div className="dcell">
                                   <span className="dval">{v || <span className="muted">—</span>}</span>
-                                  <select className={`dsel${pick ? " has" : ""}${busy ? " is-saving" : ""}`} value={pick} style={choiceStyle(data.palette, choices, pick)}
+                                  <select className={`dsel${pick ? " has" : ""}${busy ? " is-saving" : ""}`} value={pick} style={choiceStyle(choices, pick)}
                                     aria-label={`Status of ${c.name} ${v} for ${r.jamaatName}`} onChange={(e) => change(r, c.i, e.target.value)}>
                                     <option value="">Not set</option>
                                     {choices.map((ch) => <option key={ch.id} value={ch.value}>{ch.value}</option>)}

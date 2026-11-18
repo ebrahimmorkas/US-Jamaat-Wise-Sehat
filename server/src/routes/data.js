@@ -7,7 +7,7 @@ const { requireAuth, requireRole } = require("../middleware/auth");
 const User = require("../models/User");
 const Jamiat = require("../models/Jamiat");
 const Jamaat = require("../models/Jamaat");
-const { DataRow, PALETTE, getConfig } = require("../models/DataSheet");
+const { DataRow, HEX, toHex, inkFor, getConfig } = require("../models/DataSheet");
 const { readExcel, planUpload, buildWorkbook, choiceOf, valKey } = require("../services/dataSheet");
 const { audit } = require("../services/audit");
 const { InputError, requireId, sendError } = require("../lib/validate");
@@ -22,7 +22,7 @@ router.use(requireAuth, (req, res, next) => {
 const MAX_FILE = 10 * 1024 * 1024;
 const fileBody = express.raw({ type: "application/octet-stream", limit: MAX_FILE });
 
-const choicesOut = (cfg) => (cfg.choices || []).map((c) => ({ id: String(c._id), value: c.value, color: c.color }));
+const choicesOut = (cfg) => (cfg.choices || []).map((c) => ({ id: String(c._id), value: c.value, color: toHex(c.color), ink: inkFor(c.color) }));
 const configOut = (cfg) => ({
   hasData: cfg.version > 0 && cfg.columns.length > 0,
   version: cfg.version,
@@ -34,7 +34,6 @@ const configOut = (cfg) => ({
   uploadedAt: cfg.uploadedAt || null,
   uploadedBy: cfg.uploadedBy || "",
   choices: choicesOut(cfg),
-  palette: PALETTE,
 });
 
 async function accessOf(req) {
@@ -236,12 +235,16 @@ router.put("/choices", admin, async (req, res, next) => {
       if (/[,"]/.test(value)) throw new InputError(`“${value}”: commas and double quotes can't be used in a choice.`);
       if (seen.has(valKey(value))) throw new InputError(`“${value}” is in the list twice.`);
       seen.add(valKey(value));
-      if (!PALETTE[c.color]) throw new InputError(`Pick a colour for “${value}”.`);
-      return { id: typeof c.id === "string" ? c.id : "", value, color: c.color };
+      const color = String((c && c.color) || "").trim().toLowerCase();
+      if (!HEX.test(color)) throw new InputError(`Pick a colour for “${value}”.`);
+      return { id: typeof c.id === "string" ? c.id : "", value, color };
     });
+    // The colour tells the status in the downloaded Excel, so two choices can't share one.
+    const twin = clean.find((c, n) => clean.findIndex((x) => x.color === c.color) !== n);
+    if (twin) throw new InputError(`“${clean.find((x) => x.color === twin.color).value}” and “${twin.value}” have the same colour. Give each choice its own colour.`);
 
     const cfg = await getConfig();
-    const old = cfg.choices.map((c) => ({ id: String(c._id), value: c.value, color: c.color }));
+    const old = cfg.choices.map((c) => ({ id: String(c._id), value: c.value, color: toHex(c.color) }));
     const renames = [];
     const removed = [];
     for (const o of old) {
@@ -260,7 +263,7 @@ router.put("/choices", admin, async (req, res, next) => {
         if (removed.length) changedCells += (await DataRow.updateMany({ version: cfg.version, [`picks.${i}`]: { $in: removed } }, { $set: { [`picks.${i}`]: "" } })).modifiedCount;
       }
     }
-    const fmt = (l) => l.map((c) => `${c.value} (${(PALETTE[c.color] || {}).label || c.color})`).join(", ");
+    const fmt = (l) => l.map((c) => `${c.value} (${c.color})`).join(", ");
     audit(req, "data_choices_changed", {
       target: { type: "data", label: "Dropdown choices" },
       changes: [{ field: "choices", label: "Choices", from: fmt(old), to: fmt(clean) }],

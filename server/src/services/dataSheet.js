@@ -3,7 +3,7 @@
 const ExcelJS = require("exceljs");
 const Jamiat = require("../models/Jamiat");
 const Jamaat = require("../models/Jamaat");
-const { DataRow, PALETTE } = require("../models/DataSheet");
+const { DataRow, toHex, inkFor } = require("../models/DataSheet");
 const { InputError } = require("../lib/validate");
 const { notDeleted } = require("../lib/softDelete");
 
@@ -44,6 +44,13 @@ function cellText(v) {
   return String(v).replace(/\r\n?/g, "\n").trim();
 }
 
+/** A cell's solid background colour as "#rrggbb" ("" when none or a theme colour). */
+function fillOf(cell) {
+  const f = cell.fill;
+  const argb = f && f.type === "pattern" && f.pattern === "solid" && f.fgColor && f.fgColor.argb;
+  return typeof argb === "string" && /^[0-9a-f]{8}$/i.test(argb) ? `#${argb.slice(2).toLowerCase()}` : "";
+}
+
 /** Reads the first sheet that has data: { headers: [names], rows: [{ line, cells }] }. */
 async function readExcel(buffer) {
   const wb = new ExcelJS.Workbook();
@@ -81,8 +88,13 @@ async function readExcel(buffer) {
   ws.eachRow({ includeEmpty: false }, (row, line) => {
     if (line <= headRow.number) return;
     const cells = [];
-    for (let c = 1; c <= width; c++) cells.push(cellText(row.getCell(c).value).slice(0, MAX_CELL));
-    if (cells.some(Boolean)) rows.push({ line, cells });
+    const fills = [];
+    for (let c = 1; c <= width; c++) {
+      const cell = row.getCell(c);
+      cells.push(cellText(cell.value).slice(0, MAX_CELL));
+      fills.push(fillOf(cell));
+    }
+    if (cells.some(Boolean)) rows.push({ line, cells, fills });
   });
   if (!rows.length) throw new InputError("The file has column names but no rows of data.");
   if (rows.length > MAX_ROWS) throw new InputError(`The file has ${rows.length} rows; at most ${MAX_ROWS} are allowed.`);
@@ -120,31 +132,23 @@ const choiceOf = (choices, v) => {
  * Returns { headers, jamiatCol, jamaatCol, columns, rows, unmatched, stats }.
  */
 async function planUpload(file, opts, cfg) {
-  const { sheet } = file;
-  // "<name> - Status" columns (in a file downloaded from here) are not data: they fill the statuses.
-  const statusOfBase = new Map(); // base column index (in the full file) -> status column index
-  file.headers.forEach((h, s) => {
-    const m = /^(.*?)\s*-\s*status$/i.exec(h);
-    const b = m ? file.headers.findIndex((x, i) => i !== s && x.toLowerCase() === m[1].toLowerCase()) : -1;
-    if (b >= 0) statusOfBase.set(b, s);
-  });
-  const statusIdx = new Set(statusOfBase.values());
-  const keep = file.headers.map((_, i) => i).filter((i) => !statusIdx.has(i));
-  const headers = keep.map((i) => file.headers[i]);
-  const statusCol = new Map([...statusOfBase].map(([b, s]) => [keep.indexOf(b), s])); // visible index -> file index
-  const raw = file.rows.map((r) => ({ line: r.line, cells: keep.map((i) => r.cells[i]), status: r.cells }));
+  const { sheet, headers } = file;
+  const raw = file.rows;
   const jamiatCol = Number.isInteger(opts.jamiatCol) && opts.jamiatCol >= 0 && opts.jamiatCol < headers.length ? opts.jamiatCol : findCol(headers, JAMIAT_HEADS);
   const jamaatCol = Number.isInteger(opts.jamaatCol) && opts.jamaatCol >= 0 && opts.jamaatCol < headers.length ? opts.jamaatCol : findCol(headers, JAMAAT_HEADS);
   const choices = cfg.choices || [];
 
-  // Columns marked as dropdown: as chosen; else the ones marked last time; else the ones that have a
-  // "<name> - Status" column in the file (a file downloaded from here).
+  // A cell coloured like a choice (e.g. a file downloaded from here) has that status.
+  const colorOf = new Map(choices.map((c) => [toHex(c.color), c.value]));
+  const statusByFill = (r, i) => colorOf.get((r.fills && r.fills[i]) || "") || "";
+  // Columns marked as dropdown: as chosen; else the ones marked last time; else the ones with cells
+  // coloured like a choice.
   let dropNames;
   if (Array.isArray(opts.dropdown)) dropNames = new Set(opts.dropdown.map((n) => String(n).toLowerCase()));
   else {
     const before = (cfg.columns || []).filter((c) => c.dropdown).map((c) => c.name.toLowerCase());
     dropNames = new Set(before.filter((n) => headers.some((h) => h.toLowerCase() === n)));
-    statusCol.forEach((_, b) => dropNames.add(headers[b].toLowerCase()));
+    if (!dropNames.size) headers.forEach((h, i) => { if (raw.some((r) => statusByFill(r, i))) dropNames.add(h.toLowerCase()); });
   }
   const columns = headers.map((name, i) => ({ name, dropdown: i !== jamiatCol && i !== jamaatCol && dropNames.has(name.toLowerCase()) }));
   const base = { headers, sheet, jamiatCol, jamaatCol, columns };
@@ -153,7 +157,7 @@ async function planUpload(file, opts, cfg) {
   }
 
   // Match each row to a Jamaat. The Excel values are kept exactly; the status of each dropdown column
-  // is separate (`picks`), empty unless the file has a "<name> - Status" column.
+  // is separate (`picks`), empty unless the cell is coloured like a choice.
   const { jamiatBy, jamaatBy } = await loadMasters();
   const rows = [];
   const unmatched = [];
@@ -168,10 +172,10 @@ async function planUpload(file, opts, cfg) {
       continue;
     }
     const picks = columns.map((c, i) => {
-      if (!c.dropdown || !statusCol.has(i)) return "";
-      const p = choiceOf(choices, r.status[statusCol.get(i)]);
+      if (!c.dropdown) return "";
+      const p = statusByFill(r, i);
       if (p) filePicks++;
-      return p || "";
+      return p;
     });
     rows.push({ line: r.line, jamiat: j._id, jamaat: m._id, cells: r.cells, picks });
   }
@@ -225,19 +229,17 @@ async function planUpload(file, opts, cfg) {
       removed,
       keptPicks,
       filePicks,
-      statusColumns: [...statusCol.keys()].map((b) => headers[b]),
       compared: shared.map((c) => columns[c.i].name),
     },
   };
 }
 
 // ---------- Excel download ----------
-const argb = (hex) => `FF${hex.replace("#", "").toUpperCase()}`;
-const listFormula = (choices) => `"${choices.map((c) => c.value).join(",")}"`;
+const argb = (hex) => `FF${toHex(hex).slice(1).toUpperCase()}`;
 
 /**
- * Builds the download: the uploaded columns with their values unchanged; after each column marked as dropdown,
- * a "<name> - Status" column with a real Excel dropdown and the choice colours (also when changed in Excel).
+ * Builds the download: the uploaded columns exactly as uploaded; in a column with a status, the cell's
+ * background is the status colour (no colour = not set). Uploading this file again reads the colours back.
  */
 async function buildWorkbook(cfg, rows) {
   const wb = new ExcelJS.Workbook();
@@ -245,13 +247,10 @@ async function buildWorkbook(cfg, rows) {
   wb.created = new Date();
   const ws = wb.addWorksheet("Data", { views: [{ state: "frozen", ySplit: 1 }] });
   const choices = cfg.choices || [];
-  const cols = cfg.columns.flatMap((c, i) => [
-    { name: c.name, get: (r) => r.cells[i] || "" },
-    ...(c.dropdown ? [{ name: `${c.name} - Status`, dropdown: true, get: (r) => (r.picks && r.picks[i]) || "" }] : []),
-  ]);
+  const cols = cfg.columns;
 
   ws.columns = cols.map((c, i) => {
-    const longest = rows.reduce((n, r) => Math.max(n, String(c.get(r)).length), c.name.length);
+    const longest = rows.reduce((n, r) => Math.max(n, String(r.cells[i] || "").length), c.name.length);
     return { header: c.name, key: `c${i}`, width: Math.min(50, Math.max(10, longest + 2)) };
   });
   const head = ws.getRow(1);
@@ -263,43 +262,29 @@ async function buildWorkbook(cfg, rows) {
     cell.border = { bottom: { style: "thin", color: { argb: "FFC9CED6" } } };
   });
 
-  for (const r of rows) ws.addRow(cols.map((c) => c.get(r)));
-  const last = rows.length + 1;
-
-  cols.forEach((c, i) => {
-    if (!c.dropdown || !choices.length) return;
-    const col = ws.getColumn(i + 1);
-    const L = col.letter;
-    for (let n = 2; n <= Math.max(last, 2); n++) {
-      const cell = ws.getCell(`${L}${n}`);
-      cell.dataValidation = {
-        type: "list", allowBlank: true, formulae: [listFormula(choices)],
-        showErrorMessage: true, errorStyle: "stop", errorTitle: "Choose from the list", error: `Choose one of: ${choices.map((x) => x.value).join(", ")}`,
-      };
-      const ch = choices.find((x) => x.value === cell.value);
-      const p = ch && PALETTE[ch.color];
-      if (p) {
-        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(p.bg) } };
-        cell.font = { color: { argb: argb(p.ink) }, bold: true };
-      }
-    }
-    // Colour follows the value when it is changed in Excel.
-    if (last >= 2) {
-      ws.addConditionalFormatting({
-        ref: `${L}2:${L}${last}`,
-        rules: [
-          ...choices.map((ch, k) => {
-            const p = PALETTE[ch.color] || PALETTE.grey;
-            return {
-              type: "expression", priority: k + 1, formulae: [`$${L}2="${ch.value}"`],
-              style: { fill: { type: "pattern", pattern: "solid", bgColor: { argb: argb(p.bg) } }, font: { color: { argb: argb(p.ink) }, bold: true } },
-            };
-          }),
-          { type: "expression", priority: choices.length + 1, formulae: [`LEN($${L}2)=0`], style: { fill: { type: "pattern", pattern: "solid", bgColor: { argb: "FFFFFFFF" } } } },
-        ],
-      });
-    }
+  rows.forEach((r) => {
+    const row = ws.addRow(cols.map((_, i) => r.cells[i] || ""));
+    cols.forEach((c, i) => {
+      if (!c.dropdown) return;
+      const ch = choices.find((x) => x.value === (r.picks && r.picks[i]));
+      if (!ch) return;
+      const cell = row.getCell(i + 1);
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(ch.color) } };
+      cell.font = { color: { argb: argb(inkFor(ch.color)) } };
+    });
   });
+
+  // A small key of the colours, on its own sheet.
+  if (cols.some((c) => c.dropdown) && choices.length) {
+    const key = wb.addWorksheet("Colours");
+    key.columns = [{ header: "Status", key: "s", width: 24 }];
+    key.getRow(1).font = { bold: true };
+    for (const ch of choices) {
+      const cell = key.addRow([ch.value]).getCell(1);
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: argb(ch.color) } };
+      cell.font = { color: { argb: argb(inkFor(ch.color)) }, bold: true };
+    }
+  }
   if (cols.length) ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: cols.length } };
   return wb.xlsx.writeBuffer();
 }

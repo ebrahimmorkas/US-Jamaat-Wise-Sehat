@@ -44,22 +44,21 @@ const dataRowSchema = new mongoose.Schema({
 });
 dataRowSchema.index({ version: 1, jamaat: 1, order: 1 });
 
-// Colours a choice can have: light / dark website colours; Excel uses the light ones.
-const PALETTE = {
-  green: { label: "Green", bg: "#d3f3df", ink: "#0b5d2e", darkBg: "#174a2c", darkInk: "#bdf0d1" },
-  red: { label: "Red", bg: "#fde0de", ink: "#9a1c14", darkBg: "#5a1d1a", darkInk: "#ffcdc8" },
-  blue: { label: "Blue", bg: "#dbe9ff", ink: "#1e4a94", darkBg: "#1c3460", darkInk: "#c9ddff" },
-  amber: { label: "Yellow", bg: "#fdeec8", ink: "#7a4b00", darkBg: "#4d3a0c", darkInk: "#ffe3a3" },
-  orange: { label: "Orange", bg: "#ffe4d1", ink: "#8a3a0a", darkBg: "#55301a", darkInk: "#ffd2b3" },
-  purple: { label: "Purple", bg: "#ece3ff", ink: "#4b2a96", darkBg: "#33255e", darkInk: "#ddd0ff" },
-  pink: { label: "Pink", bg: "#fde1ef", ink: "#8f1f5a", darkBg: "#57203f", darkInk: "#ffcae4" },
-  teal: { label: "Teal", bg: "#d4f2f0", ink: "#0b5b57", darkBg: "#134542", darkInk: "#b8ece7" },
-  grey: { label: "Grey", bg: "#e9ebef", ink: "#3b4250", darkBg: "#343a46", darkInk: "#dfe3ea" },
-};
+// A choice's colour is any "#rrggbb" picked by the Super Admin (used on the website and in the Excel download).
+// Older documents may hold a colour name; it is read as the hex below.
+const NAMED = { green: "#8fd19e", red: "#f4a3a3", blue: "#9ec5f0", amber: "#f7d774", orange: "#f8b98a", purple: "#c9b3f2", pink: "#f3abcf", teal: "#8fd8d2", grey: "#c9ced6" };
+const HEX = /^#[0-9a-f]{6}$/i;
+const toHex = (c) => (HEX.test(String(c || "")) ? String(c).toLowerCase() : NAMED[c] || NAMED.grey);
+/** Readable text colour on a background: dark on light colours, white on dark ones. */
+function inkFor(hex) {
+  const h = toHex(hex);
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.32 ? "#111827" : "#ffffff";
+}
 const DEFAULT_CHOICES = [
-  { value: "Active", color: "green" },
-  { value: "Inactive", color: "red" },
-  { value: "Cold", color: "blue" },
+  { value: "Active", color: NAMED.green },
+  { value: "Inactive", color: NAMED.red },
+  { value: "Cold", color: NAMED.blue },
 ];
 
 const DataConfig = mongoose.model("DataConfig", dataConfigSchema);
@@ -74,4 +73,4 @@ async function getConfig() {
   );
 }
 
-module.exports = { DataConfig, DataRow, PALETTE, DEFAULT_CHOICES, getConfig };
+module.exports = { DataConfig, DataRow, DEFAULT_CHOICES, HEX, toHex, inkFor, getConfig };
