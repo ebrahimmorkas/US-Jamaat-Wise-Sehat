@@ -1559,3 +1559,10 @@ dialog.purge-dlg { width: min(560px, calc(100vw - 32px)); }
   .data-tools .field { flex: 1 1 140px; min-width: 0; }
   .data-card { padding: 0 16px 16px; }
 }
+/* Data tab as one sheet (like the Excel): header stays on top while scrolling */
+.data-sheet { margin-bottom: 20px; overflow: hidden; }
+.data-sheet .data-scroll { max-height: calc(100vh - 230px); overflow: auto; }
+.data-sheet .data-table thead th { position: sticky; top: 0; z-index: 1; border-right: 1px solid var(--border); }
+.data-sheet .data-table td { border-right: 1px solid var(--border); }
+.data-sheet .data-table th:last-child, .data-sheet .data-table td:last-child { border-right: 0; }
+@media (max-width: 720px) { .data-sheet .data-scroll { max-height: none; } }

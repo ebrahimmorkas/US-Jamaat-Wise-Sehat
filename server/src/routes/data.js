@@ -64,7 +64,7 @@ async function groupedRows(cfg, access) {
     if (!byJamiat.has(jid)) byJamiat.set(jid, { id: jid, name: jName.get(jid) || "?", jamaats: new Map() });
     const g = byJamiat.get(jid);
     if (!g.jamaats.has(mid)) g.jamaats.set(mid, { id: mid, name: mName.get(mid) || "?", rows: [] });
-    g.jamaats.get(mid).rows.push({ id: String(r._id), cells: r.cells });
+    g.jamaats.get(mid).rows.push({ id: String(r._id), order: r.order, cells: r.cells });
   }
   const az = (a, b) => a.name.localeCompare(b.name);
   return [...byJamiat.values()].sort(az).map((g) => ({ ...g, jamaats: [...g.jamaats.values()].sort(az) }));
@@ -122,7 +122,8 @@ router.get("/download", requireRole("jc", "superadmin"), async (req, res, next) 
     const cfg = await getConfig();
     if (!cfg.version || !cfg.columns.length) return res.status(404).json({ error: "No data has been uploaded yet." });
     const groups = await groupedRows(cfg, req.user.role === "jc" ? await accessOf(req) : null);
-    const rows = groups.flatMap((j) => j.jamaats.flatMap((m) => m.rows));
+    // Same order as the uploaded file.
+    const rows = groups.flatMap((j) => j.jamaats.flatMap((m) => m.rows)).sort((a, b) => a.order - b.order);
     const buf = await buildWorkbook(cfg, rows);
     const day = new Date().toISOString().slice(0, 10);
     audit(req, "data_downloaded", { details: { rows: rows.length } });

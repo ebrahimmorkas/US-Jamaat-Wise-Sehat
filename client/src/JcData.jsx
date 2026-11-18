@@ -43,7 +43,8 @@ export default function JcData({ user, onSignOut, onAuthExpired, theme, onToggle
   }, [onAuthExpired]);
   useEffect(() => { load(); return () => clearTimeout(retry.current); }, [load]);
 
-  const cols = useMemo(() => (data ? data.columns.map((c, i) => ({ ...c, i })).filter((c) => c.i !== data.jamiatCol && c.i !== data.jamaatCol) : []), [data]);
+  // Every column, in the file's order (as in the Excel).
+  const cols = useMemo(() => (data ? data.columns.map((c, i) => ({ ...c, i })) : []), [data]);
   const groups = useMemo(() => (data ? data.jamiats : []), [data]);
   const jamaatOptions = useMemo(() => groups.filter((g) => !jamiat || g.id === jamiat).flatMap((g) => g.jamaats), [groups, jamiat]);
 
@@ -62,19 +63,21 @@ export default function JcData({ user, onSignOut, onAuthExpired, theme, onToggle
       .filter((g) => g.jamaats.length);
   }, [groups, jamiat, jamaat, query]);
   const total = groups.reduce((n, g) => n + g.jamaats.reduce((m, x) => m + x.rows.length, 0), 0);
-  const shownRows = shown.reduce((n, g) => n + g.jamaats.reduce((m, x) => m + x.rows.length, 0), 0);
+  // One table like the Excel: rows in the file's order.
+  const flat = useMemo(() => shown.flatMap((g) => g.jamaats.flatMap((m) => m.rows.map((r) => ({ ...r, jamaatName: m.name })))).sort((a, b) => a.order - b.order), [shown]);
+  const shownRows = flat.length;
 
   // How many cells have each choice (in the rows shown).
   const counts = useMemo(() => {
     const out = {};
     if (!data) return out;
     const drop = cols.filter((c) => c.dropdown);
-    for (const g of shown) for (const m of g.jamaats) for (const r of m.rows) for (const c of drop) {
+    for (const r of flat) for (const c of drop) {
       const v = r.cells[c.i] || "";
       out[v] = (out[v] || 0) + 1;
     }
     return out;
-  }, [shown, cols, data]);
+  }, [flat, cols, data]);
 
   const setCell = (rowId, i, value) => setData((d) => ({
     ...d,
@@ -182,45 +185,37 @@ export default function JcData({ user, onSignOut, onAuthExpired, theme, onToggle
 
             <p className="data-count muted">{shownRows === total ? plural(total, "row") : `${shownRows} of ${plural(total, "row")}`}</p>
 
-            {!shown.length && <div className="panel portal-empty">Nothing matches the filters.</div>}
-            {shown.map((g) => (
-              <section key={g.id} className="panel data-group">
-                <div className="data-group-head">
-                  <h2>{g.name}</h2>
-                  <span className="muted">{plural(g.jamaats.length, "Jamaat")} · {plural(g.jamaats.reduce((n, m) => n + m.rows.length, 0), "row")}</span>
-                </div>
+            {!flat.length ? <div className="panel portal-empty">Nothing matches the filters.</div> : (
+              <section className="panel data-sheet">
                 <div className="data-scroll">
                   <table className="data-table">
                     <thead>
                       <tr>{cols.map((c) => <th key={c.i} className={c.dropdown ? "is-drop" : ""}>{c.name}</th>)}</tr>
                     </thead>
-                    {g.jamaats.map((m) => (
-                      <tbody key={m.id}>
-                        <tr className="data-jamaat"><th colSpan={cols.length}>{m.name} <span className="muted">· {plural(m.rows.length, "row")}</span></th></tr>
-                        {m.rows.map((r) => (
-                          <tr key={r.id}>
-                            {cols.map((c) => {
-                              const v = r.cells[c.i] || "";
-                              if (!c.dropdown) return <td key={c.i}>{v}</td>;
-                              const busy = saving[`${r.id}:${c.i}`];
-                              return (
-                                <td key={c.i} className="is-drop">
-                                  <select className={`dsel${v ? " has" : ""}${busy ? " is-saving" : ""}`} value={v} style={choiceStyle(data.palette, choices, v)}
-                                    aria-label={`${c.name} for ${m.name}`} onChange={(e) => change(r, c.i, e.target.value)}>
-                                    <option value="">Not set</option>
-                                    {choices.map((ch) => <option key={ch.id} value={ch.value}>{ch.value}</option>)}
-                                  </select>
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    ))}
+                    <tbody>
+                      {flat.map((r) => (
+                        <tr key={r.id}>
+                          {cols.map((c) => {
+                            const v = r.cells[c.i] || "";
+                            if (!c.dropdown) return <td key={c.i}>{v}</td>;
+                            const busy = saving[`${r.id}:${c.i}`];
+                            return (
+                              <td key={c.i} className="is-drop">
+                                <select className={`dsel${v ? " has" : ""}${busy ? " is-saving" : ""}`} value={v} style={choiceStyle(data.palette, choices, v)}
+                                  aria-label={`${c.name} for ${r.jamaatName}`} onChange={(e) => change(r, c.i, e.target.value)}>
+                                  <option value="">Not set</option>
+                                  {choices.map((ch) => <option key={ch.id} value={ch.value}>{ch.value}</option>)}
+                                </select>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
                   </table>
                 </div>
               </section>
-            ))}
+            )}
           </>
         )}
       </main>
