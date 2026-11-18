@@ -26,6 +26,19 @@ function cleanIntent(raw) {
   if (r.level === "jamiat" || r.level === "jamaat") out.level = r.level;
   if (r.submitted === true || r.submitted === false) out.submitted = r.submitted;
   if (["jc", "saheb", "superadmin"].includes(r.role_filter)) out.role_filter = r.role_filter;
+  // users intent: which details, filters, order, how many
+  if (Array.isArray(r.fields)) {
+    const f = [...new Set(r.fields.map((x) => String(x).toLowerCase().replace(/^gmail$|^mail$/, "email").replace(/^stars?$|^ratings$/, "rating")))]
+      .filter((x) => ["name", "email", "role", "active", "jamiats", "jamaats", "metrics", "rating"].includes(x));
+    if (f.length) out.fields = f;
+  }
+  if (r.metrics === "none" || r.metrics === "some") out.metrics = r.metrics;
+  const mt = str(r.metric); if (mt) out.metric = mt;
+  if (r.assigned_all === true) out.assigned_all = true;
+  if (r.unrated === true) out.unrated = true;
+  for (const k of ["stars_min", "stars_max"]) { const n = Number(r[k]); if (Number.isInteger(n) && n >= 1 && n <= 5) out[k] = n; }
+  if (["metrics_desc", "metrics_asc", "rating_desc", "rating_asc"].includes(r.sort)) out.sort = r.sort;
+  { const n = Number(r.limit); if (Number.isInteger(n) && n >= 1 && n <= 100) out.limit = n; }
   const c = str(r.clarify, 300);
   if (c && intent === "unclear") out.clarify = c;
   return out;
@@ -86,9 +99,9 @@ OUTPUT: only a JSON object with these keys (omit keys that don't apply):
    "submission" (which Jamaats/Jamiats submitted or not the monthly form, no specific question),
    "jamaat_detail" (all answers of one Jamaat, e.g. "show dhar's form", "what did dhar answer"),
    "masters" (Jamiats, Jamaats in a Jamiat, a Jamaat's Mauze Type / House Count, how many Jamaats),
-   "questions" (what questions / activities / answer options exist),
+   "questions" (what questions / activities / answer options exist; with "question" when one is named, e.g. "which are the activities in Tibb" -> {"intent":"questions","question":"tibb"}),
    "comments" (comments or remarks written by JCs),
-   "users" (who the users / JCs are, who is assigned to a Jamaat or Jamiat, which Jamaats a person has),
+   "users" (about the JCs / users: who they are, who is assigned to a Jamiat or Jamaat, their Gmail, their metrics, their star rating),
    "help" (what can you do), "greeting" (hello/salaam/thanks only),
    "off_topic" (anything not about this software's data: general knowledge, weather, news, maths, coding, jokes, advice, other websites),
    "unclear" (about this data but too vague; then add "clarify": a short question back),
@@ -100,8 +113,16 @@ OUTPUT: only a JSON object with these keys (omit keys that don't apply):
  "submitted": true (submitted/filled the form) or false (not submitted),
  "month": "YYYY-MM" Hijri month if they name one (year defaults to the latest one not after ${cat.month}), or
  "english_date": "YYYY-MM-15" if they name an English month (e.g. November 2026),
- "person": a user's name or Gmail (users intent), "role_filter": "jc" | "saheb" | "superadmin" (users intent)}
-Use earlier turns to fill in what a follow-up leaves out (e.g. "and in Barwani?" keeps the previous question and status).
+ "person": a user's name or Gmail (users intent), "role_filter": "jc" | "saheb" | "superadmin" (users intent)${cat.role === "jc" ? "" : `,
+ users intent only:
+ "fields": ONLY the details the user asked to see, from ["name","email","role","active","jamiats","jamaats","metrics","rating"] ("Gmail"/"mail" = email; "just the name", "only names" -> ["name"]); omit when they don't say,
+ "metrics": "none" (JCs with zero / no metrics) | "some" (JCs who added metrics), "metric": text of a metric (work a JC handles, e.g. "IT"),
+ "assigned_all": true (assigned all / every Jamiat),
+ "stars_min"/"stars_max": 1-5 (star rating), "unrated": true (not rated yet),
+ "sort": "metrics_desc" | "metrics_asc" | "rating_desc" | "rating_asc", "limit": how many (e.g. "the JC with the most metrics" -> sort metrics_desc, limit 1; "top 3 rated" -> rating_desc, limit 3)`}}
+${cat.role === "jc" ? "" : `JC "metrics" = permanent work a JC handles (entered by the JC); "rating" = the Super Admin's 1-5 star rating of a JC.
+Users examples: "Name of JC who has zero metrics" -> {"intent":"users","role_filter":"jc","metrics":"none","fields":["name"]}; "Just give me the email of JC who has been assigned all the jamiats" -> {"intent":"users","role_filter":"jc","assigned_all":true,"fields":["email"]}; "Who all has been assigned the Mumbai Jamiat?" -> {"intent":"users","role_filter":"jc","jamiat":"Mumbai"}; "Which JC has the most metrics?" -> {"intent":"users","role_filter":"jc","sort":"metrics_desc","limit":1}; "Which JCs handle IT?" -> {"intent":"users","role_filter":"jc","metric":"IT"}; "JCs rated 4 stars or more" -> {"intent":"users","role_filter":"jc","stars_min":4}.
+`}Use earlier turns to fill in what a follow-up leaves out (e.g. "and in Barwani?" keeps the previous question and status).
 "filled"/"updated"/"entered" a question (e.g. "which jamiat has filled tibb") -> "list" with status "answered".
 A question about Jamaats, Jamiats, the form, answers, activities, comments or users is NEVER off_topic, even when a name or activity is not in the lists above (the user may misspell it, or it may not exist, or this person may not have access): copy the name as written into "jamiat"/"jamaat"/"activity" and the software will reply. E.g. "which jamaats have yoga done" -> {"intent":"list","question":"tibb","activity":"yoga","status":"done"}; "show the answers of Surat" -> {"intent":"jamaat_detail","jamaat":"Surat"}; "how many jamaats in Pune" -> {"intent":"masters","jamiat":"Pune"}.
 Only questions about something else (general knowledge, weather, news, maths, coding, jokes, advice) are "off_topic", even if they mention health or a city.`;
@@ -214,8 +235,20 @@ function basicIntent(cat, message, history) {
   // Only a place name: about the place's data only when nothing points elsewhere ("weather in Mumbai" is not).
   if (!dataWords && (out.jamiat || out.jamaat) && has(t, OFF_WORDS)) return { intent: "off_topic" };
   if (!dataWords && !out.jamiat && !out.jamaat) return { intent: "off_topic" };
-  if (has(t, ["user", "users", "jc", "jcs", "who is", "assigned", "saheb", "admin"]) && !out.question) {
-    return cleanIntent({ intent: "users", jamiat: out.jamiat, jamaat: out.jamaat, role_filter: has(t, ["jc", "jcs"]) ? "jc" : undefined });
+  if (has(t, ["user", "users", "jc", "jcs", "who is", "assigned", "saheb", "admin", "metric", "metrics", "rating", "rated", "stars"]) && !out.question) {
+    const u = { intent: "users", jamiat: out.jamiat, jamaat: out.jamaat, role_filter: has(t, ["jc", "jcs", "metric", "metrics", "rating", "rated"]) ? "jc" : undefined };
+    if (/(zero|no|without|0) metrics?/.test(t) || /(not|haven t|hasn t) added (any )?metrics?/.test(t)) u.metrics = "none";
+    else if (/(most|highest|maximum|max) metrics?/.test(t)) { u.sort = "metrics_desc"; u.limit = 1; }
+    else if (/(least|fewest|lowest|minimum|min) metrics?/.test(t)) { u.sort = "metrics_asc"; u.limit = 1; }
+    if (/(all|every) (the )?jamiats?/.test(t)) u.assigned_all = true;
+    if (/not rated|unrated|no rating/.test(t)) u.unrated = true;
+    else if (/(highest|best|top) rated|most stars/.test(t)) { u.sort = "rating_desc"; u.limit = 1; }
+    else if (/(lowest|worst|least) rated|fewest stars/.test(t)) { u.sort = "rating_asc"; u.limit = 1; }
+    const f = [];
+    if (/(only|just) (the )?names?|names? only/.test(t) || /^names? of/.test(t)) f.push("name");
+    if (/(e ?mail|gmail|mail)/.test(t)) f.push("email");
+    if (f.length) u.fields = f;
+    return cleanIntent(u);
   }
   if (has(t, ["comment", "comments", "remark", "remarks"])) return cleanIntent({ ...out, intent: "comments" });
   // "jamaats in <a name we don't know>": let the engine say it isn't found (instead of listing everything).
@@ -224,7 +257,7 @@ function basicIntent(cat, message, history) {
   if (has(t, ["mauze", "house", "houses", "house count"]) || (has(t, ["how many", "list", "which"]) && has(t, ["jamaats in", "jamaats are in", "jamaats does", "jamaats has"]) && !out.question && !out.status)) {
     return cleanIntent({ ...out, intent: "masters" });
   }
-  if (!out.question && has(t, ["questions", "options", "activities", "what activities"])) return { intent: "questions" };
+  if (has(t, ["questions", "options", "activities", "what activities"]) && !out.status && !out.jamiat && !out.jamaat) return cleanIntent({ intent: "questions", question: out.question });
   if (!out.question && (has(t, ["submitted", "submit", "filled", "fill", "form", "forms"]) || out.status === "answered" || out.status === "not_answered")) {
     const not = has(t, ["not", "not yet", "pending", "remaining", "haven t", "hasn t", "didn t", "missing", "left"]);
     return cleanIntent({ ...out, intent: "submission", status: undefined, submitted: !not });

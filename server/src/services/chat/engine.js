@@ -4,11 +4,14 @@
 // Who sees what (checked here, never left to the AI):
 //   JC          -> only the Jamaats assigned to them (and only inside their assigned Jamiats)
 //   Saheb       -> every active Jamiat / Jamaat
-//   Super Admin -> everything, plus users and their assignments
+//   Super Admin -> everything, plus users and their assignments, JC metrics and star ratings
+//   (The Saheb also gets JC names, Jamiats, metrics and ratings - what their JC Metrics tab shows.)
 const User = require("../../models/User");
 const Entry = require("../../models/Entry");
 const Jamaat = require("../../models/Jamaat");
 const Jamiat = require("../../models/Jamiat");
+const JcMetric = require("../../models/JcMetric");
+const JcRating = require("../../models/JcRating");
 const { activeMasters } = require("../data");
 const { activeFields, formFields } = require("../fields");
 const { notDeleted } = require("../../lib/softDelete");
@@ -441,7 +444,19 @@ function masters(scope, intent) {
 }
 
 // The questions, their answers and this month's activities.
-function questions(scope) {
+function questions(scope, intent = {}) {
+  // One question named ("which are the activities in Tibb?"): just that question.
+  if (intent.question || intent.activity) {
+    const q = resolveQuestion(scope, { question: intent.question || null, activity: intent.question ? null : intent.activity }, { needed: true });
+    if (q.error && !q.parent) return [text(q.error)];
+    const p = q.parent;
+    const answers = p.type === "date" ? "a date" : p.options.map((o) => o.value).join(", ");
+    if (!p.hasActivities) return [text(`**${p.label}** has no monthly activities. Its answers are: ${answers}.`)];
+    const acts = scope.fields.filter((f) => f.parentKey === p.key).map((f) => f.activity.name);
+    if (!acts.length) return [text(`No activities have been added under **${p.label}** for ${monthText(scope.month)} yet.`)];
+    return [text(`**${p.label}** has ${plural(acts.length, "activity", "activities")} in ${monthText(scope.month)}: ${acts.join(", ")}.`),
+      text(`Each activity is answered with: ${answers}.`)];
+  }
   const rows = [];
   for (const p of scope.parents) {
     const answers = p.type === "date" ? "A date" : p.options.map((o) => o.value).join(", ");
@@ -473,46 +488,169 @@ function comments(scope, intent) {
   return [text(`${head}: ${plural(rows.length, "comment")}.`), table(["Jamaat", "Jamiat", "Question", "Comment"], rows)];
 }
 
-// Users and who is assigned where (Super Admin only).
+// Users / JCs: filters, sort, top-N and only the details asked for.
+//   Super Admin: everyone, every detail. Saheb: JCs only, and only what the JC Metrics tab shows them
+//   (name, Jamiats, metrics, star rating; no Gmail / Jamaat lists). JCs: nothing (and never ratings).
+const USER_FIELDS = ["name", "email", "role", "active", "jamiats", "jamaats", "metrics", "rating"];
+const FIELD_HEAD = { name: "Name", email: "Gmail", role: "Role", active: "Active", jamiats: "Jamiats", jamaats: "Jamaats", metrics: "Metrics", rating: "Star rating" };
+const SAHEB_FIELDS = ["name", "jamiats", "metrics", "rating"];
+const stars = (n) => (n ? `${"★".repeat(n)}${"☆".repeat(5 - n)} (${n})` : "Not rated");
+
 async function users(scope, intent, user) {
-  if (user.role !== "superadmin") return [text("User and assignment details are only available to the Super Admin.")];
-  const all = await User.find({ ...notDeleted() }).select("name email username role isActive jamiats jamaats").lean();
-  const [jts, jms] = await Promise.all([Jamiat.find(notDeleted()).select("name").lean(), Jamaat.find(notDeleted()).select("name jamiat").lean()]);
+  const admin = user.role === "superadmin";
+  if (!admin && user.role !== "saheb") return [text("Details about JCs and users are only available to the Saheb and the Super Admin.")];
+  const [all, jts, jms, metrics, ratings] = await Promise.all([
+    User.find({ ...notDeleted(), ...(admin ? {} : { role: "jc", isActive: true }) }).select("name email username role isActive jamiats jamaats").lean(),
+    Jamiat.find(notDeleted()).select("name").lean(),
+    Jamaat.find(notDeleted()).select("name jamiat").lean(),
+    JcMetric.find({}).sort({ createdAt: 1 }).select("user text").lean(),
+    JcRating.find({}).select("user stars").lean(),
+  ]);
   const jtName = new Map(jts.map((j) => [String(j._id), j.name]));
   const jmName = new Map(jms.map((j) => [String(j._id), j.name]));
-  let list = all;
-  const role = ["jc", "saheb", "superadmin"].includes(intent.role_filter) ? intent.role_filter : null;
-  if (role) list = list.filter((u) => u.role === role);
-  let title = role ? `${ROLE_TEXT[role]}s` : "Everyone who can sign in";
+  const metricsOf = new Map();
+  for (const m of metrics) { const k = String(m.user); if (!metricsOf.has(k)) metricsOf.set(k, []); metricsOf.get(k).push(m.text); }
+  const starsOf = new Map(ratings.map((r) => [String(r.user), r.stars]));
+  const people = all.map((u) => {
+    const id = String(u._id);
+    const isJc = u.role === "jc";
+    return {
+      u, id, isJc,
+      name: u.name || (admin ? u.email || u.username || "—" : "JC (no name set)"),
+      jamiatIds: (u.jamiats || []).map(String),
+      jamaatIds: (u.jamaats || []).map(String),
+      metrics: isJc ? metricsOf.get(id) || [] : [],
+      stars: isJc ? starsOf.get(id) || null : null,
+    };
+  });
+
+  // ---- filters ----
+  let list = people;
+  const what = [];
+  const role = !admin ? "jc" : ["jc", "saheb", "superadmin"].includes(intent.role_filter) ? intent.role_filter : null;
+  const jcOnly = () => { if (!role || role === "jc") list = list.filter((p) => p.isJc); };
+  if (role) list = list.filter((p) => p.u.role === role);
   if (intent.person) {
-    const hit = matchName(intent.person, list, (u) => `${u.name || ""} ${u.email || u.username || ""}`)
-      .concat(list.filter((u) => norm(u.email).startsWith(norm(intent.person))));
+    const hit = matchName(intent.person, list, (p) => `${p.u.name || ""} ${admin ? p.u.email || p.u.username || "" : ""}`)
+      .concat(admin ? list.filter((p) => norm(p.u.email).startsWith(norm(intent.person))) : []);
     list = [...new Set(hit)];
-    title = `Users matching “${intent.person}”`;
+    what.push(`matching “${intent.person}”`);
   }
   if (intent.jamaat || intent.jamiat) {
     const places = pickPlaces({ ...scope, role: "superadmin" }, intent);
     if (places.error) return [text(places.error)];
-    const ids = new Set(places.pool.map((x) => x.id));
-    const jtIds = new Set(places.pool.map((x) => x.jamiatId));
-    list = list.filter((u) => u.role === "jc" && (u.jamaats || []).some((id) => ids.has(String(id))) && (u.jamiats || []).some((id) => jtIds.has(String(id))));
-    title = `JCs assigned to ${places.label}`;
+    jcOnly();
+    if (places.one) {
+      list = list.filter((p) => p.jamaatIds.includes(places.one.id) && p.jamiatIds.includes(places.one.jamiatId));
+    } else {
+      const jtIds = new Set(places.pool.map((x) => x.jamiatId));
+      list = list.filter((p) => p.jamiatIds.some((id) => jtIds.has(id)));
+    }
+    what.push(`assigned ${places.label}`);
   }
-  if (!list.length) return [text(`${title}: nobody found.`)];
-  const names = (ids, map) => {
-    const n = (ids || []).map((id) => map.get(String(id))).filter(Boolean);
-    return n.length > 4 ? `${n.slice(0, 4).join(", ")} +${n.length - 4} more` : n.join(", ");
+  if (intent.assigned_all) {
+    jcOnly();
+    const every = jts.map((j) => String(j._id));
+    list = list.filter((p) => every.every((id) => p.jamiatIds.includes(id)));
+    what.push(`assigned every Jamiat (${every.length})`);
+  }
+  if (intent.metrics === "none" || intent.metrics === "some") {
+    jcOnly();
+    list = list.filter((p) => (intent.metrics === "none" ? !p.metrics.length : p.metrics.length > 0));
+    what.push(intent.metrics === "none" ? "with no metrics" : "with metrics");
+  }
+  if (intent.metric) {
+    jcOnly();
+    const q = norm(intent.metric);
+    list = list.filter((p) => p.metrics.some((m) => { const n = norm(m); return n === q || (` ${n} `).includes(` ${q} `) || (q.length >= 4 && n.includes(q)); }));
+    what.push(`handling “${intent.metric}”`);
+  }
+  if (intent.unrated) { jcOnly(); list = list.filter((p) => !p.stars); what.push("not rated yet"); }
+  if (intent.stars_min || intent.stars_max) {
+    jcOnly();
+    const lo = intent.stars_min || 1, hi = intent.stars_max || 5;
+    list = list.filter((p) => p.stars && p.stars >= lo && p.stars <= hi);
+    what.push(lo === hi ? `rated ${lo} star${lo > 1 ? "s" : ""}` : `rated ${lo}–${hi} stars`);
+  }
+
+  // ---- sort / top N ----
+  const byName = (x, y) => x.name.localeCompare(y.name);
+  const SORTS = {
+    metrics_desc: [(x, y) => y.metrics.length - x.metrics.length || byName(x, y), "most metrics first", "with the most metrics"],
+    metrics_asc: [(x, y) => x.metrics.length - y.metrics.length || byName(x, y), "fewest metrics first", "with the fewest metrics"],
+    rating_desc: [(x, y) => (y.stars || 0) - (x.stars || 0) || byName(x, y), "highest rated first", "with the highest rating"],
+    rating_asc: [(x, y) => (x.stars || 6) - (y.stars || 6) || byName(x, y), "lowest rated first", "with the lowest rating"],
   };
-  return [text(`**${title}**: ${list.length}.`), table(["Name", "Gmail", "Role", "Active", "Jamiats", "Jamaats"],
-    list.map((u) => [u.name || "—", u.email || u.username || "—", ROLE_TEXT[u.role] || u.role, u.isActive === false ? "No" : "Yes",
-      u.role === "jc" ? names(u.jamiats, jtName) || "—" : "All", u.role === "jc" ? `${(u.jamaats || []).length}${(u.jamaats || []).length ? `: ${names(u.jamaats, jmName)}` : ""}` : "All"]))];
+  const sort = SORTS[intent.sort];
+  if (sort) { jcOnly(); list = [...list].sort(sort[0]); } else list = [...list].sort(byName);
+  // Ties at the cut: "the JC with the most metrics" keeps everyone level with the last one shown.
+  let limited = false;
+  if (intent.limit && list.length > intent.limit) {
+    const key = intent.sort && intent.sort.startsWith("rating") ? (p) => p.stars || 0 : (p) => p.metrics.length;
+    const edge = sort ? key(list[intent.limit - 1]) : null;
+    list = list.filter((p, i) => i < intent.limit || (sort && key(p) === edge));
+    limited = true;
+  }
+
+  // ---- which details ----
+  const allowed = admin ? USER_FIELDS : SAHEB_FIELDS;
+  const hidden = (intent.fields || []).filter((f) => !allowed.includes(f));
+  const hiddenNote = hidden.length ? text(`${hidden.map((f) => FIELD_HEAD[f]).join(", ")} ${hidden.length > 1 ? "are" : "is"} only shown to the Super Admin.`) : null;
+  let fields = (intent.fields || []).filter((f) => allowed.includes(f));
+  const asked = fields.length > 0;
+  if (!asked) {
+    fields = ["name"];
+    if (admin && !intent.person) fields.push("email");
+    if (admin && !role) fields.push("role");
+    if (intent.person) fields.push(...(admin ? ["email", "role", "active", "jamiats", "jamaats"] : ["jamiats"]), "metrics", "rating");
+    if (intent.jamiat || intent.jamaat || intent.assigned_all) fields.push("jamiats");
+    if (intent.metrics || intent.metric || (intent.sort || "").startsWith("metrics")) fields.push("metrics");
+    if (intent.unrated || intent.stars_min || intent.stars_max || (intent.sort || "").startsWith("rating")) fields.push("rating");
+    if (fields.length === 1 && admin) fields.push("email");
+  }
+  fields = USER_FIELDS.filter((f) => fields.includes(f) && allowed.includes(f));
+  const short = (ids, map, n = 4) => {
+    const names = ids.map((id) => map.get(id)).filter(Boolean).sort();
+    return names.length > n ? `${names.slice(0, n).join(", ")} +${names.length - n} more` : names.join(", ");
+  };
+  const cell = (p, f) => {
+    const u = p.u;
+    switch (f) {
+      case "name": return u.name || (fields.includes("email") ? "(no name set)" : p.name);
+      case "email": return u.email || u.username || "—";
+      case "role": return ROLE_TEXT[u.role] || u.role;
+      case "active": return u.isActive === false ? "No" : "Yes";
+      case "jamiats": return p.isJc ? short(p.jamiatIds, jtName) || "—" : "All";
+      case "jamaats": return p.isJc ? `${p.jamaatIds.length}${p.jamaatIds.length ? `: ${short(p.jamaatIds, jmName)}` : ""}` : "All";
+      case "metrics": return p.isJc ? (p.metrics.length ? `${p.metrics.length}: ${p.metrics.join(", ")}` : "0") : "—";
+      case "rating": return p.isJc ? stars(p.stars) : "—";
+      default: return "";
+    }
+  };
+
+  const who = role === "jc" || (!role && list.every((p) => p.isJc) && what.length) ? "JCs" : role ? `${ROLE_TEXT[role]}s` : "Users";
+  const filters = what.length ? ` ${what.join(", ")}` : "";
+  // "JC with the most metrics", "Top 3 JCs with the highest rating", else "JCs … (most metrics first)".
+  const title = limited && sort
+    ? (list.length === 1 ? `${who.replace(/s$/, "")}${filters} ${sort[2]}` : `${list.length > intent.limit ? `${who}${filters} ${sort[2]} (tied)` : `Top ${list.length} ${who}${filters} ${sort[2]}`}`)
+    : `${who}${filters}${sort ? ` (${sort[1]})` : ""}`;
+  if (!list.length) return [hiddenNote, text(`**${title}**: nobody.`)].filter(Boolean);
+  const count = String(list.length);
+  // One detail asked for: a plain answer, not a table.
+  if (asked && fields.length === 1) {
+    const vals = list.map((p) => cell(p, fields[0]));
+    if (vals.length === 1) return [hiddenNote, text(`**${title}**: ${vals[0]}`)].filter(Boolean);
+    return [hiddenNote, text(`**${title}** (${count}):`), table([FIELD_HEAD[fields[0]]], vals.map((v) => [v]))].filter(Boolean);
+  }
+  return [hiddenNote, text(limited && sort ? `**${title}**:` : `**${title}**: ${count}.`), table(fields.map((f) => FIELD_HEAD[f]), list.map((p) => fields.map((f) => cell(p, f))))].filter(Boolean);
 }
 
 function help(scope) {
   const ex = scope.role === "jc"
     ? ["Which of my Jamaats have not submitted the form?", "Which Jamaats have Injection completed?", "Show the answers of <your Jamaat>", "How many Jamaats are pending for Tibb?"]
     : ["Which Jamiats have filled Tibb?", "Which Jamaats in Barwani have Injection done?", "How many Jamaats submitted the form this month?", "Show the comments on Tibb"];
-  if (scope.role === "superadmin") ex.push("Who is the JC of Dhar?");
+  if (scope.role === "superadmin") ex.push("Who is the JC of Dhar?", "Just the Gmail of the JC assigned every Jamiat");
+  if (scope.role !== "jc") ex.push("Names of JCs with no metrics", "Which JC has the most metrics?");
   return [text(`I answer questions about the JC form data you can see${scope.role === "jc" ? " (only your assigned Jamaats)" : ""}: answers, activities and their dates, submitted forms, comments, Jamiats and Jamaats, and any month from the last 3 years. For example:`),
     { type: "examples", items: ex }];
 }
@@ -538,14 +676,14 @@ async function runIntent(user, intent) {
     kind = "submission";
   }
   // A question name only matters for these; elsewhere a made-up one ("submission") is dropped, not an error.
-  if (intent.question && ["submission", "masters", "users", "help", "questions"].includes(kind)) intent = { ...intent, question: undefined };
+  if (intent.question && ["submission", "masters", "users", "help"].includes(kind)) intent = { ...intent, question: undefined };
   switch (kind) {
     case "list": return listByStatus(scope, intent);
     case "count": return countByStatus(scope, intent);
     case "submission": return submissions(scope, intent);
     case "jamaat_detail": return jamaatAnswers(scope, intent);
     case "masters": return masters(scope, intent);
-    case "questions": return questions(scope);
+    case "questions": return questions(scope, intent);
     case "comments": return comments(scope, intent);
     case "users": return users(scope, intent, user);
     case "help": return help(scope);
