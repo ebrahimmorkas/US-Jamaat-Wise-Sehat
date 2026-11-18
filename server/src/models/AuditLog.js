@@ -33,6 +33,8 @@ const ACTIONS = [
   "metric_added",         // a JC added a metric (permanent work they handle)
   "metric_updated",       // a JC changed a metric
   "metric_deleted",       // a JC removed a metric
+  "stats_uploaded",       // the Super Admin uploaded a Stats image
+  "stats_deleted",        // the Super Admin removed a Stats image
   "jc_rated",             // the Super Admin set / changed / cleared a JC's star rating
   // data changes (audit trail)
   "user_created",

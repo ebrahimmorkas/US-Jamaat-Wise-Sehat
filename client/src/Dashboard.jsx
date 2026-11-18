@@ -6,7 +6,7 @@ import MetricCard from "./components/MetricCard";
 import SidePanel from "./components/SidePanel";
 import ListDialog from "./components/ListDialog";
 import CommentsDialog from "./components/CommentsDialog";
-import { BriefcaseIcon, CommentIcon, GridIcon } from "./components/Icons";
+import { BriefcaseIcon, CommentIcon, GridIcon, ImageIcon } from "./components/Icons";
 import Skeleton from "./components/Skeleton";
 import { useDashboardData } from "./hooks/useDashboardData";
 import { useRealtimeStatus } from "./hooks/useRealtime";
@@ -19,6 +19,7 @@ import { dashboardComments, logEvent } from "./lib/api";
 export const SAHEB_NAV = [
   { to: "/", label: "Dashboard", icon: <GridIcon /> },
   { to: "/jc-metrics", label: "JC Metrics", icon: <BriefcaseIcon /> },
+  { to: "/stats", label: "Stats", icon: <ImageIcon /> },
 ];
 
 export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onToggleTheme }) {

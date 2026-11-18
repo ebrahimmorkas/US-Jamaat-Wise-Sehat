@@ -21,7 +21,7 @@ export default function AppBar({ title = "Umoor Sehhat", subtitle = "Monthly Coo
             <div className="brand-sub">{subtitle}</div>
           </div>
           {nav && nav.length > 0 && (
-            <nav className="app-nav" aria-label="Pages">
+            <nav className={`app-nav${nav.length > 5 ? " is-long" : ""}`} aria-label="Pages">
               {nav.map((n) => (
                 <Link key={n.to} to={n.to} className={page === n.to ? "is-current" : ""} aria-current={page === n.to ? "page" : undefined}
                   onClick={(e) => {

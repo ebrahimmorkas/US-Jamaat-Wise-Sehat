@@ -3,13 +3,14 @@ import AppBar from "./components/AppBar";
 import Notice from "./components/Notice";
 import MonthYearPicker from "./components/MonthYearPicker";
 import CommentsDialog from "./components/CommentsDialog";
-import { BuildingIcon, CheckIcon, ClockIcon, CommentIcon, FormIcon, GridIcon, PencilIcon, TableIcon, BriefcaseIcon } from "./components/Icons";
+import { BuildingIcon, CheckIcon, ClockIcon, CommentIcon, FormIcon, GridIcon, PencilIcon, TableIcon, BriefcaseIcon, ImageIcon } from "./components/Icons";
 import { AuthError, isServerStarting, portalComments, portalSummary } from "./lib/api";
 import { useRealtime, useRealtimeStatus } from "./hooks/useRealtime";
 import { navigate } from "./lib/router";
 import { pct, plural, same } from "./lib/helpers";
 
 export const JC_NAV = [
+  { to: "/jc-portal/stats", label: "Stats", icon: <ImageIcon /> },
   { to: "/jc-portal", label: "Dashboard", icon: <GridIcon /> },
   { to: "/jc-portal/form", label: "Fill form", icon: <PencilIcon /> },
   { to: "/jc-portal/data", label: "Data", icon: <TableIcon /> },

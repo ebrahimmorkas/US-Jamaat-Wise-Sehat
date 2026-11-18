@@ -34,3 +34,4 @@ export const TableIcon = () => <Svg><P d="M3 4h18a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1
 export const DownloadIcon = () => <Svg><P d="M11 3h2v9.2l3.3-3.3 1.4 1.4L12 16l-5.7-5.7 1.4-1.4 3.3 3.3V3zM4 18h16v2H4v-2z" /></Svg>;
 export const UploadIcon = () => <Svg><P d="M11 16h2V6.8l3.3 3.3 1.4-1.4L12 3 6.3 8.7l1.4 1.4L11 6.8V16zM4 18h16v2H4v-2z" /></Svg>;
 export const BriefcaseIcon = () => <Svg><P d="M9 3h6a2 2 0 0 1 2 2v2h3a2 2 0 0 1 2 2v4h-8v-1h-4v1H2V9a2 2 0 0 1 2-2h3V5a2 2 0 0 1 2-2zm0 4h6V5H9v2zM2 15h8v2h4v-2h8v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-4z" /></Svg>;
+export const ImageIcon = () => <Svg><P d="M4 3h16a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm0 2v10.6l4.3-4.3a1 1 0 0 1 1.4 0l3.3 3.3 2.3-2.3a1 1 0 0 1 1.4 0L20 15.6V5H4zm11.5 1.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4z" /></Svg>;

@@ -6,6 +6,8 @@ import JcDashboard from "./JcDashboard";
 import JcData from "./JcData";
 import JcMetrics from "./JcMetrics";
 import SahebMetrics from "./SahebMetrics";
+import SahebStats from "./SahebStats";
+import JcStats from "./JcStats";
 import ErrorPage from "./ErrorPage";
 import AccessDenied from "./AccessDenied";
 import LoginPage from "./components/LoginPage";
@@ -19,7 +21,7 @@ import { reportClientError } from "./lib/api";
 
 // Everyone signs in with Google; each role has its own home:
 //   Saheb -> "/" (dashboard)   Super Admin -> "/admin/..."   JC -> "/jc-portal" (their dashboard) + "/jc-portal/form"
-const homeOf = (role) => ({ superadmin: "/admin/users", jc: "/jc-portal" }[role] || "/");
+const homeOf = (role) => ({ superadmin: "/admin/users", jc: "/jc-portal/stats" }[role] || "/"); // JC: Stats first
 const isJcPage = (path) => path === "/jc-portal" || path.startsWith("/jc-portal/");
 const belongsTo = (role, path) =>
   role === "superadmin" ? path.startsWith("/admin/") : role === "jc" ? isJcPage(path) : !path.startsWith("/admin") && !isJcPage(path);
@@ -89,7 +91,10 @@ function Main({ path, theme, onToggleTheme }) {
 
   // Any other address that isn't this role's -> their own home (no message).
   useEffect(() => {
-    if (role && !denied && !belongsTo(role, path)) window.history.replaceState(null, "", homeOf(role));
+    if (role && !denied && !belongsTo(role, path)) {
+      window.history.replaceState(null, "", homeOf(role));
+      window.dispatchEvent(new PopStateEvent("popstate")); // show the home page, not just change the address
+    }
   }, [role, path, denied]);
 
   if (auth.status === "checking") {
@@ -121,8 +126,11 @@ function Main({ path, theme, onToggleTheme }) {
     page = path === "/jc-portal/form" ? <JcPortal key={auth.user.id} {...common} />
       : path === "/jc-portal/data" ? <JcData key={auth.user.id} {...common} />
       : path === "/jc-portal/metrics" ? <JcMetrics key={auth.user.id} {...common} />
+      : path === "/jc-portal/stats" ? <JcStats key={auth.user.id} {...common} />
       : <JcDashboard key={auth.user.id} {...common} />;
-  } else page = path === "/jc-metrics" ? <SahebMetrics key={auth.user.id} {...common} /> : <Dashboard key={auth.user.id} {...common} />;
+  } else page = path === "/jc-metrics" ? <SahebMetrics key={auth.user.id} {...common} />
+    : path === "/stats" ? <SahebStats key={auth.user.id} {...common} />
+    : <Dashboard key={auth.user.id} {...common} />;
   return (
     <>
       {page}

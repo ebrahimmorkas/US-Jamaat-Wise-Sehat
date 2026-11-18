@@ -24,6 +24,7 @@ const realtimeRoutes = require("./routes/realtime");
 const chatRoutes = require("./routes/chat");
 const dataRoutes = require("./routes/data");
 const metricsRoutes = require("./routes/metrics");
+const statsRoutes = require("./routes/stats");
 const { notifyOnSuccess } = require("./realtime");
 const { TOPICS, EVENTS } = require("./realtime/topics");
 
@@ -47,7 +48,7 @@ app.use(
         scriptSrc: ["'self'", "https://accounts.google.com/gsi/client"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://accounts.google.com/gsi/style"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
-        imgSrc: ["'self'", "data:", "https://*.googleusercontent.com"],
+        imgSrc: ["'self'", "data:", "blob:", "https://*.googleusercontent.com"], // blob: = Stats images
         connectSrc: ["'self'", "https://accounts.google.com/gsi/", ...realtimeOrigins],
         frameSrc: ["https://accounts.google.com/gsi/"],
         frameAncestors: ["'none'"], // nobody may show this site inside a frame (clickjacking)
@@ -76,6 +77,7 @@ app.use("/api/audit", auditRoutes);
 app.use("/api/logs", logsRoutes);
 app.use("/api/realtime", realtimeRoutes);
 app.use("/api/chat", chatRoutes); // the assistant (every role; data limited by role)
+app.use("/api/stats", statsRoutes); // Stats image (Super Admin uploads; every portal sees it + history)
 app.use("/api/metrics", metricsRoutes); // JC metrics (JC writes their own; Saheb / Super Admin read)
 app.use("/api/data", dataRoutes); // Data tab (Excel upload by Super Admin; JCs see their Jamaats)
 app.use("/api/portal", portalRoutes); // publishes its own live update (with the month)

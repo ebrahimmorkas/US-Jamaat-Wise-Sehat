@@ -6,7 +6,8 @@ import PortalFields from "./PortalFields";
 import Logs from "./Logs";
 import DataAdmin from "./DataAdmin";
 import JcMetricsPanel from "./components/JcMetricsPanel";
-import { BriefcaseIcon, FormIcon, HistoryIcon, ListIcon, TableIcon, UsersIcon } from "./components/Icons";
+import StatsView from "./components/StatsView";
+import { BriefcaseIcon, ImageIcon, FormIcon, HistoryIcon, ListIcon, TableIcon, UsersIcon } from "./components/Icons";
 
 const NAV = [
   { to: "/admin/users", label: "Users", icon: <UsersIcon /> },
@@ -14,6 +15,7 @@ const NAV = [
   { to: "/admin/fields", label: "Portal Fields", icon: <FormIcon /> },
   { to: "/admin/data", label: "Data", icon: <TableIcon /> },
   { to: "/admin/metrics", label: "Metrics & Ratings", icon: <BriefcaseIcon /> },
+  { to: "/admin/stats", label: "Stats", icon: <ImageIcon /> },
   { to: "/admin/logs", label: "Logs", icon: <HistoryIcon /> },
 ];
 
@@ -36,6 +38,13 @@ export default function AdminPortal({ path, user, onSignOut, onAuthExpired, them
         {page === "/admin/masters" && <Masters onAuthExpired={onAuthExpired} />}
         {page === "/admin/fields" && <PortalFields onAuthExpired={onAuthExpired} />}
         {page === "/admin/data" && <DataAdmin onAuthExpired={onAuthExpired} />}
+        {page === "/admin/stats" && (
+          <>
+            <section className="page-head"><div className="page-title"><h1>Stats</h1>
+              <p className="page-sub">Upload an image that every portal shows (it is the first tab on the JC Portal). Each new upload keeps the earlier images in the history with their dates.</p></div></section>
+            <StatsView admin onAuthExpired={onAuthExpired} />
+          </>
+        )}
         {page === "/admin/metrics" && (
           <>
             <section className="page-head"><div className="page-title"><h1>Metrics &amp; Star Ratings</h1>
