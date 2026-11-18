@@ -1568,3 +1568,8 @@ dialog.purge-dlg { width: min(560px, calc(100vw - 32px)); }
 @media (max-width: 720px) { .data-sheet .data-scroll { max-height: none; } }
 /* A value from the Excel file that isn't one of the choices: shown as it is, no colour */
 .dsel.is-file { color: var(--ink); }
+/* A column with a status: the Excel value (read-only) and the status dropdown side by side */
+.dcell { display: flex; align-items: center; gap: 8px; }
+.dval { flex: 0 1 auto; min-width: 24px; font-weight: 500; overflow-wrap: anywhere; }
+.dcell .dsel { flex: 1 0 110px; width: auto; min-width: 110px; }
+.data-table td.is-drop { min-width: 190px; }

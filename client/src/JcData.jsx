@@ -67,33 +67,39 @@ export default function JcData({ user, onSignOut, onAuthExpired, theme, onToggle
   const flat = useMemo(() => shown.flatMap((g) => g.jamaats.flatMap((m) => m.rows.map((r) => ({ ...r, jamaatName: m.name })))).sort((a, b) => a.order - b.order), [shown]);
   const shownRows = flat.length;
 
-  // How many cells have each choice (in the rows shown).
+  // How many statuses have each choice (in the rows shown).
   const counts = useMemo(() => {
     const out = {};
     if (!data) return out;
     const drop = cols.filter((c) => c.dropdown);
     for (const r of flat) for (const c of drop) {
-      const v = r.cells[c.i] || "";
+      const v = (r.picks && r.picks[c.i]) || "";
       out[v] = (out[v] || 0) + 1;
     }
     return out;
   }, [flat, cols, data]);
 
-  const setCell = (rowId, i, value) => setData((d) => ({
+  // Sets one status on screen (the Excel value is never changed).
+  const setPick = (rowId, i, value) => setData((d) => ({
     ...d,
-    jamiats: d.jamiats.map((g) => ({ ...g, jamaats: g.jamaats.map((m) => ({ ...m, rows: m.rows.map((r) => (r.id === rowId ? { ...r, cells: r.cells.map((c, k) => (k === i ? value : c)) } : r)) })) })),
+    jamiats: d.jamiats.map((g) => ({ ...g, jamaats: g.jamaats.map((m) => ({ ...m, rows: m.rows.map((r) => {
+      if (r.id !== rowId) return r;
+      const picks = [...(r.picks || [])];
+      picks[i] = value;
+      return { ...r, picks };
+    }) })) })),
   }));
 
   const change = async (row, i, value) => {
-    const before = row.cells[i] || "";
+    const before = (row.picks && row.picks[i]) || "";
     const key = `${row.id}:${i}`;
-    setCell(row.id, i, value);
+    setPick(row.id, i, value);
     setSaving((s) => ({ ...s, [key]: true }));
     try {
       await setDataCell(row.id, i, value, data.version);
     } catch (err) {
       if (err instanceof AuthError) return onAuthExpired();
-      setCell(row.id, i, before);
+      setPick(row.id, i, before);
       setMsg({ type: "error", text: `Not saved: ${err.message}`, reload: err.status === 409 });
     } finally {
       setSaving((s) => { const n = { ...s }; delete n[key]; return n; });
@@ -126,7 +132,7 @@ export default function JcData({ user, onSignOut, onAuthExpired, theme, onToggle
             <h1>Data</h1>
             <p className="page-sub">
               {data && data.hasData
-                ? <>Data for your Jamaats{data.uploadedAt ? `, updated ${fmtWhen(data.uploadedAt)}` : ""}.{hasDrop ? " Coloured columns can be changed; changes save at once." : ""}</>
+                ? <>Data for your Jamaats{data.uploadedAt ? `, updated ${fmtWhen(data.uploadedAt)}` : ""}.{hasDrop ? " Values come from the Excel file; set the status next to a value (saved at once)." : ""}</>
                 : "Data for your Jamaats."}
             </p>
           </div>
@@ -178,10 +184,6 @@ export default function JcData({ user, onSignOut, onAuthExpired, theme, onToggle
                   {choices.map((c) => (
                     <span key={c.id} className="dchip" style={choiceStyle(data.palette, choices, c.value)}>{c.value} <b>{counts[c.value] || 0}</b></span>
                   ))}
-                  {(() => {
-                    const other = Object.entries(counts).filter(([k]) => k && !choices.some((c) => c.value === k)).reduce((n, [, x]) => n + x, 0);
-                    return other > 0 && <span className="dchip empty" title="Values from the Excel file that are not one of the choices">Other values <b>{other}</b></span>;
-                  })()}
                   <span className="dchip empty">Not set <b>{counts[""] || 0}</b></span>
                 </div>
               )}
@@ -203,14 +205,18 @@ export default function JcData({ user, onSignOut, onAuthExpired, theme, onToggle
                             const v = r.cells[c.i] || "";
                             if (!c.dropdown) return <td key={c.i}>{v}</td>;
                             const busy = saving[`${r.id}:${c.i}`];
+                            const pick = (r.picks && r.picks[c.i]) || "";
                             return (
                               <td key={c.i} className="is-drop">
-                                <select className={`dsel${choiceStyle(data.palette, choices, v) ? " has" : v ? " is-file" : ""}${busy ? " is-saving" : ""}`} value={v} style={choiceStyle(data.palette, choices, v)}
-                                  aria-label={`${c.name} for ${r.jamaatName}`} onChange={(e) => change(r, c.i, e.target.value)}>
-                                  <option value="">Not set</option>
-                                  {v && !choices.some((ch) => ch.value === v) && <option value={v}>{v}</option>}
-                                  {choices.map((ch) => <option key={ch.id} value={ch.value}>{ch.value}</option>)}
-                                </select>
+                                {/* The Excel value (read-only) and its status dropdown. */}
+                                <div className="dcell">
+                                  <span className="dval">{v || <span className="muted">—</span>}</span>
+                                  <select className={`dsel${pick ? " has" : ""}${busy ? " is-saving" : ""}`} value={pick} style={choiceStyle(data.palette, choices, pick)}
+                                    aria-label={`Status of ${c.name} ${v} for ${r.jamaatName}`} onChange={(e) => change(r, c.i, e.target.value)}>
+                                    <option value="">Not set</option>
+                                    {choices.map((ch) => <option key={ch.id} value={ch.value}>{ch.value}</option>)}
+                                  </select>
+                                </div>
                               </td>
                             );
                           })}

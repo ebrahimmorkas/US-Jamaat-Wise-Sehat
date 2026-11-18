@@ -2,7 +2,7 @@
 //  - DataConfig (one document, key "main"): the columns of the current upload, which ones are dropdowns,
 //    and the dropdown choices (one list for every dropdown column) with their colours.
 //  - DataRow: one row of the file, linked to its Jamiat and Jamaat. `cells` follow DataConfig.columns;
-//    a dropdown column's cell holds the chosen value ("" = not chosen). JCs change only those cells.
+//    a column marked as dropdown keeps its Excel value and gets a status (`picks`) that JCs choose.
 //  - `version` goes up with every upload: rows of an older upload are ignored (and removed once the new one is saved).
 const { mongoose } = require("../db");
 
@@ -37,7 +37,8 @@ const dataRowSchema = new mongoose.Schema({
   jamiat: { type: mongoose.Schema.Types.ObjectId, ref: "Jamiat", required: true },
   jamaat: { type: mongoose.Schema.Types.ObjectId, ref: "Jamaat", required: true },
   order: { type: Number, required: true }, // position in the uploaded file
-  cells: { type: [String], default: [] },
+  cells: { type: [String], default: [] }, // the Excel values, exactly as uploaded (never changed)
+  picks: { type: [String], default: [] }, // status chosen per dropdown column (same positions as cells; "" = not set)
   editedBy: { type: String },
   editedAt: { type: Date },
 });

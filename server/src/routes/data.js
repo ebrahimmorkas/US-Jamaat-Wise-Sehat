@@ -48,7 +48,7 @@ async function groupedRows(cfg, access) {
   if (!cfg.version) return [];
   const filter = { version: cfg.version };
   if (access) filter.jamaat = { $in: [...access.jamaats] };
-  const rows = (await DataRow.find(filter).select("jamiat jamaat order cells").sort({ order: 1 }).lean()).filter((r) => !access || allowed(access, r));
+  const rows = (await DataRow.find(filter).select("jamiat jamaat order cells picks").sort({ order: 1 }).lean()).filter((r) => !access || allowed(access, r));
   const jamiatIds = [...new Set(rows.map((r) => String(r.jamiat)))];
   const jamaatIds = [...new Set(rows.map((r) => String(r.jamaat)))];
   const [jamiats, jamaats] = await Promise.all([
@@ -64,7 +64,7 @@ async function groupedRows(cfg, access) {
     if (!byJamiat.has(jid)) byJamiat.set(jid, { id: jid, name: jName.get(jid) || "?", jamaats: new Map() });
     const g = byJamiat.get(jid);
     if (!g.jamaats.has(mid)) g.jamaats.set(mid, { id: mid, name: mName.get(mid) || "?", rows: [] });
-    g.jamaats.get(mid).rows.push({ id: String(r._id), order: r.order, cells: r.cells });
+    g.jamaats.get(mid).rows.push({ id: String(r._id), order: r.order, cells: r.cells, picks: r.picks || [] });
   }
   const az = (a, b) => a.name.localeCompare(b.name);
   return [...byJamiat.values()].sort(az).map((g) => ({ ...g, jamaats: [...g.jamaats.values()].sort(az) }));
@@ -81,7 +81,8 @@ router.get("/", requireRole("jc"), async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// PATCH /api/data/rows/:id { column, value, version } — a JC sets one dropdown cell of their own Jamaat.
+// PATCH /api/data/rows/:id { column, value, version } — a JC sets the status of one dropdown column (their own Jamaat).
+// The Excel value of the cell is never changed.
 router.patch("/rows/:id", requireRole("jc"), async (req, res, next) => {
   try {
     const id = requireId(req.params.id, "row");
@@ -102,13 +103,13 @@ router.patch("/rows/:id", requireRole("jc"), async (req, res, next) => {
       audit(req, "access_denied", { success: false, details: { method: req.method, path: req.originalUrl.slice(0, 300), reason: "not_their_jamaat" } });
       return res.status(403).json({ error: "This Jamaat is not assigned to you.", code: "FORBIDDEN" });
     }
-    const from = row.cells[i] || "";
+    const from = (row.picks && row.picks[i]) || "";
     if (from !== pick) {
-      await DataRow.updateOne({ _id: row._id }, { $set: { [`cells.${i}`]: pick, editedBy: req.user.username, editedAt: new Date() } });
+      await DataRow.updateOne({ _id: row._id }, { $set: { [`picks.${i}`]: pick, editedBy: req.user.username, editedAt: new Date() } });
       const jm = await Jamaat.findById(row.jamaat).select("name").lean();
       audit(req, "data_changed", {
         target: { type: "jamaat", id: String(row.jamaat), label: jm ? jm.name : "" },
-        changes: [{ field: col.name, label: col.name, from: from || null, to: pick || null }],
+        changes: [{ field: col.name, label: `${col.name} (status)`, from: from || null, to: pick || null }],
         details: { row: row.order + 1, column: col.name },
       });
     }
@@ -146,7 +147,7 @@ router.get("/admin", admin, async (req, res, next) => {
     if (cfg.version) {
       const [jamiats, jamaats] = await Promise.all([DataRow.distinct("jamiat", { version: cfg.version }), DataRow.distinct("jamaat", { version: cfg.version })]);
       const drop = cfg.columns.map((c, i) => (c.dropdown ? i : -1)).filter((i) => i >= 0);
-      const picked = drop.length ? await DataRow.countDocuments({ version: cfg.version, $or: drop.map((i) => ({ [`cells.${i}`]: { $nin: ["", null] } })) }) : 0;
+      const picked = drop.length ? await DataRow.countDocuments({ version: cfg.version, $or: drop.map((i) => ({ [`picks.${i}`]: { $nin: ["", null] } })) }) : 0;
       counts = { jamiats: jamiats.length, jamaats: jamaats.length, picked };
     }
     res.json({ ...configOut(cfg), counts });
@@ -199,7 +200,7 @@ router.post("/upload", admin, fileBody, async (req, res, next) => {
     if (!plan.rows.length) throw new InputError("No row matched a Jamiat and Jamaat in Masters, so nothing was saved.");
 
     const version = cfg.version + 1;
-    const docs = plan.rows.map((r, order) => ({ version, jamiat: r.jamiat, jamaat: r.jamaat, order, cells: r.cells }));
+    const docs = plan.rows.map((r, order) => ({ version, jamiat: r.jamiat, jamaat: r.jamaat, order, cells: r.cells, picks: r.picks }));
     for (let i = 0; i < docs.length; i += 1000) await DataRow.insertMany(docs.slice(i, i + 1000), { ordered: false });
     const before = cfg.columns.map((c) => c.name);
     cfg.set({
@@ -255,8 +256,8 @@ router.put("/choices", admin, async (req, res, next) => {
     const drop = cfg.columns.map((c, i) => (c.dropdown ? i : -1)).filter((i) => i >= 0);
     if (cfg.version && drop.length) {
       for (const i of drop) {
-        for (const [a, b] of renames) changedCells += (await DataRow.updateMany({ version: cfg.version, [`cells.${i}`]: a }, { $set: { [`cells.${i}`]: b } })).modifiedCount;
-        if (removed.length) changedCells += (await DataRow.updateMany({ version: cfg.version, [`cells.${i}`]: { $in: removed } }, { $set: { [`cells.${i}`]: "" } })).modifiedCount;
+        for (const [a, b] of renames) changedCells += (await DataRow.updateMany({ version: cfg.version, [`picks.${i}`]: a }, { $set: { [`picks.${i}`]: b } })).modifiedCount;
+        if (removed.length) changedCells += (await DataRow.updateMany({ version: cfg.version, [`picks.${i}`]: { $in: removed } }, { $set: { [`picks.${i}`]: "" } })).modifiedCount;
       }
     }
     const fmt = (l) => l.map((c) => `${c.value} (${(PALETTE[c.color] || {}).label || c.color})`).join(", ");

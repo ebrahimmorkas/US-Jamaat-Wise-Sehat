@@ -120,23 +120,31 @@ const choiceOf = (choices, v) => {
  * Returns { headers, jamiatCol, jamaatCol, columns, rows, unmatched, stats }.
  */
 async function planUpload(file, opts, cfg) {
-  const { headers, rows: raw, sheet } = file;
+  const { sheet } = file;
+  // "<name> - Status" columns (in a file downloaded from here) are not data: they fill the statuses.
+  const statusOfBase = new Map(); // base column index (in the full file) -> status column index
+  file.headers.forEach((h, s) => {
+    const m = /^(.*?)\s*-\s*status$/i.exec(h);
+    const b = m ? file.headers.findIndex((x, i) => i !== s && x.toLowerCase() === m[1].toLowerCase()) : -1;
+    if (b >= 0) statusOfBase.set(b, s);
+  });
+  const statusIdx = new Set(statusOfBase.values());
+  const keep = file.headers.map((_, i) => i).filter((i) => !statusIdx.has(i));
+  const headers = keep.map((i) => file.headers[i]);
+  const statusCol = new Map([...statusOfBase].map(([b, s]) => [keep.indexOf(b), s])); // visible index -> file index
+  const raw = file.rows.map((r) => ({ line: r.line, cells: keep.map((i) => r.cells[i]), status: r.cells }));
   const jamiatCol = Number.isInteger(opts.jamiatCol) && opts.jamiatCol >= 0 && opts.jamiatCol < headers.length ? opts.jamiatCol : findCol(headers, JAMIAT_HEADS);
   const jamaatCol = Number.isInteger(opts.jamaatCol) && opts.jamaatCol >= 0 && opts.jamaatCol < headers.length ? opts.jamaatCol : findCol(headers, JAMAAT_HEADS);
   const choices = cfg.choices || [];
 
-  // Dropdown columns: as chosen; else the ones that were dropdowns last time; else columns whose values are all choices.
+  // Columns marked as dropdown: as chosen; else the ones marked last time; else the ones that have a
+  // "<name> - Status" column in the file (a file downloaded from here).
   let dropNames;
   if (Array.isArray(opts.dropdown)) dropNames = new Set(opts.dropdown.map((n) => String(n).toLowerCase()));
   else {
     const before = (cfg.columns || []).filter((c) => c.dropdown).map((c) => c.name.toLowerCase());
     dropNames = new Set(before.filter((n) => headers.some((h) => h.toLowerCase() === n)));
-    if (!dropNames.size) {
-      headers.forEach((h, i) => {
-        const vals = raw.map((r) => r.cells[i]).filter(Boolean);
-        if (vals.length && vals.every((v) => choiceOf(choices, v))) dropNames.add(h.toLowerCase());
-      });
-    }
+    statusCol.forEach((_, b) => dropNames.add(headers[b].toLowerCase()));
   }
   const columns = headers.map((name, i) => ({ name, dropdown: i !== jamiatCol && i !== jamaatCol && dropNames.has(name.toLowerCase()) }));
   const base = { headers, sheet, jamiatCol, jamaatCol, columns };
@@ -144,12 +152,12 @@ async function planUpload(file, opts, cfg) {
     return { ...base, rows: [], unmatched: [], stats: null, needCols: true };
   }
 
-  // Match each row to a Jamaat.
+  // Match each row to a Jamaat. The Excel values are kept exactly; the status of each dropdown column
+  // is separate (`picks`), empty unless the file has a "<name> - Status" column.
   const { jamiatBy, jamaatBy } = await loadMasters();
   const rows = [];
   const unmatched = [];
-  let badPicks = 0;
-  const badExamples = new Set();
+  let filePicks = 0;
   for (const r of raw) {
     const jn = r.cells[jamiatCol];
     const mn = r.cells[jamaatCol];
@@ -159,25 +167,23 @@ async function planUpload(file, opts, cfg) {
       unmatched.push({ line: r.line, jamiat: jn, jamaat: mn, reason: !jn ? "No Jamiat" : !mn ? "No Jamaat" : !j ? "Jamiat not found" : "Jamaat not found in this Jamiat" });
       continue;
     }
-    const cells = r.cells.map((v, i) => {
-      if (!columns[i].dropdown) return v;
-      const c = choiceOf(choices, v);
-      // A value from the file that isn't a choice is kept as it is (shown without colour; the JC can change it).
-      if (c === null) { badPicks++; if (badExamples.size < 5) badExamples.add(v); return v; }
-      return c;
+    const picks = columns.map((c, i) => {
+      if (!c.dropdown || !statusCol.has(i)) return "";
+      const p = choiceOf(choices, r.status[statusCol.get(i)]);
+      if (p) filePicks++;
+      return p || "";
     });
-    rows.push({ line: r.line, jamiat: j._id, jamaat: m._id, cells });
+    rows.push({ line: r.line, jamiat: j._id, jamaat: m._id, cells: r.cells, picks });
   }
 
-  // Same data as before (any order) keeps its dropdown values: compare the Jamaat and the non-dropdown
-  // columns that both files have.
-  const old = cfg.version ? await DataRow.find({ version: cfg.version }).select("jamaat order cells").sort({ order: 1 }).lean() : [];
+  // Same data as before (any order) keeps its statuses: compare the Jamaat and the columns both files
+  // have (serial numbers left out, they change when rows are moved).
+  const old = cfg.version ? await DataRow.find({ version: cfg.version }).select("jamaat order cells picks").sort({ order: 1 }).lean() : [];
   const oldCols = (cfg.columns || []).map((c) => ({ name: c.name, dropdown: !!c.dropdown, k: c.name.toLowerCase() }));
   const shared = columns
-    .map((c, i) => ({ i, k: c.name.toLowerCase(), dropdown: c.dropdown }))
-    // Serial numbers change when rows are moved, so they don't decide "same row".
-    .filter((c) => !c.dropdown && c.i !== jamiatCol && c.i !== jamaatCol && !SERIAL.test(columns[c.i].name.trim()))
-    .map((c) => ({ ...c, oi: oldCols.findIndex((o) => o.k === c.k && !o.dropdown) }))
+    .map((c, i) => ({ i, k: c.name.toLowerCase() }))
+    .filter((c) => c.i !== jamiatCol && c.i !== jamaatCol && !SERIAL.test(columns[c.i].name.trim()))
+    .map((c) => ({ ...c, oi: oldCols.findIndex((o) => o.k === c.k) }))
     .filter((c) => c.oi >= 0);
   const sigNew = (r) => [String(r.jamaat), ...shared.map((c) => valKey(r.cells[c.i]))].join("\u0001");
   const sigOld = (r) => [String(r.jamaat), ...shared.map((c) => valKey(r.cells[c.oi]))].join("\u0001");
@@ -197,11 +203,8 @@ async function planUpload(file, opts, cfg) {
     columns.forEach((c, i) => {
       if (!c.dropdown) return;
       const oi = oldCols.findIndex((o) => o.k === c.name.toLowerCase() && o.dropdown);
-      const was = oi >= 0 ? prev.cells[oi] : "";
-      if (was && choiceOf(choices, was)) {
-        if (r.cells[i] !== was) keptPicks++;
-        r.cells[i] = choiceOf(choices, was);
-      }
+      const was = oi >= 0 && prev.picks ? choiceOf(choices, prev.picks[oi]) : "";
+      if (was) { r.picks[i] = was; keptPicks++; } // the status chosen on the portal wins
     });
   }
   const removed = [...pool.values()].reduce((n, q) => n + q.length, 0);
@@ -221,8 +224,8 @@ async function planUpload(file, opts, cfg) {
       added: rows.length - kept,
       removed,
       keptPicks,
-      badPicks,
-      badExamples: [...badExamples],
+      filePicks,
+      statusColumns: [...statusCol.keys()].map((b) => headers[b]),
       compared: shared.map((c) => columns[c.i].name),
     },
   };
@@ -233,19 +236,22 @@ const argb = (hex) => `FF${hex.replace("#", "").toUpperCase()}`;
 const listFormula = (choices) => `"${choices.map((c) => c.value).join(",")}"`;
 
 /**
- * Builds the download: the uploaded columns, the rows (Jamiat by Jamiat), dropdown columns as real Excel
- * dropdowns with the same choice colours (also when the value is changed in Excel).
+ * Builds the download: the uploaded columns with their values unchanged; after each column marked as dropdown,
+ * a "<name> - Status" column with a real Excel dropdown and the choice colours (also when changed in Excel).
  */
 async function buildWorkbook(cfg, rows) {
   const wb = new ExcelJS.Workbook();
   wb.creator = "Umoor Sehhat";
   wb.created = new Date();
   const ws = wb.addWorksheet("Data", { views: [{ state: "frozen", ySplit: 1 }] });
-  const cols = cfg.columns;
   const choices = cfg.choices || [];
+  const cols = cfg.columns.flatMap((c, i) => [
+    { name: c.name, get: (r) => r.cells[i] || "" },
+    ...(c.dropdown ? [{ name: `${c.name} - Status`, dropdown: true, get: (r) => (r.picks && r.picks[i]) || "" }] : []),
+  ]);
 
   ws.columns = cols.map((c, i) => {
-    const longest = rows.reduce((n, r) => Math.max(n, String(r.cells[i] || "").length), c.name.length);
+    const longest = rows.reduce((n, r) => Math.max(n, String(c.get(r)).length), c.name.length);
     return { header: c.name, key: `c${i}`, width: Math.min(50, Math.max(10, longest + 2)) };
   });
   const head = ws.getRow(1);
@@ -257,7 +263,7 @@ async function buildWorkbook(cfg, rows) {
     cell.border = { bottom: { style: "thin", color: { argb: "FFC9CED6" } } };
   });
 
-  for (const r of rows) ws.addRow(cols.map((_, i) => r.cells[i] || ""));
+  for (const r of rows) ws.addRow(cols.map((c) => c.get(r)));
   const last = rows.length + 1;
 
   cols.forEach((c, i) => {

@@ -66,7 +66,7 @@ export default function DataAdmin({ onAuthExpired }) {
     const s = plan.stats;
     const lines = [`${plural(s.matched, "row")} for ${plural(s.jamaats, "Jamaat")} in ${plural(s.jamiats, "Jamiat")} will be shown to their JCs.`];
     if (s.unmatched) lines.push(`${plural(s.unmatched, "row")} that don't match a Jamiat and Jamaat in Masters will be left out.`);
-    if (s.hadData) lines.push(`This replaces the current data. ${plural(s.kept, "row")} are the same as before and keep their dropdown values; ${plural(s.added, "new row")}${s.removed ? `; ${plural(s.removed, "row")} no longer in the file will be removed` : ""}.`);
+    if (s.hadData) lines.push(`This replaces the current data. ${plural(s.kept, "row")} are the same as before and keep their statuses; ${plural(s.added, "new row")}${s.removed ? `; ${plural(s.removed, "row")} no longer in the file will be removed` : ""}.`);
     if (!(await confirmDialog({ tone: s.removed ? "warn" : "info", title: `Upload ${file.name}?`, confirmText: "Upload", message: lines }))) return;
     setBusy("upload");
     try {
@@ -86,7 +86,7 @@ export default function DataAdmin({ onAuthExpired }) {
   const clear = async () => {
     if (!(await confirmDialog({
       tone: "danger", title: "Remove the uploaded data?", confirmText: "Remove data",
-      message: [`All ${plural(info.rowCount, "row")} and the dropdown values JCs chose will be removed. JCs will see an empty Data tab.`, "The dropdown choices are kept. This can't be undone."],
+      message: [`All ${plural(info.rowCount, "row")} and the statuses JCs chose will be removed. JCs will see an empty Data tab.`, "The dropdown choices are kept. This can't be undone."],
     }))) return;
     setBusy("clear");
     try {
@@ -124,12 +124,12 @@ export default function DataAdmin({ onAuthExpired }) {
                   <div><b>{info.rowCount}</b><span>rows</span></div>
                   <div><b>{info.counts.jamiats}</b><span>Jamiats</span></div>
                   <div><b>{info.counts.jamaats}</b><span>Jamaats</span></div>
-                  <div><b>{info.counts.picked}</b><span>rows with a dropdown value</span></div>
+                  <div><b>{info.counts.picked}</b><span>rows with a status set</span></div>
                 </div>
                 <div className="data-cols">
                   {info.columns.map((c, i) => (
                     <span key={i} className={`col-chip${c.dropdown ? " is-drop" : ""}`}>
-                      {c.name}{i === info.jamiatCol ? " · Jamiat" : i === info.jamaatCol ? " · Jamaat" : c.dropdown ? " · dropdown" : ""}
+                      {c.name}{i === info.jamiatCol ? " · Jamiat" : i === info.jamaatCol ? " · Jamaat" : c.dropdown ? " · + status" : ""}
                     </span>
                   ))}
                 </div>
@@ -144,7 +144,7 @@ export default function DataAdmin({ onAuthExpired }) {
           {/* ---- Upload ---- */}
           <section className="panel data-card">
             <div className="panel-head"><div><h2>{info.hasData ? "Upload a new file" : "Upload a file"}</h2>
-              <p>Excel (.xlsx), up to 10 MB. It needs a Jamiat column and a Jamaat column with the names used in Masters.{info.hasData ? " Rows that are the same as now (in any order) keep the dropdown values JCs chose." : ""}</p></div></div>
+              <p>Excel (.xlsx), up to 10 MB. It needs a Jamiat column and a Jamaat column with the names used in Masters.{info.hasData ? " Rows that are the same as now (in any order) keep the statuses JCs chose." : ""}</p></div></div>
             <input ref={fileRef} type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden onChange={pick} />
             {!file ? (
               <button type="button" className="btn btn-primary" onClick={() => fileRef.current.click()}><UploadIcon /><span>Choose Excel file</span></button>
@@ -187,15 +187,15 @@ function UploadPreview({ file, plan, opts, busy, onChange, onToggle, onSave, onC
         <>
           <div className={`data-summary${s.matched ? "" : " is-bad"}`}>
             <p><b>{s.matched} of {plural(s.read, "row")}</b> match a Jamiat and Jamaat in Masters ({plural(s.jamiats, "Jamiat")}, {plural(s.jamaats, "Jamaat")}).</p>
-            {s.hadData && <p>Compared with the current data: <b>{s.kept}</b> same (keep their dropdown values) · <b>{s.added}</b> new · <b>{s.removed}</b> to be removed.</p>}
+            {s.hadData && <p>Compared with the current data: <b>{s.kept}</b> same (keep their statuses) · <b>{s.added}</b> new · <b>{s.removed}</b> to be removed.</p>}
             {s.hadData && s.compared.length > 0 && <p className="muted">“Same” = same Jamaat and same {s.compared.join(", ")}.</p>}
-            {s.badPicks > 0 && <p className="warn-text">{plural(s.badPicks, "cell")} in dropdown columns {s.badPicks === 1 ? "has a value" : "have values"} that {s.badPicks === 1 ? "is" : "are"} not in the Dropdown choices ({s.badExamples.map((x) => `“${x}”`).join(", ")}). {s.badPicks === 1 ? "It is" : "They are"} shown as in the file, without a colour; JCs can change {s.badPicks === 1 ? "it" : "them"} to a choice. To colour {s.badPicks === 1 ? "it" : "them"}, add {s.badPicks === 1 ? "that value" : "those values"} to the Dropdown choices below.</p>}
+            {s.statusColumns && s.statusColumns.length > 0 && <p className="muted">Status columns found for {s.statusColumns.join(", ")}: {plural(s.filePicks, "status", "statuses")} taken from the file{s.hadData ? " (a status already chosen on the portal is kept)" : ""}.</p>}
           </div>
 
-          <h3 className="data-sub">Columns <span className="muted">· tick the ones JCs choose from a dropdown</span></h3>
+          <h3 className="data-sub">Columns <span className="muted">· tick the ones that get a status dropdown (the Excel value stays as it is)</span></h3>
           <div className="data-scroll">
             <table className="data-table compact">
-              <thead><tr><th>Column</th><th>Dropdown</th><th>Example</th></tr></thead>
+              <thead><tr><th>Column</th><th>Status dropdown</th><th>Example</th></tr></thead>
               <tbody>
                 {plan.columns.map((c, i) => {
                   const fixed = i === plan.jamiatCol || i === plan.jamaatCol;
@@ -271,7 +271,7 @@ function Choices({ info, onSaved, onMsg, onFail }) {
   return (
     <section className="panel data-card">
       <div className="panel-head"><div><h2>Dropdown choices</h2>
-        <p>One list for every dropdown column, with the colour shown on the Data tab and in the downloaded Excel. Renaming a choice renames it in the data too.</p></div></div>
+        <p>One list for every status dropdown, with the colour shown on the Data tab and in the downloaded Excel. Renaming a choice renames it in the data too.</p></div></div>
       <div className="choice-list">
         {list.map((c, n) => (
           <div key={c.key} className="choice-row">
