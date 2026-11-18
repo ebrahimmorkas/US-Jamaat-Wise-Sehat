@@ -19,6 +19,7 @@ const store = {
 const blankForm = (details) => ({
   values: {},
   comments: {},
+  doneDates: {}, // monthly activities: { "<question key>:<activity id>": "YYYY-MM-DD" } when the answer means done
   remarks: "",
   details: {
     mauzeType: details.mauzeType || "",
@@ -34,6 +35,13 @@ const today = () => {
 
 // Where one activity's answer is saved: "<question key>:<activity id>".
 const actKey = (key, id) => `${key}:${id}`;
+// An answer whose meaning is "done" (shown in the green "good" tone): an activity then takes a "date done".
+const isDone = (f, v) => !!v && (f.options.find((o) => o.value === v) || {}).tone === "good";
+// "2026-11-12" -> "12 Nov"
+const shortDate = (s) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || "");
+  return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toLocaleDateString([], { day: "numeric", month: "short", timeZone: "UTC" }) : "";
+};
 
 const fmtTime = (d) =>
   new Date(d).toLocaleString([], { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -121,7 +129,7 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
       .then(({ details, entry, activities: acts = {} }) => {
         if (!alive) return;
         const f = blankForm(details);
-        if (entry) { f.values = { ...entry.values }; f.comments = { ...(entry.comments || {}) }; f.remarks = entry.remarks || ""; }
+        if (entry) { f.values = { ...entry.values }; f.comments = { ...(entry.comments || {}) }; f.doneDates = { ...(entry.doneDates || {}) }; f.remarks = entry.remarks || ""; }
         setActivities(acts);
         // Start each activity question on the first activity not answered yet.
         setActPick(Object.fromEntries(Object.entries(acts).map(([k, list]) => {
@@ -174,6 +182,11 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
   const setValue = (key, v) => setForm((f) => ({ ...f, values: { ...f.values, [key]: v } }));
   // The Jamaat details are shown read-only and sent back as loaded; the server refuses (and logs) any change.
   const setComment = (key, v) => setForm((f) => ({ ...f, comments: { ...f.comments, [key]: v } }));
+  const setDoneDate = (key, v) => setForm((f) => {
+    const doneDates = { ...f.doneDates };
+    if (v) doneDates[key] = v; else delete doneDates[key];
+    return { ...f, doneDates };
+  });
 
   const groups = useMemo(() => {
     if (!opts) return [];
@@ -223,14 +236,16 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
       // Send only answers to the questions currently on the form.
       const values = {};
       const comments = {};
+      const doneDates = {};
       for (const f of opts.fields) {
         for (const k of f.hasActivities ? (activities[f.key] || []).map((a) => actKey(f.key, a.id)) : [f.key]) {
           if (form.values[k]) values[k] = form.values[k];
           if (f.hasComment && (form.comments[k] || "").trim()) comments[k] = form.comments[k];
+          if (f.hasActivities && form.doneDates[k] && isDone(f, form.values[k])) doneDates[k] = form.doneDates[k];
         }
       }
       const res = await portalSave({
-        month, jamaatId, values, comments, remarks: form.remarks,
+        month, jamaatId, values, comments, doneDates, remarks: form.remarks,
         details: form.details, // locked: sent as shown so the server can check nothing was changed
       });
       const f = { ...form, details: blankForm(res.details).details };
@@ -363,7 +378,7 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
                             return (
                               <ActivityQuestion key={f.key} f={f} list={activities[f.key] || []} form={form} monthLabel={monthLabel}
                                 pick={actPick[f.key] || ""} onPick={(id) => setActPick((p2) => ({ ...p2, [f.key]: id }))}
-                                setValue={setValue} setComment={setComment} commentMax={opts.commentMaxLength}
+                                setValue={setValue} setComment={setComment} setDoneDate={setDoneDate} commentMax={opts.commentMaxLength}
                                 commentOpen={commentOpen} showComment={showComment} />
                             );
                           }
@@ -458,7 +473,7 @@ export default function JcPortal({ user, onSignOut, onAuthExpired, theme, onTogg
 
 // A question with monthly activities: choose the activity, then its status (and comment).
 // Every activity keeps its own answer; the list shows where each one stands.
-function ActivityQuestion({ f, list, form, monthLabel, pick, onPick, setValue, setComment, commentMax, commentOpen, showComment }) {
+function ActivityQuestion({ f, list, form, monthLabel, pick, onPick, setValue, setComment, setDoneDate, commentMax, commentOpen, showComment }) {
   const act = list.find((a) => a.id === pick) || list[0];
   const k = act ? actKey(f.key, act.id) : "";
   const value = k ? form.values[k] || "" : "";
@@ -484,7 +499,8 @@ function ActivityQuestion({ f, list, form, monthLabel, pick, onPick, setValue, s
                 <select value={act.id} onChange={(e) => onPick(e.target.value)}>
                   {list.map((a) => {
                     const v = form.values[actKey(f.key, a.id)];
-                    return <option key={a.id} value={a.id}>{a.name}{v ? ` — ${v}` : " — not updated"}</option>;
+                    const d = isDone(f, v) && shortDate(form.doneDates[actKey(f.key, a.id)]);
+                    return <option key={a.id} value={a.id}>{a.name}{v ? ` — ${v}${d ? ` (${d})` : ""}` : " — not updated"}</option>;
                   })}
                 </select>
               </label>
@@ -502,6 +518,16 @@ function ActivityQuestion({ f, list, form, monthLabel, pick, onPick, setValue, s
                   ))}
                   {value && <button type="button" className="seg-clear" onClick={() => setValue(k, "")}>Clear</button>}
                 </div>
+                {isDone(f, value) && (
+                  <label className="act-date">
+                    <span className="field-label">Date done <span className="muted">(optional)</span></span>
+                    <span className="act-date-row">
+                      <input className="input date-input" type="date" min="2020-01-01" max={today()} value={form.doneDates[k] || ""}
+                        onChange={(e) => setDoneDate(k, e.target.value)} aria-label={`Date ${act.name} was done`} />
+                      {form.doneDates[k] && <button type="button" className="seg-clear" onClick={() => setDoneDate(k, "")}>Clear</button>}
+                    </span>
+                  </label>
+                )}
                 {f.hasComment && (commentOpen(k) ? (
                   <textarea className="input q-comment" rows={2} maxLength={commentMax}
                     placeholder={`Comment on “${act.name}” (optional)`} aria-label={`Comment for ${f.label}: ${act.name}`}
@@ -517,11 +543,12 @@ function ActivityQuestion({ f, list, form, monthLabel, pick, onPick, setValue, s
               <div className="act-chips" aria-label={`All ${f.label} activities`}>
                 {list.map((a) => {
                   const v = form.values[actKey(f.key, a.id)];
+                  const d = isDone(f, v) && shortDate(form.doneDates[actKey(f.key, a.id)]);
                   return (
                     <button type="button" key={a.id} className={`act-chip${a.id === act.id ? " is-sel" : ""}`} onClick={() => onPick(a.id)}
                       aria-pressed={a.id === act.id} title={v ? `${a.name}: ${v}` : `${a.name}: not updated`}>
                       <span className={`dot tone-${v ? toneOf(v) : "empty"}`} />{a.name}
-                      <small>{v || "not updated"}</small>
+                      <small>{v ? `${v}${d ? ` · ${d}` : ""}` : "not updated"}</small>
                     </button>
                   );
                 })}

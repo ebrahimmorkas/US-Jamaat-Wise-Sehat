@@ -11,6 +11,7 @@ const entrySchema = new mongoose.Schema(
     jamaat: { type: mongoose.Schema.Types.ObjectId, ref: "Jamaat", required: true },
     values: { type: mongoose.Schema.Types.Mixed, default: {} },
     comments: { type: mongoose.Schema.Types.Mixed, default: {} }, // { <field key>: "<comment>" } for questions with a comment box
+    doneDates: { type: mongoose.Schema.Types.Mixed, default: {} }, // { "<field key>:<activity id>": "YYYY-MM-DD" } when an activity was done
     remarks: { type: String, trim: true, maxlength: form.remarksMaxLength, default: "" },
     submitCount: { type: Number, default: 1 },
     lastIp: String,

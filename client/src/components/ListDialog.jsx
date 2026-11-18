@@ -3,6 +3,13 @@ import { lower, plural } from "../lib/helpers";
 import { CloseIcon } from "./Icons";
 import StatusPill from "./StatusPill";
 
+// "2026-11-12" -> "12 Nov 2026"
+const fmtDate = (s) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || "");
+  return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : "";
+};
+const dateOf = (v, r) => fmtDate(r.dates && r.dates[v.metric.key]);
+
 // Popup listing the Jamaats that have the chosen status.
 // Columns: Jamiat=All -> Jamiat + Jamaat; one Jamiat -> Jamaat; one Jamaat -> none.
 export default function ListDialog({ view, onClose }) {
@@ -30,7 +37,8 @@ export default function ListDialog({ view, onClose }) {
     } else if (!v.showJamiat && !v.showJamaat) {
       body = (
         <>
-          <p>This Jamaat is marked <StatusPill status={v.status} tone={v.tone} /></p>
+          <p>This Jamaat is marked <StatusPill status={v.status} tone={v.tone} />
+            {v.showDate && dateOf(v, v.list[0]) && <> · done on <b>{dateOf(v, v.list[0])}</b></>}</p>
           {v.showRemarks && (
             <div className="remarks" style={{ margin: "12px 0 0" }}>
               <div className="eyebrow">Remarks / next action</div>{v.list[0].remarks}
@@ -48,6 +56,7 @@ export default function ListDialog({ view, onClose }) {
               <th>#</th>
               {v.showJamiat && <th>Jamiat</th>}
               {v.showJamaat && <th>Jamaat</th>}
+              {v.showDate && <th>Date done</th>}
               {v.showRemarks && <th>Remarks</th>}
             </tr>
           </thead>
@@ -57,6 +66,7 @@ export default function ListDialog({ view, onClose }) {
                 <td className="idx">{i + 1}</td>
                 {v.showJamiat && <td>{r.jamiat}</td>}
                 {v.showJamaat && <td>{r.name}</td>}
+                {v.showDate && <td className="nowrap">{dateOf(v, r) || <span className="muted">Not given</span>}</td>}
                 {v.showRemarks && <td className="rmk">{r.remarks || "—"}</td>}
               </tr>
             ))}

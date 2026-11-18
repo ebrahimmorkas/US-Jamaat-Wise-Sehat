@@ -18,7 +18,7 @@ const realtime = require("../realtime");
 const { notDeleted } = require("../lib/softDelete");
 const { TOPICS, EVENTS } = require("../realtime/topics");
 const { monthLabel, monthInfo, portalMonths } = require("../lib/month");
-const { InputError, requireId, parseValues, parseComments, parseRemarks, sendError } = require("../lib/validate");
+const { InputError, requireId, parseValues, parseComments, parseDoneDates, parseRemarks, sendError } = require("../lib/validate");
 
 const router = express.Router();
 
@@ -165,7 +165,7 @@ router.get("/entry", async (req, res, next) => {
     const month = checkMonth(req.query.month);
     const { jamaat } = await findJamaat(req, req.query.jamaat);
     const [entry, fields, acts] = await Promise.all([
-      Entry.findOne({ jamaat: jamaat._id, month }).select("values comments remarks updatedAt").lean(),
+      Entry.findOne({ jamaat: jamaat._id, month }).select("values comments doneDates remarks updatedAt").lean(),
       activeFields(),
       activitiesFor(month),
     ]);
@@ -174,7 +174,7 @@ router.get("/entry", async (req, res, next) => {
       details: details(jamaat),
       // this month's activities of each monthly-activity question: { <field key>: [{ id, name }] }
       activities: Object.fromEntries(fields.filter((f) => f.hasActivities).map((f) => [f.key, (acts.get(f.key) || []).map(({ id, name }) => ({ id, name }))])),
-      entry: entry ? { values: entry.values, comments: entry.comments || {}, remarks: entry.remarks || "", updatedAt: entry.updatedAt } : null,
+      entry: entry ? { values: entry.values, comments: entry.comments || {}, doneDates: entry.doneDates || {}, remarks: entry.remarks || "", updatedAt: entry.updatedAt } : null,
     });
   } catch (err) {
     sendError(err, res, next);
@@ -195,6 +195,7 @@ router.post("/entry", submitLimiter, async (req, res, next) => {
     const fields = await formFields(month); // each activity of the month counts as a question
     const answers = parseValues(body.values, fields);
     const comments = parseComments(body.comments, fields);
+    const dates = parseDoneDates(body.doneDates, fields, answers);
     const remarks = parseRemarks(body.remarks);
     const { jamaat, jamiat } = await findJamaat(req, body.jamaatId);
     const jamaatTarget = { type: "jamaat", id: String(jamaat._id), label: `${jamaat.name} (${jamiat.name})` };
@@ -205,11 +206,14 @@ router.post("/entry", submitLimiter, async (req, res, next) => {
       throw new InputError("Jamaat details can't be changed from the JC portal. Nothing was saved. Please reload the page.", 403);
     }
 
-    const before = await Entry.findOne({ jamaat: jamaat._id, month }).select("values comments remarks").lean();
+    const before = await Entry.findOne({ jamaat: jamaat._id, month }).select("values comments doneDates remarks").lean();
     // Keep answers / comments of questions that are inactive now; replace the ones on the form.
     const values = { ...((before && before.values) || {}) };
     const allComments = { ...((before && before.comments) || {}) };
+    const doneDates = { ...((before && before.doneDates) || {}) };
     for (const f of fields) {
+      if (f.key in dates) doneDates[f.key] = dates[f.key];
+      else if (f.parentKey) delete doneDates[f.key];
       if (f.key in answers) values[f.key] = answers[f.key];
       else delete values[f.key];
       if (f.key in comments) allComments[f.key] = comments[f.key];
@@ -217,16 +221,20 @@ router.post("/entry", submitLimiter, async (req, res, next) => {
     }
     const entry = await Entry.findOneAndUpdate(
       { jamaat: jamaat._id, month },
-      { $set: { values, comments: allComments, remarks, lastIp: clientIp(req) }, $inc: { submitCount: 1 } },
+      { $set: { values, comments: allComments, doneDates, remarks, lastIp: clientIp(req) }, $inc: { submitCount: 1 } },
       { upsert: true, returnDocument: "after", runValidators: true, setDefaultsOnInsert: true }
     );
 
     // Audit trail: only the answers that changed, with their previous value.
     const trail = [];
     const oldComments = (before && before.comments) || {};
+    const oldDates = (before && before.doneDates) || {};
     for (const f of fields) {
       const old = before && before.values ? before.values[f.key] : undefined;
       if ((old || null) !== (values[f.key] || null)) trail.push({ field: `values.${f.key}`, label: f.label, from: old || null, to: values[f.key] || null });
+      if ((oldDates[f.key] || null) !== (doneDates[f.key] || null)) {
+        trail.push({ field: `doneDates.${f.key}`, label: `${f.label} (date done)`, from: oldDates[f.key] || null, to: doneDates[f.key] || null });
+      }
       if ((oldComments[f.key] || null) !== (allComments[f.key] || null)) {
         trail.push({ field: `comments.${f.key}`, label: `${f.label} (comment)`, from: oldComments[f.key] || null, to: allComments[f.key] || null });
       }

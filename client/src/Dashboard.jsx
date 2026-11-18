@@ -78,6 +78,8 @@ export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onTog
         showJamiat: currentJamiat === ALL,
         showJamaat: currentJamiat === ALL || currentJamaat === ALL,
         showRemarks: config.showRemarks && list.some((r) => r.remarks),
+        // monthly activities: the date it was done, when the chosen status means done
+        showDate: !!metric.parentKey && helpers.isDone(dialog.status, metric),
       };
     }
   }

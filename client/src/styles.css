@@ -1400,3 +1400,10 @@ dialog.purge-dlg { width: min(560px, calc(100vw - 32px)); }
   .purge-opts .seg-opt span { min-height: 42px; }
   .page-head .btn-danger-ghost span { display: inline; }
 }
+
+/* ---------- monthly activity: "Date done" (shown when the answer means done) ---------- */
+.act-date { display: grid; gap: 6px; padding: 10px 12px; border-radius: 10px; background: var(--soft-good); border: 1px solid color-mix(in srgb, var(--s-good) 30%, transparent); }
+.act-date .field-label { margin: 0; }
+.act-date-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.act-date .date-input { background: var(--surface); }
+@media (max-width: 560px) { .act-date .date-input { flex: 1 1 160px; min-width: 0; } }
