@@ -178,6 +178,10 @@ export default function JcData({ user, onSignOut, onAuthExpired, theme, onToggle
                   {choices.map((c) => (
                     <span key={c.id} className="dchip" style={choiceStyle(data.palette, choices, c.value)}>{c.value} <b>{counts[c.value] || 0}</b></span>
                   ))}
+                  {(() => {
+                    const other = Object.entries(counts).filter(([k]) => k && !choices.some((c) => c.value === k)).reduce((n, [, x]) => n + x, 0);
+                    return other > 0 && <span className="dchip empty" title="Values from the Excel file that are not one of the choices">Other values <b>{other}</b></span>;
+                  })()}
                   <span className="dchip empty">Not set <b>{counts[""] || 0}</b></span>
                 </div>
               )}
@@ -201,9 +205,10 @@ export default function JcData({ user, onSignOut, onAuthExpired, theme, onToggle
                             const busy = saving[`${r.id}:${c.i}`];
                             return (
                               <td key={c.i} className="is-drop">
-                                <select className={`dsel${v ? " has" : ""}${busy ? " is-saving" : ""}`} value={v} style={choiceStyle(data.palette, choices, v)}
+                                <select className={`dsel${choiceStyle(data.palette, choices, v) ? " has" : v ? " is-file" : ""}${busy ? " is-saving" : ""}`} value={v} style={choiceStyle(data.palette, choices, v)}
                                   aria-label={`${c.name} for ${r.jamaatName}`} onChange={(e) => change(r, c.i, e.target.value)}>
                                   <option value="">Not set</option>
+                                  {v && !choices.some((ch) => ch.value === v) && <option value={v}>{v}</option>}
                                   {choices.map((ch) => <option key={ch.id} value={ch.value}>{ch.value}</option>)}
                                 </select>
                               </td>

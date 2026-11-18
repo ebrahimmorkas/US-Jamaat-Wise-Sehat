@@ -189,7 +189,7 @@ function UploadPreview({ file, plan, opts, busy, onChange, onToggle, onSave, onC
             <p><b>{s.matched} of {plural(s.read, "row")}</b> match a Jamiat and Jamaat in Masters ({plural(s.jamiats, "Jamiat")}, {plural(s.jamaats, "Jamaat")}).</p>
             {s.hadData && <p>Compared with the current data: <b>{s.kept}</b> same (keep their dropdown values) · <b>{s.added}</b> new · <b>{s.removed}</b> to be removed.</p>}
             {s.hadData && s.compared.length > 0 && <p className="muted">“Same” = same Jamaat and same {s.compared.join(", ")}.</p>}
-            {s.badPicks > 0 && <p className="warn-text">{plural(s.badPicks, "cell")} in dropdown columns had a value that is not a choice ({s.badExamples.map((x) => `“${x}”`).join(", ")}) and will be empty.</p>}
+            {s.badPicks > 0 && <p className="warn-text">{plural(s.badPicks, "cell")} in dropdown columns {s.badPicks === 1 ? "has a value" : "have values"} that {s.badPicks === 1 ? "is" : "are"} not in the Dropdown choices ({s.badExamples.map((x) => `“${x}”`).join(", ")}). {s.badPicks === 1 ? "It is" : "They are"} shown as in the file, without a colour; JCs can change {s.badPicks === 1 ? "it" : "them"} to a choice. To colour {s.badPicks === 1 ? "it" : "them"}, add {s.badPicks === 1 ? "that value" : "those values"} to the Dropdown choices below.</p>}
           </div>
 
           <h3 className="data-sub">Columns <span className="muted">· tick the ones JCs choose from a dropdown</span></h3>

@@ -162,7 +162,8 @@ async function planUpload(file, opts, cfg) {
     const cells = r.cells.map((v, i) => {
       if (!columns[i].dropdown) return v;
       const c = choiceOf(choices, v);
-      if (c === null) { badPicks++; if (badExamples.size < 5) badExamples.add(v); return ""; }
+      // A value from the file that isn't a choice is kept as it is (shown without colour; the JC can change it).
+      if (c === null) { badPicks++; if (badExamples.size < 5) badExamples.add(v); return v; }
       return c;
     });
     rows.push({ line: r.line, jamiat: j._id, jamaat: m._id, cells });

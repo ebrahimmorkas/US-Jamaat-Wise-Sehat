@@ -1566,3 +1566,5 @@ dialog.purge-dlg { width: min(560px, calc(100vw - 32px)); }
 .data-sheet .data-table td { border-right: 1px solid var(--border); }
 .data-sheet .data-table th:last-child, .data-sheet .data-table td:last-child { border-right: 0; }
 @media (max-width: 720px) { .data-sheet .data-scroll { max-height: none; } }
+/* A value from the Excel file that isn't one of the choices: shown as it is, no colour */
+.dsel.is-file { color: var(--ink); }
