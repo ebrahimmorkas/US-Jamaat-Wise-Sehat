@@ -70,6 +70,16 @@ const config = {
   // database. Without a key, a simpler built-in reader is used.
   groqApiKey: (process.env.GROQ_API_KEY || "").trim(),
   groqModel: (process.env.GROQ_MODEL || "openai/gpt-oss-120b").trim(),
+
+  // ---- Stats images (ImageKit, imagekit.io) ----
+  // Files are private; the server hands signed links that expire. The URL endpoint is optional
+  // (it is read from each upload's answer), but a full "https://ik.imagekit.io/<id>" is used for the CSP.
+  imagekit: {
+    privateKey: (process.env.IMAGEKIT_PRIVATE_KEY || "").trim(),
+    publicKey: (process.env.IMAGEKIT_PUBLIC_KEY || "").trim(),
+    urlEndpoint: (process.env.IMAGEKIT_URL_ENDPOINT || "").trim().replace(/\/+$/, ""),
+    folder: (process.env.IMAGEKIT_FOLDER || "/umoor-sehhat/stats").trim(),
+  },
 };
 
 // JWT secrets: required in production; a temporary random one is used in development.

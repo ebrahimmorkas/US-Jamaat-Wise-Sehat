@@ -111,16 +111,6 @@ export const realtimeTicket = () => request("/api/realtime/ticket", { method: "P
 export const fetchStats = () => request("/api/stats");
 export const uploadStat = (file, title) => request(`/api/stats?title=${encodeURIComponent(title || "")}`, { method: "POST", file });
 export const deleteStat = (id) => request(`/api/stats/${id}`, { method: "DELETE" });
-const statUrls = new Map(); // id -> Promise<object URL> (each picture is fetched once per visit)
-/** A Stats picture as an object URL (fetched with the sign-in cookie, so it works across domains). */
-export function statImageUrl(id) {
-  if (!statUrls.has(id)) {
-    const p = request(`/api/stats/${id}/image`, { blob: true }).then(({ blob }) => URL.createObjectURL(blob));
-    p.catch(() => statUrls.delete(id));
-    statUrls.set(id, p);
-  }
-  return statUrls.get(id);
-}
 
 // JC Metrics (permanent work a JC handles).
 export const fetchMyMetrics = () => request("/api/metrics/mine");

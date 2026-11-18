@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AuthError, deleteStat, fetchStats, isServerStarting, statImageUrl, uploadStat } from "../lib/api";
+import { AuthError, deleteStat, fetchStats, isServerStarting, uploadStat } from "../lib/api";
 import { useRealtime } from "../hooks/useRealtime";
 import { confirmDialog } from "./ConfirmDialog";
 import Notice from "./Notice";
@@ -12,18 +12,22 @@ const fmtDate = (d) => new Date(d).toLocaleDateString("en-GB", { day: "numeric",
 const fmtTime = (d) => new Date(d).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 const sizeOf = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
-function StatImg({ id, alt, className, onClick }) {
-  const [src, setSrc] = useState("");
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let live = true;
-    setFailed(false);
-    statImageUrl(id).then((u) => live && setSrc(u), () => live && setFailed(true));
-    return () => { live = false; };
-  }, [id]);
-  if (failed) return <div className={`stat-img-missing ${className || ""}`}>The image could not be loaded. Reload the page.</div>;
-  if (!src) return <div className={`stat-img-loading ${className || ""}`} aria-label="Loading image" />;
-  const img = <img src={src} alt={alt} className={className} />;
+// The picture comes straight from ImageKit through a signed link that expires (see the server).
+// If it doesn't load (e.g. the page was open longer than the link lasts), onStale fetches new links once.
+function StatImg({ image, alt, className, onClick, onStale }) {
+  const [state, setState] = useState("loading"); // loading | ok | failed
+  const retried = useRef(false);
+  useEffect(() => { setState("loading"); }, [image.src]);
+  if (!image.src) return <div className={`stat-img-missing ${className || ""}`}>The image storage is not set up on the server.</div>;
+  if (state === "failed") return <div className={`stat-img-missing ${className || ""}`}>The image could not be loaded. Reload the page.</div>;
+  const img = (
+    <img src={image.src} alt={alt} className={`${className || ""}${state === "loading" ? " is-loading" : ""}`}
+      width={image.width || undefined} height={image.height || undefined} decoding="async"
+      onLoad={() => { setState("ok"); retried.current = false; }}
+      onError={() => {
+        if (!retried.current && onStale) { retried.current = true; onStale(); } else setState("failed");
+      }} />
+  );
   return onClick ? <button type="button" className="stat-img-btn" onClick={onClick} aria-label={`Open ${alt} full size`}>{img}</button> : img;
 }
 
@@ -169,7 +173,7 @@ export default function StatsView({ onAuthExpired, admin = false, topic }) {
               </div>
             </header>
             <div className="stats-frame">
-              <StatImg id={current.id} alt={`${name(current)} (uploaded ${fmtDate(current.uploadedAt)})`} className="stats-main-img" onClick={() => setView(0)} />
+              <StatImg image={current} onStale={() => load()} alt={`${name(current)} (uploaded ${fmtDate(current.uploadedAt)})`} className="stats-main-img" onClick={() => setView(0)} />
             </div>
           </section>
 
@@ -182,7 +186,7 @@ export default function StatsView({ onAuthExpired, admin = false, topic }) {
                   const i = n + 1;
                   return (
                     <li key={s.id} className="stats-card">
-                      <div className="stats-thumb"><StatImg id={s.id} alt={`${name(s)} (uploaded ${fmtDate(s.uploadedAt)})`} onClick={() => setView(i)} /></div>
+                      <div className="stats-thumb"><StatImg image={s} onStale={() => load()} alt={`${name(s)} (uploaded ${fmtDate(s.uploadedAt)})`} onClick={() => setView(i)} /></div>
                       <div className="stats-card-info">
                         <b>{name(s)}</b>
                         <span className="muted">Uploaded {fmtDate(s.uploadedAt)}</span>
@@ -209,7 +213,7 @@ export default function StatsView({ onAuthExpired, admin = false, topic }) {
           </div>
           <div className="stats-viewer-body" onClick={(e) => e.target === e.currentTarget && setView(-1)}>
             <button type="button" className="stats-nav prev" aria-label="Older image" disabled={view >= list.length - 1} onClick={() => setView(view + 1)}><ChevronLeft size={22} /></button>
-            <StatImg id={list[view].id} alt={`${name(list[view])} (uploaded ${fmtDate(list[view].uploadedAt)})`} className="stats-viewer-img" />
+            <StatImg key={list[view].id} image={list[view]} onStale={() => load()} alt={`${name(list[view])} (uploaded ${fmtDate(list[view].uploadedAt)})`} className="stats-viewer-img" />
             <button type="button" className="stats-nav next" aria-label="Newer image" disabled={view <= 0} onClick={() => setView(view - 1)}><ChevronRight size={22} /></button>
           </div>
         </div>

@@ -16,6 +16,7 @@ const usersRoutes = require("./routes/users");
 const settingsRoutes = require("./routes/settings");
 const fieldsRoutes = require("./routes/fields");
 const { requireSameOrigin } = require("./middleware/auth");
+const { imageOrigins } = require("./services/imagekit");
 const { clientIp } = require("./lib/clientIp");
 const { logError } = require("./services/audit");
 const { ACCESS_COOKIE, verifyAccess } = require("./services/auth");
@@ -48,7 +49,7 @@ app.use(
         scriptSrc: ["'self'", "https://accounts.google.com/gsi/client"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://accounts.google.com/gsi/style"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
-        imgSrc: ["'self'", "data:", "blob:", "https://*.googleusercontent.com"], // blob: = Stats images
+        imgSrc: ["'self'", "data:", "blob:", "https://*.googleusercontent.com", ...imageOrigins()], // ImageKit = Stats images
         connectSrc: ["'self'", "https://accounts.google.com/gsi/", ...realtimeOrigins],
         frameSrc: ["https://accounts.google.com/gsi/"],
         frameAncestors: ["'none'"], // nobody may show this site inside a frame (clickjacking)

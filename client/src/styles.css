@@ -1714,3 +1714,5 @@ dialog.purge-dlg { width: min(560px, calc(100vw - 32px)); }
 .stats-thumb .stat-img-btn { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
 .stats-thumb img { position: absolute; inset: 6px; width: calc(100% - 12px); height: calc(100% - 12px); object-fit: contain; }
 .stats-thumb .stat-img-loading, .stats-thumb .stat-img-missing { position: absolute; inset: 0; }
+/* Stats picture still downloading: a soft placeholder in its own shape (width/height attributes). */
+.stats-main-img.is-loading, .stats-viewer-img.is-loading { background: var(--surface-2, #f1f5f9); }
