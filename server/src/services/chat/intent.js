@@ -398,6 +398,36 @@ function cleanHistory(h) {
   return h.slice(-6).map((x) => ({ q: str(x && x.q, 500), intent: cleanIntent(x && x.intent) })).filter((x) => x.q);
 }
 
+/**
+ * Checks on the AI's query that the words of the question settle for certain:
+ *  - a Gmail address is used exactly as typed (the AI sometimes drops or adds a letter);
+ *  - "number of Jamiats assigned to X" / "Jamiats count of X" is X's own count, never "how many JCs".
+ */
+function fixQuery(intent, message) {
+  if (!intent || intent.intent !== "query") return intent;
+  const q = { ...intent, where: (intent.where || []).map((c) => ({ ...c })) };
+  const mails = (String(message).match(/[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+/gi) || []).map((m) => m.toLowerCase());
+  if (mails.length === 1) {
+    const c = q.where.find((w) => w.field === "email");
+    if (c) { c.value = mails[0]; if (!["is", "contains"].includes(c.op)) c.op = "is"; }
+    else if (q.dataset === "jcs" || q.dataset === "users") q.where.push({ field: "email", op: "is", value: mails[0] });
+  }
+  if (q.dataset === "jcs" || q.dataset === "users") {
+    const t = ` ${String(message).toLowerCase().replace(/[^a-z0-9@.]+/g, " ")} `;
+    const NUM = "(total )?(nu[a-z]{2,5} of|no of|count of|how many|total)";
+    for (const [word, col, list] of [["(jamiats?|jamaits?|jamiyats?)", "jamiat_count", "jamiats"], ["(jamaats?|jamats?)", "jamaat_count", "jamaats"], ["metrics?", "metric_count", "metrics"]]) {
+      if (new RegExp(` ${NUM} ${word} `).test(t) || new RegExp(` ${word} (count|total|number) `).test(t)) {
+        if (q.dataset === "jcs" || col !== "metric_count") {
+          q.fields = [...new Set(["name", ...(q.fields || []).filter((f) => f !== list), col])];
+          delete q.count_only;
+        }
+      }
+    }
+  }
+  if (!q.where.length) delete q.where;
+  return q;
+}
+
 async function readQuestion(user, message, history) {
   const cat = await catalog(user);
   if (config.groqApiKey) {
@@ -410,13 +440,15 @@ async function readQuestion(user, message, history) {
       if (intent.intent === "submission") intent = { ...intent, submitted: !NOT_YET.test(norm(message)) };
       // A follow-up like "give me gmail" that the AI didn't connect to the previous question.
       if (["unclear", "off_topic", "help"].includes(intent.intent)) { const f = followUpQuery(cat, message, history); if (f) return { intent: f, source: "ai" }; }
+      // The AI asked "did you mean …?" but the built-in reader understood every word: answer instead of asking.
+      if (intent.intent === "unclear" && basic.intent === "query") return { intent: fixQuery(basic, message), source: "basic" };
       // "Which Jamiat(s) …": the answer is by Jamiat, even if the AI left that out.
       if (["list", "count", "submission"].includes(intent.intent) && !intent.level && basic.level === "jamiat") intent = { ...intent, level: "jamiat" };
       // Safety net: if the AI calls it off-topic but the question clearly names this data, use the built-in reading.
       if (intent.intent === "off_topic") {
         if (!["off_topic", "unclear", "greeting", "help"].includes(basic.intent)) return { intent: basic, source: "basic" };
       }
-      return { intent, source: "ai" };
+      return { intent: fixQuery(intent, message), source: "ai" };
     } catch (err) {
       console.warn("[chat] Groq failed, using the built-in reader:", err.message);
       return { intent: basicIntent(cat, message, history), source: "basic", aiError: err.status === 429 ? "busy" : "failed" };
@@ -425,4 +457,4 @@ async function readQuestion(user, message, history) {
   return { intent: basicIntent(cat, message, history), source: "basic" };
 }
 
-module.exports = { readQuestion, cleanIntent, cleanHistory, basicIntent, catalog, systemPrompt };
+module.exports = { readQuestion, cleanIntent, cleanHistory, basicIntent, catalog, systemPrompt, fixQuery };
