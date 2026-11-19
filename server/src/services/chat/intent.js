@@ -290,7 +290,7 @@ function basicIntent(cat, message, history) {
   // Only a place name: about the place's data only when nothing points elsewhere ("weather in Mumbai" is not).
   if (!dataWords && (out.jamiat || out.jamaat) && has(t, OFF_WORDS)) return { intent: "off_topic" };
   if (!dataWords && !out.jamiat && !out.jamaat) return { intent: "off_topic" };
-  if (has(t, ["user", "users", "jc", "jcs", "who is", "assigned", "saheb", "admin", "metric", "metrics", "rating", "rated", "star", "stars", "handles", "handle", "handling"]) && !out.question) {
+  if ((/[a-z0-9._%+-]+@[a-z0-9-]+\.[a-z]/i.test(message) && !out.question) || has(t, ["user", "users", "jc", "jcs", "who is", "assigned", "saheb", "admin", "metric", "metrics", "rating", "rated", "star", "stars", "handles", "handle", "handling"]) && !out.question) {
     return basicPeople(t, out, cat, message);
   }
   if (has(t, ["comment", "comments", "remark", "remarks"])) return cleanIntent({ ...out, intent: "comments" });
@@ -367,7 +367,11 @@ function basicPeople(t, out, cat, message = "") {
   if ((m = eat(/ (whose )?(names? )?(contains?|containing) (the letter )?([a-z0-9]+) /))) where.push({ field: "name", op: "contains", value: m[5] });
   // A number ABOUT each JC ("total number of jamiats assigned to …") is a column, not "how many JCs".
   const countCols = [];
-  for (const [re, col] of [[/ (the )?(total )?(number of|no of|count of|how many|total) jamiats? /, "jamiat_count"], [/ (the )?(total )?(number of|no of|count of|how many|total) jamaats? /, "jamaat_count"], [/ (the )?(total )?(number of|no of|count of|how many|total) metrics? /, "metric_count"]]) if (eat(re)) countCols.push(col);
+  // "number" also as typed in a hurry (numebr, nubmer, numbr), and "jamiats count" / "count of jamiats".
+  const NUM = "(the )?(total )?(nu[a-z]{2,5} of|no of|count of|how many|total)";
+  for (const [word, col] of [["(jamiats?|jamaits?|jamiyats?)", "jamiat_count"], ["(jamaats?|jamats?)", "jamaat_count"], ["metrics?", "metric_count"]]) {
+    if (eat(new RegExp(` ${NUM} ${word} `)) || eat(new RegExp(` (the )?(total )?${word} (count|total|number) `))) countCols.push(col);
+  }
   if ((m = eat(/ (who|which jcs?|jcs?) (handles?|handling|looks? after|manages?|is in charge of) (the )?(.+?)( department| work)? $/))) where.push({ field: "metrics", op: "contains", value: m[4].trim() });
   if (eat(/ (most|highest|maximum|max) metrics? /)) { q.sort = { field: "metric_count", dir: "desc" }; q.limit = 1; }
   else if (eat(/ (least|fewest|lowest|minimum|min) metrics? /)) { q.sort = { field: "metric_count", dir: "asc" }; q.limit = 1; }

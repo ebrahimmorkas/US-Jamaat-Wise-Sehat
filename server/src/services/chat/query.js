@@ -396,12 +396,12 @@ function condition(c, ds, dsKey, rows = []) {
 }
 
 // ---------- show ----------
-function cell(row, key, field) {
+function cell(row, key, field, full = false) {
   const v = row[key];
   switch (field.type) {
     case "list": {
       const n = v || [];
-      return n.length > 6 ? `${n.slice(0, 6).join(", ")} +${n.length - 6} more` : n.join(", ") || "—";
+      return n.length > 6 && !full ? `${n.slice(0, 6).join(", ")} +${n.length - 6} more` : n.join(", ") || "—";
     }
     case "stars": return starsText(v);
     case "date": return v ? fmtDate(v) : "—";
@@ -549,15 +549,19 @@ async function runQuery(q, scope, user) {
     if (c === "name" && (dsKey === "jcs" || dsKey === "users") && !r.hasName && cols.includes("email")) return "(no name set)";
     return cell(r, c, ds.fields[c]);
   }));
-  if (asked.length && cols.length === 1 && rows.length === 1) {
-    // Say WHAT the number/value is and WHOSE it is ("Jamiats assigned to EBRAHIM MORKAS: 25"), not "JCs where …: 25".
-    const c = cols[0], r = rows[0];
+  // One thing, one value asked (the name/Gmail beside it don't count): answer in a sentence.
+  const valueCols = cols.filter((c) => c !== "name" && !(c === "email" && cols.length > 1));
+  if (asked.length && rows.length === 1 && (cols.length === 1 || (valueCols.length === 1 && !limited))) {
+    // Say WHAT the number/value is and WHOSE it is ("Jamiats assigned to EBRAHIM MORKAS: 25"), not "JCs where …: 1".
+    const c = cols.length === 1 ? cols[0] : valueCols[0], r = rows[0];
+    values[0] = [cell(r, c, ds.fields[c], true)];
     const who = ds.fields.name && c !== "name" && r.name && (dsKey !== "jcs" && dsKey !== "users" || r.hasName) ? r.name : null;
     if (who) {
       const label = ds.fields[c].label;
       const link = /assigned$/i.test(label) ? "to" : "of";
       return [...notes, text(`**${label} ${link} ${who}**: ${values[0][0]}`)];
     }
+    if (cols.length > 1) return [...notes, text(`**${ds.fields[c].label}** (the ${ds.one}${what.length ? ` where ${what.join(" and ")}` : ""}): ${values[0][0]}`)];
     return [...notes, text(`**${headTitle}**: ${values[0][0]}`)];
   }
   const capped = values.length > ROW_CAP;
