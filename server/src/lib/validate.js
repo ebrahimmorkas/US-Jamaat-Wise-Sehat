@@ -102,6 +102,24 @@ function parseComments(comments, fields) {
   return out;
 }
 
+/**
+ * "Date done" of monthly activities: only for an activity whose answer means done; optional.
+ * Returns { [activity key]: "YYYY-MM-DD" }.
+ */
+function parseDoneDates(dates, fields, answers) {
+  const src = dates && typeof dates === "object" ? dates : {};
+  const out = {};
+  for (const f of fields) {
+    if (!f.parentKey) continue;
+    const v = src[f.key];
+    if (v === undefined || v === null || v === "") continue;
+    const opt = f.options.find((o) => o.value === answers[f.key]);
+    if (!opt || opt.meaning !== "done") continue; // not done: no date kept
+    out[f.key] = parseDate(v, `The date done of ${f.label}`);
+  }
+  return out;
+}
+
 function parseRemarks(v) {
   const s = String(v == null ? "" : v).replace(/\r\n/g, "\n").trim();
   if (s.length > form.remarksMaxLength) throw new InputError(`Remarks are too long (max ${form.remarksMaxLength} characters).`);
@@ -118,4 +136,4 @@ function sendError(err, res, next, duplicateMessage = "This already exists.") {
   next(err);
 }
 
-module.exports = { InputError, isId, requireId, parseName, parseCount, parseJamaatDetails, parseValues, parseComments, parseRemarks, sendError };
+module.exports = { InputError, isId, requireId, parseName, parseCount, parseJamaatDetails, parseValues, parseComments, parseDoneDates, parseRemarks, sendError };

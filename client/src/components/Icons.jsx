@@ -28,3 +28,10 @@ export const FormIcon = () => <Svg><P d="M6 2h9l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1
 export const HistoryIcon = () => <Svg><P d="M13 3a9 9 0 0 0-9 9H1l4 4 4-4H6a7 7 0 1 1 2.1 5l-1.4 1.4A9 9 0 1 0 13 3zm-1 5v5l4.3 2.5.7-1.2-3.5-2.1V8H12z" /></Svg>;
 export const GridIcon = () => <Svg><P d="M3 3h8v8H3V3zm10 0h8v5h-8V3zM3 13h8v8H3v-8zm10-3h8v11h-8V10z" /></Svg>;
 export const PencilIcon = () => <Svg><P d="M3 17.3V21h3.8L17.8 9.9 14.1 6.2 3 17.3zM20.7 7a1 1 0 0 0 0-1.4l-2.3-2.3a1 1 0 0 0-1.4 0l-1.8 1.8 3.7 3.7L20.7 7z" /></Svg>;
+export const SparkIcon = ({ size = 22 }) => <Svg size={size}><P d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9L12 2zm7 11 .9 2.6 2.6.9-2.6.9L19 20l-.9-2.6-2.6-.9 2.6-.9L19 13zM5 15l.7 1.8 1.8.7-1.8.7L5 20l-.7-1.8-1.8-.7 1.8-.7L5 15z" /></Svg>;
+export const SendIcon = ({ size = 18 }) => <Svg size={size}><P d="M3 20.5 21 12 3 3.5 3 10l12 2-12 2z" /></Svg>;
+export const TableIcon = () => <Svg><P d="M3 4h18a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm1 5v4h6V9H4zm8 0v4h8V9h-8zm-8 6v3h6v-3H4zm8 0v3h8v-3h-8zM4 6v1h16V6H4z" /></Svg>;
+export const DownloadIcon = () => <Svg><P d="M11 3h2v9.2l3.3-3.3 1.4 1.4L12 16l-5.7-5.7 1.4-1.4 3.3 3.3V3zM4 18h16v2H4v-2z" /></Svg>;
+export const UploadIcon = () => <Svg><P d="M11 16h2V6.8l3.3 3.3 1.4-1.4L12 3 6.3 8.7l1.4 1.4L11 6.8V16zM4 18h16v2H4v-2z" /></Svg>;
+export const BriefcaseIcon = () => <Svg><P d="M9 3h6a2 2 0 0 1 2 2v2h3a2 2 0 0 1 2 2v4h-8v-1h-4v1H2V9a2 2 0 0 1 2-2h3V5a2 2 0 0 1 2-2zm0 4h6V5H9v2zM2 15h8v2h4v-2h8v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-4z" /></Svg>;
+export const ImageIcon = () => <Svg><P d="M4 3h16a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm0 2v10.6l4.3-4.3a1 1 0 0 1 1.4 0l3.3 3.3 2.3-2.3a1 1 0 0 1 1.4 0L20 15.6V5H4zm11.5 1.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4z" /></Svg>;

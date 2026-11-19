@@ -22,7 +22,20 @@ const ACTIONS = [
   "comments_viewed",      // opened the JC comments (Sahebo dashboard or JC dashboard)
   "entry_viewed",         // a JC opened a Jamaat's monthly form
   "audit_viewed",
-  "logs_deleted",         // a Super Admin permanently deleted logs (details: which, dates, counts)
+  "logs_deleted",
+  "chat_asked",           // a question to the assistant (the question and how it was read; not the answer)
+  "data_viewed",          // a JC opened the Data tab
+  "data_downloaded",      // the Data tab's Excel was downloaded
+  "data_uploaded",        // the Super Admin uploaded a new Data Excel file
+  "data_cleared",         // the Super Admin removed the uploaded data
+  "data_changed",         // a JC changed a dropdown cell on the Data tab
+  "data_choices_changed", // the Super Admin changed the Data dropdown choices
+  "metric_added",         // a JC added a metric (permanent work they handle)
+  "metric_updated",       // a JC changed a metric
+  "metric_deleted",       // a JC removed a metric
+  "stats_uploaded",       // the Super Admin uploaded a Stats image
+  "stats_deleted",        // the Super Admin removed a Stats image
+  "jc_rated",             // the Super Admin set / changed / cleared a JC's star rating
   // data changes (audit trail)
   "user_created",
   "user_updated",

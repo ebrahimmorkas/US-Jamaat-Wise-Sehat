@@ -34,18 +34,22 @@ async function dashboardData(month) {
   const m = month || currentMonth();
   const [masters, months] = await Promise.all([activeMasters(), availableMonths()]);
   const ids = masters.flatMap((j) => j.jamaats.map((jm) => jm._id));
-  const entries = await Entry.find({ month: m, jamaat: { $in: ids } }).select("jamaat values comments remarks updatedAt").lean();
+  const entries = await Entry.find({ month: m, jamaat: { $in: ids } }).select("jamaat values comments doneDates remarks updatedAt").lean();
   const byJamaat = new Map(entries.map((e) => [String(e.jamaat), e]));
 
-  const keys = (await dashboardMetrics(m)).map((x) => x.key);
+  const metrics = await dashboardMetrics(m);
+  const keys = metrics.map((x) => x.key);
+  const actKeys = metrics.filter((x) => x.parentKey).map((x) => x.key); // monthly activities (they can have a "date done")
   const jamiats = masters.map((j) => ({
     name: j.name,
     jamaats: j.jamaats.map((jm) => {
       const e = byJamaat.get(String(jm._id));
       const values = {};
       for (const k of keys) values[k] = (e && e.values && e.values[k]) || "";
+      const dates = {};
+      for (const k of actKeys) if (e && e.doneDates && e.doneDates[k]) dates[k] = e.doneDates[k];
       // `commented` = keys of the questions with a comment (the text is loaded only on request)
-      return { id: String(jm._id), name: jm.name, values, commented: commentedKeys(e), remarks: (e && e.remarks) || "", submittedAt: e ? e.updatedAt : null };
+      return { id: String(jm._id), name: jm.name, values, dates, commented: commentedKeys(e), remarks: (e && e.remarks) || "", submittedAt: e ? e.updatedAt : null };
     }),
   }));
 

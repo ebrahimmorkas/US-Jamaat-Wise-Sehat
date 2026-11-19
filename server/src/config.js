@@ -64,6 +64,25 @@ const config = {
     : process.env.NODE_ENV === "production" ? 4 : 0,
 
   auditRetentionDays: num(process.env.AUDIT_RETENTION_DAYS, 365),
+
+  // ---- Assistant (chat) ----
+  // Free Groq key (console.groq.com). It only reads the wording of questions; answers come from the
+  // database. Without a key, a simpler built-in reader is used.
+  groqApiKey: (process.env.GROQ_API_KEY || "").trim(),
+  groqModel: (process.env.GROQ_MODEL || "openai/gpt-oss-120b").trim(),
+  // Tried in this order when a model's free allowance is used up (Groq counts each model separately).
+  groqFallbackModels: (process.env.GROQ_FALLBACK_MODELS || "openai/gpt-oss-20b,qwen/qwen3.8-27b")
+    .split(",").map((s) => s.trim()).filter(Boolean),
+
+  // ---- Stats images (ImageKit, imagekit.io) ----
+  // Files are private; the server hands signed links that expire. The URL endpoint is optional
+  // (it is read from each upload's answer), but a full "https://ik.imagekit.io/<id>" is used for the CSP.
+  imagekit: {
+    privateKey: (process.env.IMAGEKIT_PRIVATE_KEY || "").trim(),
+    publicKey: (process.env.IMAGEKIT_PUBLIC_KEY || "").trim(),
+    urlEndpoint: (process.env.IMAGEKIT_URL_ENDPOINT || "").trim().replace(/\/+$/, ""),
+    folder: (process.env.IMAGEKIT_FOLDER || "/umoor-sehhat/stats").trim(),
+  },
 };
 
 // JWT secrets: required in production; a temporary random one is used in development.
