@@ -549,7 +549,17 @@ async function runQuery(q, scope, user) {
     if (c === "name" && (dsKey === "jcs" || dsKey === "users") && !r.hasName && cols.includes("email")) return "(no name set)";
     return cell(r, c, ds.fields[c]);
   }));
-  if (asked.length && cols.length === 1 && rows.length === 1) return [...notes, text(`**${headTitle}**: ${values[0][0]}`)];
+  if (asked.length && cols.length === 1 && rows.length === 1) {
+    // Say WHAT the number/value is and WHOSE it is ("Jamiats assigned to EBRAHIM MORKAS: 25"), not "JCs where …: 25".
+    const c = cols[0], r = rows[0];
+    const who = ds.fields.name && c !== "name" && r.name && (dsKey !== "jcs" && dsKey !== "users" || r.hasName) ? r.name : null;
+    if (who) {
+      const label = ds.fields[c].label;
+      const link = /assigned$/i.test(label) ? "to" : "of";
+      return [...notes, text(`**${label} ${link} ${who}**: ${values[0][0]}`)];
+    }
+    return [...notes, text(`**${headTitle}**: ${values[0][0]}`)];
+  }
   const capped = values.length > ROW_CAP;
   return [...notes, text(`**${headTitle}**${limited && sortWords ? ":" : `: ${rows.length}.`}`),
     { type: "table", columns: cols.map((c) => ds.fields[c].label), rows: values.slice(0, ROW_CAP), ...(capped ? { note: `Showing the first ${ROW_CAP} of ${values.length}.` } : {}) }];
