@@ -8,6 +8,8 @@ const num = (v, fallback) => {
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 };
 
+const list = (v, fallback) => String(v || fallback).split(",").map((s) => s.trim().toLowerCase().replace(/^\./, "")).filter(Boolean);
+
 const config = {
   port: num(process.env.PORT, 5000),
   isProduction: process.env.NODE_ENV === "production",
@@ -82,6 +84,29 @@ const config = {
     publicKey: (process.env.IMAGEKIT_PUBLIC_KEY || "").trim(),
     urlEndpoint: (process.env.IMAGEKIT_URL_ENDPOINT || "").trim().replace(/\/+$/, ""),
     folder: (process.env.IMAGEKIT_FOLDER || "/umoor-sehhat/stats").trim(),
+  },
+
+  // ---- Forms (built by the Super Admin, filled by Jamaat Coordinators) ----
+  forms: {
+    // Signs the personal links (the Gmail inside a link can't be changed). Empty = derived from
+    // JWT_ACCESS_SECRET (so changing that also invalidates old personal links).
+    linkSecret: (process.env.FORMS_LINK_SECRET || "").trim(),
+    // Website address used to build form links, e.g. https://your-site.vercel.app (empty = the first CORS_ORIGIN).
+    publicUrl: (process.env.FORMS_PUBLIC_URL || "").trim().replace(/\/+$/, ""),
+    folder: (process.env.IMAGEKIT_FORMS_FOLDER || "/umoor-sehhat/forms").trim(),
+    // Upper limits for uploads (the Super Admin can set lower limits on each field, never higher).
+    // The server holds each upload in memory while sending it to ImageKit: keep these modest on small servers.
+    maxMb: {
+      image: num(process.env.FORMS_MAX_IMAGE_MB, 10) || 10,
+      video: num(process.env.FORMS_MAX_VIDEO_MB, 50) || 50,
+      file: num(process.env.FORMS_MAX_FILE_MB, 10) || 10,
+    },
+    // Extensions that may be allowed at all (the Super Admin picks from these per field).
+    extensions: {
+      image: list(process.env.FORMS_IMAGE_EXTENSIONS, "jpg,jpeg,png,webp,gif,heic"),
+      video: list(process.env.FORMS_VIDEO_EXTENSIONS, "mp4,mov,webm,m4v,3gp"),
+      file: list(process.env.FORMS_FILE_EXTENSIONS, "pdf,doc,docx,xls,xlsx,csv,ppt,pptx,txt"),
+    },
   },
 };
 

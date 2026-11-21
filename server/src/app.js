@@ -26,6 +26,8 @@ const chatRoutes = require("./routes/chat");
 const dataRoutes = require("./routes/data");
 const metricsRoutes = require("./routes/metrics");
 const statsRoutes = require("./routes/stats");
+const formsRoutes = require("./routes/forms");
+const formFillRoutes = require("./routes/formFill");
 const { notifyOnSuccess } = require("./realtime");
 const { TOPICS, EVENTS } = require("./realtime/topics");
 
@@ -49,7 +51,8 @@ app.use(
         scriptSrc: ["'self'", "https://accounts.google.com/gsi/client"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://accounts.google.com/gsi/style"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
-        imgSrc: ["'self'", "data:", "blob:", "https://*.googleusercontent.com", ...imageOrigins()], // ImageKit = Stats images
+        imgSrc: ["'self'", "data:", "blob:", "https://*.googleusercontent.com", ...imageOrigins()], // ImageKit = Stats images, form images
+        mediaSrc: ["'self'", "blob:", ...imageOrigins()], // videos chosen / uploaded on forms
         connectSrc: ["'self'", "https://accounts.google.com/gsi/", ...realtimeOrigins],
         frameSrc: ["https://accounts.google.com/gsi/"],
         frameAncestors: ["'none'"], // nobody may show this site inside a frame (clickjacking)
@@ -62,6 +65,8 @@ app.use(
 );
 app.use(compression());
 app.use(cors({ origin: config.corsOrigins, methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], credentials: true }));
+// Forms: a big form (up to 150 questions) or long answers need more room than the rest of the API.
+app.use(["/api/forms", "/api/f"], express.json({ limit: "1mb" }));
 app.use(express.json({ limit: "100kb" })); // a JC with "All" Jamaats sends ~470 ids
 app.use(cookieParser());
 
@@ -78,7 +83,9 @@ app.use("/api/audit", auditRoutes);
 app.use("/api/logs", logsRoutes);
 app.use("/api/realtime", realtimeRoutes);
 app.use("/api/chat", chatRoutes); // the assistant (every role; data limited by role)
-app.use("/api/stats", statsRoutes); // Stats image (Super Admin uploads; every portal sees it + history)
+app.use("/api/stats", statsRoutes);
+app.use("/api/forms", formsRoutes); // forms the Super Admin builds; JC links; a Coordinator's "My forms"
+app.use("/api/f", formFillRoutes); // filling a form (sign-in depends on the form) // Stats image (Super Admin uploads; every portal sees it + history)
 app.use("/api/metrics", metricsRoutes); // JC metrics (JC writes their own; Saheb / Super Admin read)
 app.use("/api/data", dataRoutes); // Data tab (Excel upload by Super Admin; JCs see their Jamaats)
 app.use("/api/portal", portalRoutes); // publishes its own live update (with the month)

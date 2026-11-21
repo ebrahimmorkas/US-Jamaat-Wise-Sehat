@@ -36,6 +36,15 @@ const ACTIONS = [
   "stats_uploaded",       // the Super Admin uploaded a Stats image
   "stats_deleted",        // the Super Admin removed a Stats image
   "jc_rated",             // the Super Admin set / changed / cleared a JC's star rating
+  "form_created",         // the Super Admin created a form
+  "form_updated",         // ... changed its settings / questions / top image
+  "form_status_changed",  // Draft / Testing / Published / Closed
+  "form_deleted",         // status "D" (kept, restorable)
+  "form_restored",
+  "form_links_downloaded",// the Excel of personal links
+  "form_test_cleared",    // responses filled while testing were removed
+  "form_submitted",       // someone filled a form
+  "form_response_edited", // ... and changed their response
   // data changes (audit trail)
   "user_created",
   "user_updated",

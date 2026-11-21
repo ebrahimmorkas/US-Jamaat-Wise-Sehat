@@ -16,6 +16,7 @@ async function main() {
   server.listen(config.port, () => {
     console.log(`[http] API listening on http://localhost:${config.port}`);
     startKeepAlive(); // Render free plan: ping our own public address so the server never sleeps
+    require("./routes/formFill").startUploadCleanup(); // form files never sent with a response
   });
 
   const shutdown = (signal) => {
