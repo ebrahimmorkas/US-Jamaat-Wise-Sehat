@@ -8,6 +8,7 @@ import { AuthError, isServerStarting, portalComments, portalSummary } from "./li
 import { useRealtime, useRealtimeStatus } from "./hooks/useRealtime";
 import { navigate } from "./lib/router";
 import { pct, plural, same } from "./lib/helpers";
+import FormLinksPanel from "./components/FormLinksPanel";
 
 export const JC_NAV = [
   { to: "/jc-portal/stats", label: "Stats", icon: <ImageIcon /> },
@@ -192,6 +193,7 @@ export default function JcDashboard({ user, onSignOut, onAuthExpired, theme, onT
         </section>
 
         {error && <Notice type={data ? "error" : "info"} text={error} onClose={data ? () => setError("") : undefined} />}
+        <FormLinksPanel />
 
         {!data ? (
           !error && <div className="panel portal-empty">Loading…</div>

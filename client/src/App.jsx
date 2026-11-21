@@ -8,6 +8,8 @@ import JcMetrics from "./JcMetrics";
 import SahebMetrics from "./SahebMetrics";
 import SahebStats from "./SahebStats";
 import JcStats from "./JcStats";
+import MyForms from "./MyForms";
+import FormFillPage from "./FormFillPage";
 import ErrorPage from "./ErrorPage";
 import AccessDenied from "./AccessDenied";
 import LoginPage from "./components/LoginPage";
@@ -21,10 +23,11 @@ import { reportClientError } from "./lib/api";
 
 // Everyone signs in with Google; each role has its own home:
 //   Saheb -> "/" (dashboard)   Super Admin -> "/admin/..."   JC -> "/jc-portal" (their dashboard) + "/jc-portal/form"
-const homeOf = (role) => ({ superadmin: "/admin/users", jc: "/jc-portal/stats" }[role] || "/"); // JC: Stats first
+const homeOf = (role) => ({ superadmin: "/admin/users", jc: "/jc-portal/stats", jamaat_coordinator: "/forms" }[role] || "/"); // JC: Stats first
 const isJcPage = (path) => path === "/jc-portal" || path.startsWith("/jc-portal/");
 const belongsTo = (role, path) =>
-  role === "superadmin" ? path.startsWith("/admin/") : role === "jc" ? isJcPage(path) : !path.startsWith("/admin") && !isJcPage(path);
+  role === "superadmin" ? path.startsWith("/admin/") : role === "jc" ? isJcPage(path) : role === "jamaat_coordinator" ? path === "/forms"
+    : !path.startsWith("/admin") && !isJcPage(path) && path !== "/forms";
 // Pages that belong to a role. Opening one with another role shows "Access denied" (and is logged);
 // any other address (e.g. "/") just takes the user to their own home.
 const isRestrictedPage = (path) => path.startsWith("/admin") || isJcPage(path);
@@ -68,7 +71,9 @@ export default function App() {
   return (
     <>
       <ErrorBoundary resetKey={path} onError={showError} fallback={<ErrorPage theme={theme} onToggleTheme={toggle} />}>
-        {path === "/error" ? <ErrorPage theme={theme} onToggleTheme={toggle} /> : <Main path={path} theme={theme} onToggleTheme={toggle} />}
+        {path === "/error" ? <ErrorPage theme={theme} onToggleTheme={toggle} />
+          : /^\/f\/[a-f0-9]{24}$/.test(path) ? <FormFillPage id={path.slice(3)} theme={theme} onToggleTheme={toggle} /> // a form: sign-in depends on the form
+          : <Main path={path} theme={theme} onToggleTheme={toggle} />}
       </ErrorBoundary>
       <ConfirmHost />
     </>
@@ -128,14 +133,15 @@ function Main({ path, theme, onToggleTheme }) {
       : path === "/jc-portal/metrics" ? <JcMetrics key={auth.user.id} {...common} />
       : path === "/jc-portal/stats" ? <JcStats key={auth.user.id} {...common} />
       : <JcDashboard key={auth.user.id} {...common} />;
-  } else page = path === "/jc-metrics" ? <SahebMetrics key={auth.user.id} {...common} />
+  } else if (role === "jamaat_coordinator") page = <MyForms key={auth.user.id} {...common} />;
+  else page = path === "/jc-metrics" ? <SahebMetrics key={auth.user.id} {...common} />
     : path === "/stats" ? <SahebStats key={auth.user.id} {...common} />
     : <Dashboard key={auth.user.id} {...common} />;
   return (
     <>
       {page}
-      {/* The assistant, on every portal (answers limited to what this role may see). */}
-      <ChatWidget key={`chat-${auth.user.id}`} user={auth.user} onAuthExpired={auth.expire} raised={path === "/jc-portal/form"} />
+      {/* The assistant, on every portal except the Jamaat Coordinator's (answers limited to what this role may see). */}
+      {role !== "jamaat_coordinator" && <ChatWidget key={`chat-${auth.user.id}`} user={auth.user} onAuthExpired={auth.expire} raised={path === "/jc-portal/form"} />}
     </>
   );
 }

@@ -12,6 +12,7 @@ const ROLES = [
   { key: "jc", label: "JC", hint: "Fills the JC portal for the Jamiats / Jamaats assigned below" },
   { key: "saheb", label: "Saheb", hint: "Sees the Sahebo dashboard" },
   { key: "superadmin", label: "Super Admin", hint: "Manages users, masters and portal fields" },
+  { key: "jamaat_coordinator", label: "Jamaat Coordinator", hint: "Fills the forms built on the Forms page. One Coordinator per Jamaat." },
 ];
 const roleLabel = (k) => (ROLES.find((r) => r.key === k) || { label: k }).label;
 
@@ -61,7 +62,7 @@ export default function Users({ onAuthExpired }) {
     jamiats: active.jamiats.map((j) => j.id),  // by default everything is selected
     jamaats: active.jamaats.map((jm) => jm.id),
   }), [active]);
-  const newForm = useCallback(() => ({ id: "", email: "", role: "jc", ...allAccess() }), [allAccess]);
+  const newForm = useCallback(() => ({ id: "", email: "", role: "jc", jamaat: "", isTester: false, ...allAccess() }), [allAccess]);
 
   useEffect(() => { if (active && !form) setForm(newForm()); }, [active, form, newForm]);
 
@@ -101,12 +102,19 @@ export default function Users({ onAuthExpired }) {
 
   const editing = form.id ? users.find((u) => u.id === form.id) : null;
   const isJc = form.role === "jc";
+  const isCoord = form.role === "jamaat_coordinator";
+  // Jamaats that already have a Coordinator (someone else).
+  const coordOf = new Map(users.filter((u) => u.role === "jamaat_coordinator" && !u.deleted && u.jamaat && u.id !== form.id).map((u) => [u.jamaat, u.email]));
 
   const submit = async (e) => {
     e.preventDefault();
     const email = form.email.trim().toLowerCase();
     if (!looksLikeGmail(email)) return setMsg({ type: "error", text: "Enter a Gmail address (ending in @gmail.com)." });
-    const body = { email, role: form.role };
+    const body = { email, role: form.role, isTester: !!form.isTester };
+    if (isCoord) {
+      if (!form.jamaat) return setMsg({ type: "error", text: "Choose the Jamaat this Coordinator is for." });
+      body.jamaat = form.jamaat;
+    }
 
     if (isJc) {
       if (!form.jamiats.length) return setMsg({ type: "error", text: "Choose at least one Jamiat." });
@@ -145,7 +153,7 @@ export default function Users({ onAuthExpired }) {
           jamaats: u.jamaats.filter((id) => active.jamaats.some((jm) => jm.id === id)),
         }
       : allAccess(); // if the role is changed to JC, start from All
-    setForm({ id: u.id, email: u.email, role: u.role, ...access });
+    setForm({ id: u.id, email: u.email, role: u.role, jamaat: u.jamaat || "", isTester: !!u.isTester, ...access });
     setMsg(null);
     formRef.current && formRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
   };
@@ -169,6 +177,10 @@ export default function Users({ onAuthExpired }) {
 
   // "All Jamiats · All Jamaats" / "AHMEDABAD · 12 of 26 Jamaats" / "3 Jamiats · 40 Jamaats"
   const accessText = (u) => {
+    if (u.role === "jamaat_coordinator") {
+      const jm = active.jamaats.find((x) => x.id === u.jamaat);
+      return jm ? { text: `${jm.name} · ${active.jamiatName.get(jm.jamiatId)}`, title: "" } : { text: "No Jamaat — click Edit", title: "" };
+    }
     if (u.role !== "jc") return { text: "—", title: "" };
     const jIds = u.jamiats.filter((id) => active.jamiatName.has(id));
     const mIds = u.jamaats.filter((id) => active.jamaats.some((jm) => jm.id === id && jIds.includes(jm.jamiatId)));
@@ -190,7 +202,7 @@ export default function Users({ onAuthExpired }) {
       <section className="page-head">
         <div className="page-title">
           <h1>Users</h1>
-          <p className="page-sub">Everyone signs in with Google. Only the Gmail addresses listed here can sign in. {plural(countOf("jc"), "JC")} · {plural(countOf("saheb"), "Saheb")} · {plural(countOf("superadmin"), "Super Admin")}.</p>
+          <p className="page-sub">Everyone signs in with Google. Only the Gmail addresses listed here can sign in. {plural(countOf("jc"), "JC")} · {plural(countOf("saheb"), "Saheb")} · {plural(countOf("superadmin"), "Super Admin")} · {plural(countOf("jamaat_coordinator"), "Jamaat Coordinator")}.</p>
         </div>
       </section>
 
@@ -226,6 +238,24 @@ export default function Users({ onAuthExpired }) {
                 selected={form.jamaats} onChange={(v) => setForm({ ...form, jamaats: v })} />
             </>
           )}
+          {isCoord && (
+            <label className="field">
+              <span className="field-label">Jamaat</span>
+              <select value={form.jamaat} onChange={(e) => setForm({ ...form, jamaat: e.target.value })}>
+                <option value="">Choose the Jamaat…</option>
+                {active.jamiats.map((j) => (
+                  <optgroup key={j.id} label={j.name}>
+                    {(active.jamaatsOf.get(j.id) || []).map((jm) => (
+                      <option key={jm.id} value={jm.id} disabled={coordOf.has(jm.id)}>{jm.name}{coordOf.has(jm.id) ? ` — has ${coordOf.get(jm.id)}` : ""}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="check tester-check" title="Testers can fill forms while they are in Testing">
+            <input type="checkbox" checked={!!form.isTester} onChange={(e) => setForm({ ...form, isTester: e.target.checked })} /> Form tester
+          </label>
           <div className="user-form-actions">
             {editing && <button type="button" className="btn btn-ghost" onClick={() => setForm(newForm())}>Cancel</button>}
             <button type="submit" className="btn btn-primary" disabled={busy}>{editing ? "Save changes" : "Add user"}</button>
@@ -270,7 +300,7 @@ export default function Users({ onAuthExpired }) {
                       {u.name && <small className="user-sub">{u.name}</small>}
                       {self && <small className="user-sub">(you)</small>}
                     </td>
-                    <td data-label="Role"><span className={`pill role-${u.role}`}>{roleLabel(u.role)}</span></td>
+                    <td data-label="Role"><span className={`pill role-${u.role}`}>{roleLabel(u.role)}</span>{u.isTester && <span className="pill warn tester-pill" title="Can fill forms in Testing">Tester</span>}</td>
                     <td data-label="Status">{u.deleted ? <span className="pill bad" title={deletedLine(u)}>Deleted (D)</span> : u.isActive ? <span className="pill good">Active</span> : <span className="pill na">Inactive</span>}</td>
                     <td className="access wide" data-label="Assigned" title={a.title}>{a.text}</td>
                     <td className="muted wide" data-label="Last sign-in">{u.lastLoginAt ? fmtDate(u.lastLoginAt) : "Never"}</td>

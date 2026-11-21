@@ -14,7 +14,9 @@ export class ApiError extends Error {
 export class AuthError extends ApiError {}
 
 // file: a File sent as the request body (Excel upload); blob: the answer is a file ({ blob, name }).
-async function raw(path, { method = "GET", body, file, blob } = {}) {
+// headers: extra request headers. onProgress(0..1): upload progress (uses XMLHttpRequest).
+async function raw(path, { method = "GET", body, file, blob, headers: extra, onProgress } = {}) {
+  if (file && onProgress) return rawWithProgress(path, { method, file, extra, onProgress });
   let res;
   try {
     res = await fetch(API_BASE + path, {
@@ -25,6 +27,7 @@ async function raw(path, { method = "GET", body, file, blob } = {}) {
         "X-Requested-With": "fetch",
         ...(body ? { "Content-Type": "application/json" } : {}),
         ...(file ? { "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(file.name || "") } : {}),
+        ...(extra || {}),
       },
       body: file || (body ? JSON.stringify(body) : undefined),
     });
@@ -41,6 +44,7 @@ async function raw(path, { method = "GET", body, file, blob } = {}) {
   try { data = await res.json(); } catch { /* not JSON */ }
   if (!res.ok) {
     const err = new ApiError((data && data.error) || `Server error (${res.status})`, res.status, data && data.code);
+    err.data = data; // e.g. a form's { problems } or { startAt }
     // A server error (already saved in the error log) -> Error page with its reference.
     if (res.status === 500 && data && data.code === "SERVER_ERROR") {
       err.ref = data.ref;
@@ -53,6 +57,29 @@ async function raw(path, { method = "GET", body, file, blob } = {}) {
     throw err;
   }
   return data;
+}
+
+// Upload with a progress bar (fetch can't report upload progress).
+function rawWithProgress(path, { method, file, extra, onProgress }) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open(method, API_BASE + path);
+    x.withCredentials = true;
+    x.setRequestHeader("Accept", "application/json");
+    x.setRequestHeader("X-Requested-With", "fetch");
+    x.setRequestHeader("Content-Type", "application/octet-stream");
+    x.setRequestHeader("X-File-Name", encodeURIComponent(file.name || ""));
+    for (const [k, v] of Object.entries(extra || {})) x.setRequestHeader(k, v);
+    x.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+    x.onerror = () => reject(new ApiError("Can't reach the server. Check your internet connection.", 0, "NETWORK"));
+    x.onload = () => {
+      let data = null;
+      try { data = JSON.parse(x.responseText); } catch { /* not JSON */ }
+      if (x.status >= 200 && x.status < 300) return resolve(data);
+      reject(new ApiError((data && data.error) || (x.status === 413 ? "The file is too large." : `Server error (${x.status})`), x.status, data && data.code));
+    };
+    x.send(file);
+  });
 }
 
 /** Saves a website crash in the error log; resolves to its reference (or "" if it couldn't be sent). */
@@ -217,3 +244,33 @@ export const createJamaat = (body) => request("/api/masters/jamaats", { method: 
 export const updateJamaat = (id, body) => request(`/api/masters/jamaats/${id}`, { method: "PATCH", body });
 export const deleteJamaat = (id) => request(`/api/masters/jamaats/${id}`, { method: "DELETE" });
 export const restoreJamaat = (id) => request(`/api/masters/jamaats/${id}/restore`, { method: "POST" });
+
+// ---- Forms (Super Admin builds; JCs share links; Jamaat Coordinators fill) ----
+export const formsList = () => request("/api/forms");
+export const formGet = (id) => request(`/api/forms/${id}`);
+export const formCreate = (body) => request("/api/forms", { method: "POST", body });
+export const formSave = (id, body) => request(`/api/forms/${id}`, { method: "PUT", body });
+export const formStatus = (id, status) => request(`/api/forms/${id}/status`, { method: "POST", body: { status } });
+export const formTopImage = (id, file) => request(`/api/forms/${id}/top-image`, { method: "POST", file });
+export const formTopImageRemove = (id) => request(`/api/forms/${id}/top-image`, { method: "DELETE" });
+export const formLinkFor = (id, email) => request(`/api/forms/${id}/link?email=${encodeURIComponent(email)}`);
+export const formClearTests = (id) => request(`/api/forms/${id}/test-responses`, { method: "DELETE" });
+export const formDelete = (id) => request(`/api/forms/${id}`, { method: "DELETE" });
+export const formRestore = (id) => request(`/api/forms/${id}/restore`, { method: "POST" });
+export async function formLinksExcel(id) {
+  const { blob, name } = await request(`/api/forms/${id}/links.xlsx`, { blob: true });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+export const jcFormLinks = () => request("/api/forms/jc-links");
+export const myForms = () => request("/api/forms/mine");
+
+// Filling (works signed in or not; `t` = personal link token, editKey = this browser's key for "anyone" forms).
+const tq = (t) => (t ? `t=${encodeURIComponent(t)}` : "");
+export const fillGet = (id, t, editKey) => raw(`/api/f/${id}${t ? `?${tq(t)}` : ""}`, { headers: editKey ? { "X-Edit-Key": editKey } : undefined });
+export const fillUpload = (id, field, t, file, onProgress) =>
+  raw(`/api/f/${id}/upload?field=${encodeURIComponent(field)}${t ? `&${tq(t)}` : ""}`, { method: "POST", file, onProgress });
+export const fillSubmit = (id, body) => raw(`/api/f/${id}/submit`, { method: "POST", body });
