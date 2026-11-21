@@ -282,6 +282,12 @@ export async function resultsExcel(code, p) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 export const myForms = () => request("/api/forms/mine");
+// Jamaat Coordinator portal (only their own data).
+export const coordResponses = () => request("/api/coordinator/responses");
+export const coordNotifications = () => request("/api/coordinator/notifications");
+export const coordUnread = () => request("/api/coordinator/unread");
+export const coordMarkRead = (id) => request("/api/coordinator/notifications/read", { method: "POST", body: id ? { id } : {} });
+export const coordProfile = () => request("/api/coordinator/profile");
 
 // Filling (works signed in or not; `t` = personal link token, editKey = this browser's key for "anyone" forms).
 const tq = (t) => (t ? `t=${encodeURIComponent(t)}` : "");

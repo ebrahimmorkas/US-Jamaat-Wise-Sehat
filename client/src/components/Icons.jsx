@@ -35,3 +35,6 @@ export const DownloadIcon = () => <Svg><P d="M11 3h2v9.2l3.3-3.3 1.4 1.4L12 16l-
 export const UploadIcon = () => <Svg><P d="M11 16h2V6.8l3.3 3.3 1.4-1.4L12 3 6.3 8.7l1.4 1.4L11 6.8V16zM4 18h16v2H4v-2z" /></Svg>;
 export const BriefcaseIcon = () => <Svg><P d="M9 3h6a2 2 0 0 1 2 2v2h3a2 2 0 0 1 2 2v4h-8v-1h-4v1H2V9a2 2 0 0 1 2-2h3V5a2 2 0 0 1 2-2zm0 4h6V5H9v2zM2 15h8v2h4v-2h8v4a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-4z" /></Svg>;
 export const ImageIcon = () => <Svg><P d="M4 3h16a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm0 2v10.6l4.3-4.3a1 1 0 0 1 1.4 0l3.3 3.3 2.3-2.3a1 1 0 0 1 1.4 0L20 15.6V5H4zm11.5 1.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4z" /></Svg>;
+export const BellIcon = () => <Svg><P d="M12 22a2.5 2.5 0 0 0 2.5-2.5h-5A2.5 2.5 0 0 0 12 22zm7-6V11a7 7 0 0 0-5.5-6.8V3a1.5 1.5 0 0 0-3 0v1.2A7 7 0 0 0 5 11v5l-2 2v1h18v-1l-2-2z" /></Svg>;
+export const HomeIcon = () => <Svg><P d="M12 3 2 12h3v8h6v-6h2v6h6v-8h3L12 3z" /></Svg>;
+export const UserIcon = () => <Svg><P d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm0 2c-4.4 0-9 2.2-9 5v3h18v-3c0-2.8-4.6-5-9-5z" /></Svg>;

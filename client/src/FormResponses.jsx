@@ -91,7 +91,7 @@ function FilledAnswer({ f, v }) {
 }
 
 /** One response, shown like the form the person filled. */
-function ResponseView({ form, row, n, total, onPrev, onNext, onClose }) {
+export function ResponseView({ form, row, n, total, onPrev, onNext, onClose }) {
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === "Escape") onClose();

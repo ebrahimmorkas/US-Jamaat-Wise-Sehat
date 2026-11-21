@@ -11,15 +11,14 @@ const { isDbReady } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const Form = require("../models/Form");
 const FormResponse = require("../models/FormResponse");
-const FormUpload = require("../models/FormUpload");
 const User = require("../models/User");
 const Jamaat = require("../models/Jamaat");
 const Jamiat = require("../models/Jamiat");
 const { audit } = require("../services/audit");
 const { InputError, sendError } = require("../lib/validate");
 const { notDeleted } = require("../lib/softDelete");
-const storage = require("../services/imagekit");
 const F = require("../services/forms");
+const { layoutOf, topImageOf, responsesOut } = require("../services/formOut");
 
 const router = express.Router();
 router.use(requireAuth, requireRole("superadmin", "saheb", "jc"), (req, res, next) => {
@@ -66,12 +65,6 @@ router.get("/", async (req, res, next) => {
 
 /** Questions shown as columns: every non-layout question, plus hidden ones (they keep their answers). */
 const columnsOf = (form) => form.fields.filter((x) => !F.TYPES[x.type].layout).map((x) => ({ key: x.key, label: x.label, type: x.type, hidden: !!x.hidden, max: x.max }));
-/** The whole form as people saw it (headings, help, choices), to show one response like the filled form. */
-const layoutOf = (form) => form.fields.map((x) => ({
-  key: x.key, type: x.type, label: x.label, help: x.help || "", required: !!x.required, hidden: !!x.hidden,
-  options: x.options ? x.options.map((o) => o.label) : undefined, max: x.max,
-}));
-
 /** The responses this person may see, with names and file links. */
 async function loadRows(req, form, q) {
   const match = { form: form._id, ...(await scopeOf(req)) };
@@ -86,27 +79,7 @@ async function loadRows(req, form, q) {
     }
   }
   const list = await FormResponse.find(match).sort({ createdAt: -1 }).limit(20000).lean();
-  const jms = await Jamaat.find({ _id: { $in: [...new Set(list.map((r) => String(r.jamaat)).filter((x) => x !== "null"))] } }).select("name").lean();
-  const jts = await Jamiat.find({ _id: { $in: [...new Set(list.map((r) => String(r.jamiat)).filter((x) => x !== "null"))] } }).select("name").lean();
-  const jmName = new Map(jms.map((x) => [String(x._id), x.name]));
-  const jtName = new Map(jts.map((x) => [String(x._id), x.name]));
-  const ups = await FormUpload.find({ response: { $in: list.map((r) => r._id) } }).select("url endpoint name size type").lean();
-  const upOf = new Map(ups.map((u) => [String(u._id), u]));
-  const hours = q.excel ? 24 * 7 : undefined; // links in an Excel file work for 7 days
-  return list.map((r) => {
-    const answers = {};
-    for (const [k, v] of Object.entries(r.answers || {})) {
-      if (Array.isArray(v) && v.length && v[0] && typeof v[0] === "object" && v[0].upload) {
-        answers[k] = v.map((x) => { const u = upOf.get(String(x.upload)); return { name: x.name, size: x.size, type: x.type, url: u ? storage.signedUrl(u, hours) : "" }; });
-      } else answers[k] = v;
-    }
-    return {
-      submittedAt: r.createdAt, editedAt: r.editedAt || null, edits: r.edits || 0,
-      email: r.email || "", name: r.name || "", verified: !!r.verified, via: r.via,
-      jamiat: jtName.get(String(r.jamiat)) || "", jamaat: jmName.get(String(r.jamaat)) || "",
-      answers,
-    };
-  });
+  return responsesOut(list, { hours: q.excel ? 24 * 7 : undefined }); // links in an Excel file work for 7 days
 }
 
 router.get("/:code", async (req, res, next) => {
@@ -119,7 +92,7 @@ router.get("/:code", async (req, res, next) => {
     for (const r of all) if (r.jamiat) (places[r.jamiat] = places[r.jamiat] || new Set()).add(r.jamaat);
     res.json({
       form: { id: form.code, title: form.title, description: form.description || "", status: form.stage, state: F.stateOf(form), startAt: form.startAt, endAt: form.endAt, columns: columnsOf(form),
-        fields: layoutOf(form), topImage: form.topImage && form.topImage.url ? storage.signedUrl(form.topImage) : "" },
+        fields: layoutOf(form), topImage: topImageOf(form) },
       rows,
       total: all.length,
       places: Object.keys(places).sort().map((j) => ({ jamiat: j, jamaats: [...places[j]].sort() })),

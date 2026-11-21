@@ -138,7 +138,7 @@ router.get("/mine", requireRole("jamaat_coordinator"), async (req, res, next) =>
       forms: forms.map((f) => {
         const u = usedOf(f);
         return {
-          id: String(f._id), title: f.title, description: (f.description || "").slice(0, 300), startAt: f.startAt, endAt: f.endAt,
+          id: f.code, title: f.title, description: (f.description || "").slice(0, 300), startAt: f.startAt, endAt: f.endAt,
           status: f.stage, state: F.stateOf(f), maxPerPerson: f.maxPerPerson, allowEdit: !!f.allowEdit,
           filled: u.n, lastFilled: u.last || null,
           link: linkFor(f, me.email), // their own link (personal forms: with their Gmail inside)

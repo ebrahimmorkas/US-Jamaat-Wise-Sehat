@@ -11,7 +11,7 @@ import FormResponses from "./FormResponses";
 import { SAHEB_NAV } from "./Dashboard";
 import { JC_NAV } from "./JcDashboard";
 import JcStats from "./JcStats";
-import MyForms from "./MyForms";
+import CoordinatorPortal, { COORD_HOME, isCoordPage } from "./CoordinatorPortal";
 import FormFillPage from "./FormFillPage";
 import ErrorPage from "./ErrorPage";
 import AccessDenied from "./AccessDenied";
@@ -26,14 +26,15 @@ import { reportClientError } from "./lib/api";
 
 // Everyone signs in with Google; each role has its own home:
 //   Saheb -> "/" (dashboard)   Super Admin -> "/admin/..."   JC -> "/jc-portal" (their dashboard) + "/jc-portal/form"
-const homeOf = (role) => ({ superadmin: "/admin/users", jc: "/jc-portal/stats", jamaat_coordinator: "/forms" }[role] || "/"); // JC: Stats first
+//   Jamaat Coordinator -> "/coordinator" (Home, My forms, My responses, Notifications, Profile)
+const homeOf = (role) => ({ superadmin: "/admin/users", jc: "/jc-portal/stats", jamaat_coordinator: COORD_HOME }[role] || "/"); // JC: Stats first
 const isJcPage = (path) => path === "/jc-portal" || path.startsWith("/jc-portal/");
 const belongsTo = (role, path) =>
-  role === "superadmin" ? path.startsWith("/admin/") : role === "jc" ? isJcPage(path) : role === "jamaat_coordinator" ? path === "/forms"
-    : !path.startsWith("/admin") && !isJcPage(path) && path !== "/forms";
+  role === "superadmin" ? path.startsWith("/admin/") : role === "jc" ? isJcPage(path) : role === "jamaat_coordinator" ? isCoordPage(path)
+    : !path.startsWith("/admin") && !isJcPage(path) && !path.startsWith("/coordinator");
 // Pages that belong to a role. Opening one with another role shows "Access denied" (and is logged);
 // any other address (e.g. "/") just takes the user to their own home.
-const isRestrictedPage = (path) => path.startsWith("/admin") || isJcPage(path);
+const isRestrictedPage = (path) => path.startsWith("/admin") || isJcPage(path) || path.startsWith("/coordinator");
 
 // Errors we don't control (browser extensions, Google's script) must not take the user to the Error page.
 const ourError = (e) => {
@@ -137,7 +138,7 @@ function Main({ path, theme, onToggleTheme }) {
       : path === "/jc-portal/stats" ? <JcStats key={auth.user.id} {...common} />
       : path === "/jc-portal/responses" ? <FormResponses key={auth.user.id} {...common} nav={JC_NAV} page="/jc-portal/responses" />
       : <JcDashboard key={auth.user.id} {...common} />;
-  } else if (role === "jamaat_coordinator") page = <MyForms key={auth.user.id} {...common} />;
+  } else if (role === "jamaat_coordinator") page = <CoordinatorPortal key={auth.user.id} {...common} path={path} />;
   else page = path === "/jc-metrics" ? <SahebMetrics key={auth.user.id} {...common} />
     : path === "/stats" ? <SahebStats key={auth.user.id} {...common} />
     : path === "/responses" ? <FormResponses key={auth.user.id} {...common} nav={SAHEB_NAV} page="/responses" />
