@@ -25,7 +25,12 @@ const { clientIp } = require("../lib/clientIp");
 const storage = require("../services/imagekit");
 const mail = require("../services/email");
 const audience = require("../services/emailAudience");
-const { cleanHtml, toText, kick } = require("../services/outbox");
+const { kick, framed } = require("../services/outbox");
+const { readMessage } = require("../services/emailCompose");
+const vars = require("../services/emailVars");
+const EmailTemplate = require("../models/EmailTemplate");
+const Form = require("../models/Form");
+const User = require("../models/User");
 const config = require("../config");
 
 const router = express.Router();
@@ -42,6 +47,67 @@ const target = (m) => ({ type: "email", id: String(m._id), label: m.subject });
 const maxBytes = () => Math.round(config.email.maxAttachMb * 1024 * 1024);
 // Files that may be attached (no programs or scripts).
 const OK_EXT = new Set(["pdf", "doc", "docx", "xls", "xlsx", "csv", "ppt", "pptx", "txt", "jpg", "jpeg", "png", "gif", "webp", "heic", "zip", "mp4", "mov", "mp3", "m4a"]);
+
+router.use("/templates", require("./emailTemplates"));
+
+// The variables that can be used ({{…}}), grouped, for the editor's "Insert variable" menu.
+router.get("/variables", async (req, res, next) => {
+  try { res.json({ variables: await vars.list(), contact: config.contact }); } catch (err) { sendError(err, res, next); }
+});
+
+// Forms the {{Form …}} variables can be about.
+router.get("/forms", async (req, res, next) => {
+  try {
+    const list = await Form.find({ status: { $ne: "D" }, code: { $exists: true } }).select("title code stage access startAt endAt").sort({ updatedAt: -1 }).limit(300).lean();
+    res.json({ forms: list.map((f) => ({ code: f.code, title: f.title, stage: f.stage, access: f.access, startAt: f.startAt, endAt: f.endAt })) });
+  } catch (err) { sendError(err, res, next); }
+});
+
+// An image (shown inside the email) or a document (linked from it). These are PUBLIC: anyone with the link
+// can open them, because email apps can't sign in. Private files belong in the attachments instead.
+const IMG_EXT = new Set(["jpg", "jpeg", "png", "gif", "webp"]);
+const DOC_EXT = new Set(["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "csv", "txt", "zip"]);
+router.post("/public", express.raw({ type: "application/octet-stream", limit: maxBytes() }), async (req, res, next) => {
+  try {
+    let name = "";
+    try { name = decodeURIComponent(String(req.get("x-file-name") || "")).replace(/[\\/]/g, "_").slice(0, 150); } catch { /* keep empty */ }
+    const ext = (name.split(".").pop() || "").toLowerCase();
+    const kind = IMG_EXT.has(ext) ? "image" : DOC_EXT.has(ext) ? "document" : "";
+    if (!name || !kind) throw new InputError(`This kind of file can't be added. Images: ${[...IMG_EXT].join(", ").toUpperCase()}. Documents: ${[...DOC_EXT].join(", ").toUpperCase()}.`);
+    if (!Buffer.isBuffer(req.body) || !req.body.length) throw new InputError("The file is empty.");
+    if (kind === "image" && req.body.length > config.email.maxImageMb * 1048576) throw new InputError(`The image is too large (${config.email.maxImageMb} MB at most). Make it smaller and try again.`);
+    const type = String(req.get("x-file-type") || "").slice(0, 100) || "application/octet-stream";
+    const kept = await storage.uploadImage(req.body, { fileName: name, type, folder: config.email.imageFolder, isPublic: true });
+    audit(req, "email_file_published", { target: { type: "email_file", id: kept.fileId, label: name }, details: { kind, size: req.body.length } });
+    res.status(201).json({ kind, name, url: kept.url, width: kept.width || 0, size: req.body.length });
+  } catch (err) {
+    if (err && err.type === "entity.too.large") return res.status(413).json({ error: `The file is too large (${config.email.maxAttachMb} MB at most).` });
+    if (err instanceof storage.StorageError) return res.status(err.status).json({ error: err.message });
+    sendError(err, res, next);
+  }
+});
+
+// The email exactly as one person would get it (variables filled) — "Preview".
+//   { subject, html, greeting, form, user? }  (no user: the first person it would go to, or yourself)
+router.post("/render", async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const msg = await readMessage({ ...b, html: b.html || "<p>.</p>", subject: b.subject || "(no subject)" }, { needForm: false });
+    let user = null;
+    if (b.user && isId(String(b.user))) user = await User.findById(String(b.user)).select("name email role").lean();
+    if (!user) user = await User.findById(req.user.id).select("name email role").lean();
+    const ctx = await vars.prepare({ users: [user._id], form: msg.form, sender: me(req) });
+    const person = { user: user._id, name: user.name, email: user.email, role: user.role };
+    const body = framed({ ...msg, createdBy: me(req) }, person, vars.valuesFor(ctx, person));
+    const missing = Object.entries(vars.valuesFor(ctx, person)).filter(([k, v]) => !v && new RegExp(`\\{\\{\\s*${k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\}\\}`, "i").test(`${msg.subject} ${msg.html.replace(/%7B%7B(.+?)%7D%7D/gi, (x, n) => `{{${decodeURIComponent(n)}}}`)}`)).map(([k]) => k);
+    const formVar = (k) => k.startsWith("Form ");
+    res.json({
+      subject: body.subject, html: body.html, to: { name: user.name || "", email: user.email },
+      missing: msg.form ? missing : missing.filter((k) => !formVar(k)),
+      needsForm: msg.form ? [] : missing.filter(formVar), // filled once a form is chosen (when sending)
+    });
+  } catch (err) { sendError(err, res, next); }
+});
 
 router.get("/people", async (req, res, next) => {
   try {
@@ -94,20 +160,25 @@ router.delete("/files/:id", async (req, res, next) => {
 router.post("/", sendLimiter, async (req, res, next) => {
   try {
     const b = req.body || {};
-    const subject = String(b.subject || "").replace(/\s+/g, " ").trim();
-    if (!subject) throw new InputError("Write a subject.");
-    if (subject.length > 200) throw new InputError("The subject is too long (200 characters at most).");
-    if (String(b.html || "").length > 200000) throw new InputError("The message is too long.");
-    const html = cleanHtml(b.html);
-    const text = toText(html);
-    if (!text) throw new InputError("Write the message.");
+    const { subject, html, text, cc, bcc, greeting, form } = await readMessage(b);
     const { recipients, audience: words } = await audience.resolve(b.to, { strict: true });
     if (!recipients.length) throw new InputError("Choose who gets this email.");
 
     const ids = [...new Set((Array.isArray(b.files) ? b.files : []).map(String))].slice(0, 20);
     if (ids.some((x) => !isId(x))) throw new InputError("An attachment wasn't found. Attach it again.");
-    const files = ids.length ? await EmailFile.find({ _id: { $in: ids }, by: req.user.id, used: false }).lean() : [];
-    if (files.length !== ids.length) throw new InputError("An attachment wasn't found. Attach it again.");
+    const uploaded = ids.length ? await EmailFile.find({ _id: { $in: ids }, by: req.user.id, used: false }).lean() : [];
+    if (uploaded.length !== ids.length) throw new InputError("An attachment wasn't found. Attach it again.");
+    // Started from a template: its attachments that were kept.
+    let tpl = null;
+    let fromTpl = [];
+    if (b.template) {
+      if (!isId(String(b.template))) throw new InputError("Template not found.");
+      tpl = await EmailTemplate.findById(String(b.template)).select("name files").lean();
+      if (!tpl) throw new InputError("Template not found.");
+      const keepIdx = (Array.isArray(b.templateFiles) ? b.templateFiles : []).map(Number);
+      fromTpl = (tpl.files || []).filter((f, i) => keepIdx.includes(i));
+    }
+    const files = [...fromTpl, ...uploaded];
     if (files.reduce((n, f) => n + (f.size || 0), 0) > maxBytes()) throw new InputError(`The attachments are too large together (${config.email.maxAttachMb} MB at most).`);
 
     let sendAt = new Date();
@@ -120,13 +191,15 @@ router.post("/", sendLimiter, async (req, res, next) => {
     }
     const later = sendAt.getTime() > Date.now() + 60000;
     const m = await EmailMessage.create({
-      subject, html, text, audience: words,
+      subject, html, text, audience: words, cc, bcc, greeting,
+      ...(form ? { form: form._id } : {}), ...(tpl ? { template: tpl._id, templateName: tpl.name } : {}),
+      copy: { status: cc.length || bcc.length ? "pending" : "none" },
       files: files.map((f) => ({ fileId: f.fileId, filePath: f.filePath, url: f.url, endpoint: f.endpoint, name: f.name, size: f.size, type: f.type })),
       recipients: recipients.map((r) => ({ ...r, status: "pending" })), total: recipients.length,
       status: "scheduled", sendAt, createdBy: me(req),
     });
-    await EmailFile.updateMany({ _id: { $in: files.map((f) => f._id) } }, { $set: { used: true } });
-    audit(req, "email_sent", { target: target(m), details: { recipients: recipients.length, audience: words, files: files.length, ...(later ? { scheduledFor: sendAt.toISOString() } : {}) } });
+    await EmailFile.updateMany({ _id: { $in: uploaded.map((f) => f._id) } }, { $set: { used: true } });
+    audit(req, "email_sent", { target: target(m), details: { recipients: recipients.length, audience: words, files: files.length, ...(cc.length ? { cc: cc.join(", ") } : {}), ...(bcc.length ? { bcc: bcc.join(", ") } : {}), ...(tpl ? { template: tpl.name } : {}), ...(form ? { form: form.title } : {}), ...(later ? { scheduledFor: sendAt.toISOString() } : {}) } });
     if (!later) kick();
     res.status(201).json({ email: listOut(m.toObject()), ready: mail.isReady() });
   } catch (err) { sendError(err, res, next); }
@@ -136,6 +209,7 @@ const listOut = (m) => ({
   id: String(m._id), subject: m.subject, audience: m.audience, status: m.status, sendAt: m.sendAt, createdAt: m.createdAt,
   startedAt: m.startedAt || null, finishedAt: m.finishedAt || null, total: m.total, sent: m.sent, failed: m.failed,
   files: (m.files || []).length, by: m.createdBy ? { name: m.createdBy.name, email: m.createdBy.email, role: m.createdBy.role } : null,
+  copy: m.copy && m.copy.status !== "none" ? m.copy.status : null, templateName: m.templateName || "",
 });
 
 router.get("/", async (req, res, next) => {
@@ -152,7 +226,10 @@ router.get("/:id", async (req, res, next) => {
     if (!m) throw new InputError("Email not found.", 404);
     res.json({
       email: {
-        ...listOut(m), html: m.html,
+        ...listOut(m), html: m.html, cc: m.cc || [], bcc: m.bcc || [], greeting: m.greeting !== false,
+        copy: m.copy && m.copy.status !== "none" ? { status: m.copy.status, error: m.copy.error || "", sentAt: m.copy.sentAt || null } : null,
+        templateName: m.templateName || "",
+        form: m.form ? await Form.findById(m.form).select("title code").lean().then((f) => (f ? { title: f.title, code: f.code } : null)) : null,
         attachments: (m.files || []).map((f) => ({ name: f.name, size: f.size, type: f.type, url: storage.signedUrl(f) })),
         recipients: m.recipients.map((r) => ({ name: r.name, email: r.email, role: r.role, place: r.place || "", status: r.status, provider: r.provider || "", error: r.error || "", sentAt: r.sentAt || null })),
         cancelledBy: m.cancelledBy ? { name: m.cancelledBy.name, email: m.cancelledBy.email } : null,
@@ -175,9 +252,11 @@ router.post("/:id/retry", sendLimiter, async (req, res, next) => {
   try {
     if (!isId(req.params.id)) throw new InputError("Email not found.", 404);
     const m = await EmailMessage.findById(req.params.id);
-    if (!m || !["done", "failed"].includes(m.status) || !m.failed) throw new InputError("There is nothing to send again.", 409);
+    const copyFailed = !!(m && m.copy && m.copy.status === "failed");
+    if (!m || !["done", "failed"].includes(m.status) || (!m.failed && !copyFailed)) throw new InputError("There is nothing to send again.", 409);
     let n = 0;
     m.recipients.forEach((r) => { if (r.status === "failed") { r.status = "pending"; r.error = ""; n += 1; } });
+    if (copyFailed) { m.copy.status = "pending"; m.copy.error = ""; }
     m.failed = 0;
     m.status = "scheduled";
     m.sendAt = new Date();

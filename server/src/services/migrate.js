@@ -170,6 +170,24 @@ async function migrate() {
   for (const f of await Form.find({ code: { $exists: false } }).select("_id").lean()) {
     await Form.updateOne({ _id: f._id, code: { $exists: false } }, { $set: { code: newCode() } });
   }
+
+  // 7) Country of each Jamaat: every Jamaat not tagged yet is India, except the overseas Jamiats (tagged later).
+  //    Runs every start, so Jamaats added later are tagged too; a country set by hand is never changed.
+  await tagIndia();
 }
 
-module.exports = { migrate };
+const OVERSEAS = ["EAST AFRICA", "FAR EAST", "INDIAN OCEAN", "KHALEEJ", "KUWAIT", "PAKISTAN", "UK", "USA", "YEMEN"];
+const squash = (s) => String(s || "").toUpperCase().replace(/[^A-Z]/g, "");
+const isOverseas = (name) => OVERSEAS.some((o) => squash(o) === squash(name));
+async function tagIndia() {
+  const Jamiat = require("../models/Jamiat");
+  const Jamaat = require("../models/Jamaat");
+  const india = (await Jamiat.find({}).select("name").lean()).filter((j) => !isOverseas(j.name)).map((j) => j._id);
+  const r = await Jamaat.collection.updateMany(
+    { jamiat: { $in: india }, $or: [{ country: { $exists: false } }, { country: "" }] },
+    { $set: { country: "India", timeZone: "Asia/Kolkata" } }
+  );
+  if (r.modifiedCount) console.log(`[migrate] ${r.modifiedCount} Jamaat(s) tagged India`);
+}
+
+module.exports = { migrate, isOverseas, OVERSEAS };

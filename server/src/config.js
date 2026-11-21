@@ -86,6 +86,16 @@ const config = {
     folder: (process.env.IMAGEKIT_FOLDER || "/umoor-sehhat/stats").trim(),
   },
 
+  // ---- Contact details used in email templates ({{Contact …}} variables). Change them on Render any time. ----
+  contact: {
+    name: (process.env.CONTACT_NAME || "Umoor Sehhat").trim(),
+    email: (process.env.CONTACT_EMAIL || "").trim(),
+    phone: (process.env.CONTACT_PHONE || "").trim(),
+    whatsapp: (process.env.CONTACT_WHATSAPP || "").trim(),
+    address: (process.env.CONTACT_ADDRESS || "").trim(),
+    website: (process.env.CONTACT_WEBSITE || "").trim(),
+  },
+
   // ---- Email (switchable providers, see services/email.js) ----
   // EMAIL_PROVIDER = nodemailer (default) | sendgrid | log (testing: prints, sends nothing).
   // The Super Admin can switch between nodemailer and sendgrid in the portal; nodemailer is always the backup.
@@ -112,6 +122,9 @@ const config = {
     // Times written inside emails (the website shows each person's own time).
     timeZone: (process.env.EMAIL_TIME_ZONE || "Asia/Kolkata").trim(),
     timeZoneLabel: (process.env.EMAIL_TIME_ZONE_LABEL || "India time").trim(),
+    // Images put inside emails / templates must be public (email apps can't open signed links).
+    imageFolder: (process.env.IMAGEKIT_EMAIL_IMAGE_FOLDER || "/umoor-sehhat/email-images").trim(),
+    maxImageMb: num(process.env.EMAIL_MAX_IMAGE_MB, 4) || 4,
   },
 
   // ---- Forms (built by the Super Admin, filled by Jamaat Coordinators) ----

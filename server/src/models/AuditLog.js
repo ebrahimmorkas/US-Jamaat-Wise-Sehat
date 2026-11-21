@@ -49,6 +49,10 @@ const ACTIONS = [
   "email_sent",           // "Send email": an email sent / scheduled (or sent again to those it failed for)
   "email_cancelled",      // ... a scheduled email cancelled
   "email_settings_changed", // the email provider switched (Nodemailer / SendGrid)
+  "email_template_saved",   // an email template added / changed
+  "email_template_deleted",
+  "email_template_restored",
+  "email_file_published",   // an image / document put inside an email (public link)
   "form_response_edited", // ... and changed their response
   // data changes (audit trail)
   "user_created",

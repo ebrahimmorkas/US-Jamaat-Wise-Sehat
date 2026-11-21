@@ -6,16 +6,44 @@ const { isDbReady } = require("../db");
 const EmailMessage = require("../models/EmailMessage");
 const storage = require("./imagekit");
 const mail = require("./email");
+const vars = require("./emailVars");
+const config = require("../config");
 
 const LOCK_MS = 5 * 60 * 1000;
 
-/** Only safe formatting is kept (bold, italic, lists, links, headings, quotes). */
+// Formatting kept in emails: text styles (size, colour, highlight, font, alignment), lists, links, headings,
+// quotes, lines and images. Everything else (scripts, forms, events, other styles) is removed.
+const COLOR = [/^#[0-9a-f]{3,8}$/i, /^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(,\s*[\d.]+\s*)?\)$/i, /^[a-z]{3,20}$/i];
+const SIZE = [/^\d{1,3}(\.\d+)?(px|pt|em|rem|%)$/, /^(xx-small|x-small|small|medium|large|x-large|xx-large|xxx-large)$/];
+const TEXT_STYLES = {
+  color: COLOR, "background-color": COLOR, "font-size": SIZE,
+  "font-weight": [/^(bold|normal|[1-9]00)$/], "font-style": [/^(italic|normal)$/],
+  "text-decoration": [/^[a-z -]{3,40}$/], "text-decoration-line": [/^[a-z -]{3,40}$/],
+  "font-family": [/^[a-z0-9 ,'"-]{2,80}$/i], "text-align": [/^(left|right|center|justify)$/],
+  "margin-left": [/^\d{1,3}px$/], "padding-left": [/^\d{1,3}px$/],
+};
+const STYLED = ["p", "div", "h1", "h2", "h3", "li", "blockquote", "span", "b", "strong", "i", "em", "u", "s", "ul", "ol"];
 function cleanHtml(html) {
   return sanitizeHtml(String(html || ""), {
-    allowedTags: ["p", "br", "div", "b", "strong", "i", "em", "u", "s", "ul", "ol", "li", "a", "h2", "h3", "blockquote"],
-    allowedAttributes: { a: ["href", "target", "rel"] },
-    allowedSchemes: ["http", "https", "mailto"],
-    transformTags: { a: sanitizeHtml.simpleTransform("a", { target: "_blank", rel: "noopener noreferrer" }) },
+    allowedTags: ["p", "br", "div", "span", "font", "b", "strong", "i", "em", "u", "s", "strike", "sub", "sup", "ul", "ol", "li", "a", "h1", "h2", "h3", "blockquote", "hr", "img"],
+    allowedAttributes: {
+      a: ["href", "target", "rel", "style"],
+      img: ["src", "alt", "width", "style"],
+      font: ["color", "size", "face"],
+      ...Object.fromEntries(STYLED.map((t) => [t, ["style"]])),
+    },
+    allowedStyles: {
+      "*": TEXT_STYLES,
+      img: { width: [/^\d{1,4}(px|%)$/], "max-width": [/^\d{1,4}(px|%)$/], height: [/^auto$/, /^\d{1,4}px$/], display: [/^block$/], margin: [/^[0-9a-z %-]{1,30}$/] },
+    },
+    allowedSchemes: ["http", "https", "mailto", "tel"],
+    allowedSchemesByTag: { img: ["https"] },
+    // Images only from a full https:// address (email apps can't load anything else).
+    exclusiveFilter: (frame) => frame.tag === "img" && !/^https:\/\/\S+$/i.test(frame.attribs.src || ""),
+    transformTags: {
+      a: (tag, attribs) => ({ tagName: "a", attribs: { ...attribs, target: "_blank", rel: "noopener noreferrer" } }),
+      img: (tag, attribs) => ({ tagName: "img", attribs: { ...attribs, style: `max-width:100%;height:auto;${(attribs.style || "").replace(/max-width:[^;]*;?|height:[^;]*;?/g, "")}` } }),
+    },
   }).trim();
 }
 /** Plain-text version (for email apps that don't show formatting). */
@@ -32,19 +60,28 @@ function toText(html) {
 
 const ROLE_ONE = { jamaat_coordinator: "Jamaat Coordinator", jc: "JC", saheb: "Saheb", superadmin: "Super Admin" };
 /** The email as it is sent: the message inside a simple branded frame, signed with who sent it. */
-function framed(msg, person) {
+/**
+ * The email as it is sent to one person: variables filled, inside a simple branded frame, signed with who sent it.
+ * @param {object} msg      the EmailMessage (or a template being previewed)
+ * @param {object} person   the recipient ({ name }) — for the CC / BCC copy: { name: "" }
+ * @param {object} values   variable values for this person (services/emailVars)
+ * @param {string} [note]   a line above the message (HTML; the CC / BCC copy)
+ */
+function framed(msg, person, values = {}, note = "") {
   const e = mail.esc;
   const by = msg.createdBy || {};
   const sig = `${by.name || by.email || ""}${by.role ? ` (${ROLE_ONE[by.role] || by.role})` : ""}`;
-  const hello = person.name ? `Salaam ${person.name},` : "";
-  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#1d2433;max-width:620px">
-<div style="border-bottom:3px solid #1f6f43;padding:4px 0 10px;margin-bottom:16px;font-weight:bold;color:#1f6f43;font-size:16px">Umoor Sehhat</div>
+  const hello = msg.greeting !== false ? (person.name ? `Salaam ${person.name},` : note ? "Salaam [name]," : "Salaam,") : "";
+  const body = vars.fillHtml(msg.html, values);
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#1d2433;max-width:640px">
+<div style="border-bottom:3px solid #1f6f43;padding:4px 0 10px;margin-bottom:16px;font-weight:bold;color:#1f6f43;font-size:16px">${e(config.contact.name || "Umoor Sehhat")}</div>
+${note ? `<p style="background:#f1f5f9;border-radius:8px;padding:10px 12px;font-size:13px;color:#475569">${note}</p>` : ""}
 ${hello ? `<p>${e(hello)}</p>` : ""}
-${msg.html}
+${body}
 <p style="margin-top:24px;font-size:12.5px;color:#718096;border-top:1px solid #e2e8f0;padding-top:10px">Sent by ${e(sig)} through the Umoor Sehhat portal.${by.email ? ` Reply to this email to answer ${e(by.name || by.email)}.` : ""}</p>
 </div>`;
-  const text = `${hello ? `${hello}\n\n` : ""}${msg.text}\n\n--\nSent by ${sig} through the Umoor Sehhat portal.`;
-  return { html, text };
+  const text = `${note ? `${toText(note)}\n\n` : ""}${hello ? `${hello}\n\n` : ""}${toText(body)}\n\n--\nSent by ${sig} through the Umoor Sehhat portal.`;
+  return { html, text, subject: vars.fillText(msg.subject, values) };
 }
 
 /** Download the attachments once per email. */
@@ -74,6 +111,11 @@ async function sendOne() {
   let files = [];
   let fileError = "";
   try { files = await loadFiles(msg.files); } catch (e) { fileError = String(e.message || e); }
+  let ctx = null;
+  try {
+    const form = msg.form ? await require("../models/Form").findById(msg.form).select("title code access startAt endAt").lean() : null;
+    ctx = await vars.prepare({ users: msg.recipients.map((r) => r.user).filter(Boolean), form, sender: msg.createdBy });
+  } catch (e) { fileError = fileError || `The variables couldn't be filled: ${String((e && e.message) || e)}`; }
 
   for (let i = 0; i < msg.recipients.length; i += 1) {
     const r = msg.recipients[i];
@@ -88,8 +130,8 @@ async function sendOne() {
     if (fileError) set = { status: "failed", error: fileError };
     else {
       try {
-        const body = framed(msg, r);
-        const out = await mail.sendMail({ to: r.email, subject: msg.subject, html: body.html, text: body.text, replyTo: msg.createdBy && msg.createdBy.email, attachments: files });
+        const body = framed(msg, r, vars.valuesFor(ctx, r));
+        const out = await mail.sendMail({ to: r.email, subject: body.subject, html: body.html, text: body.text, replyTo: msg.createdBy && msg.createdBy.email, attachments: files });
         set = { status: "sent", provider: out.provider, fellBack: out.fellBack, sentAt: new Date(), error: out.fellBack ? `Sent by the backup (${out.firstError || "first provider failed"})` : "" };
       } catch (e) { set = { status: "failed", error: String((e && e.message) || e).slice(0, 300) }; }
     }
@@ -97,6 +139,25 @@ async function sendOne() {
       $set: Object.fromEntries(Object.entries(set).map(([k, v]) => [`recipients.${i}.${k}`, v])),
       $inc: set.status === "sent" ? { sent: 1 } : { failed: 1 },
     });
+  }
+  // The single copy for CC / BCC, once everyone else has theirs.
+  const cur = await EmailMessage.findById(msg._id).select("status copy recipients").lean();
+  if (cur && cur.status === "sending" && cur.copy && cur.copy.status === "pending") {
+    let set;
+    if (fileError) set = { status: "failed", error: fileError };
+    else {
+      try {
+        const got = cur.recipients.filter((r) => r.status === "sent");
+        const names = got.slice(0, 200).map((r) => mail.esc(r.name ? `${r.name} (${r.email})` : r.email)).join(", ");
+        const note = `Copy for your information. This email was sent to ${got.length} ${got.length === 1 ? "person" : "people"}, each with their own details filled in${got.length ? `: ${names}${got.length > 200 ? ` and ${got.length - 200} more` : ""}` : ""}.`;
+        const body = framed(msg, { name: "" }, vars.copyValues(ctx), note);
+        const cc = msg.cc || [];
+        const bcc = msg.bcc || [];
+        await mail.sendMail({ to: cc.length ? cc : bcc, bcc: cc.length ? bcc : [], subject: body.subject, html: body.html, text: body.text, replyTo: msg.createdBy && msg.createdBy.email, attachments: files });
+        set = { status: "sent", sentAt: new Date(), error: "" };
+      } catch (e) { set = { status: "failed", error: String((e && e.message) || e).slice(0, 300) }; }
+    }
+    await EmailMessage.updateOne({ _id: msg._id }, { $set: Object.fromEntries(Object.entries(set).map(([k, v]) => [`copy.${k}`, v])) });
   }
   const done = await EmailMessage.findById(msg._id).select("sent failed status").lean();
   if (done && done.status === "sending") {

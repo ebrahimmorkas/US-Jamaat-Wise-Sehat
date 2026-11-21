@@ -26,13 +26,13 @@ async function call(url, options, what) {
 }
 
 /** Uploads a picture as a private file. Returns { fileId, filePath, url, endpoint, width, height }. */
-async function uploadImage(buffer, { fileName, type, folder }) {
+async function uploadImage(buffer, { fileName, type, folder, isPublic = false }) {
   if (!ready()) throw new StorageError("Image storage is not set up yet (ImageKit keys missing on the server).", 503);
   const fd = new FormData();
   fd.append("file", new Blob([buffer], { type }), fileName);
   fd.append("fileName", fileName);
   fd.append("folder", folder || config.imagekit.folder);
-  fd.append("isPrivateFile", "true");
+  fd.append("isPrivateFile", isPublic ? "false" : "true"); // public only for images shown inside emails
   fd.append("useUniqueFileName", "true");
   const res = await call(UPLOAD_URL, { method: "POST", body: fd }, "upload the image");
   const out = await res.json().catch(() => ({}));

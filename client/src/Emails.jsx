@@ -2,17 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AppBar from "./components/AppBar";
 import MultiSelect from "./components/MultiSelect";
 import Notice from "./components/Notice";
+import RichEditor from "./components/RichEditor";
 import { confirmDialog } from "./components/ConfirmDialog";
-import { AuthError, isServerStarting, emailPeople, emailPreview, emailAttach, emailDropFile, emailSend, emailList, emailGet,
+import { AuthError, isServerStarting, emailPeople, emailPreview, emailSend, emailList, emailGet, emailPublic, templateGet,
   emailCancel, emailRetry, emailProviders, emailSetProvider, emailTest } from "./lib/api";
 import { lower, plural } from "./lib/helpers";
 import { CloseIcon, SendIcon } from "./components/Icons";
+import { useEmailMeta, Attachments, CopyFields, PreviewButton, Templates, VariableHelp, toList, size } from "./EmailTemplates";
 
 // "Send email" — Super Admin (inside its portal: `embedded`) and Saheb (own page with its nav).
-//   Write:    who gets it (groups, Jamiat / Jamaat, people, typed Gmails of portal users), subject, formatted message,
-//             attachments, now or later.
-//   Sent:     every email with each person's result; cancel a scheduled one; send again to those it failed for.
-//   Settings: (Super Admin) which provider sends — Nodemailer (default and backup) or SendGrid; test email.
+//   Write:     who gets it (groups, Jamiat / Jamaat, people, typed Gmails of portal users), from a template or new,
+//              subject + rich body with {{variables}}, CC / BCC (one copy), attachments, form, now or later, preview.
+//   Templates: reusable emails (subject, body, CC / BCC, attachments).
+//   Sent:      every email with each person's result; cancel a scheduled one; send again to those it failed for.
+//   Settings:  (Super Admin) which provider sends — Nodemailer (default and backup) or SendGrid; test email.
 
 const ROLE_ONE = { jamaat_coordinator: "Jamaat Coordinator", jc: "JC", saheb: "Saheb", superadmin: "Super Admin" };
 const STATUS = {
@@ -22,28 +25,48 @@ const STATUS = {
   failed: { label: "Failed", cls: "bad" },
   cancelled: { label: "Cancelled", cls: "na" },
 };
+const FORM_STAGE = { draft: "Draft", testing: "Testing", published: "Published", closed: "Closed" };
 const when = (d) => (d ? new Date(d).toLocaleString([], { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" }) : "");
-const size = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 const splitEmails = (s) => [...new Set(String(s || "").split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter(Boolean))];
 const localInput = (d) => { const x = new Date(d.getTime() - d.getTimezoneOffset() * 60000); return x.toISOString().slice(0, 16); };
+const usesForm = (...t) => t.some((s) => /\{\{\s*form (title|link|opens|closes)\s*\}\}|%7B%7Bform/i.test(String(s || "")));
 
 export default function Emails({ embedded, nav, page, user, onSignOut, onAuthExpired, theme, onToggleTheme }) {
   const isAdmin = user ? user.role === "superadmin" : !!embedded;
   const [tab, setTab] = useState("write");
   const [msg, setMsg] = useState(null);
-  const fail = useCallback((err) => { if (err instanceof AuthError) return onAuthExpired(); setMsg({ type: "error", text: err.message }); }, [onAuthExpired]);
+  const [useTpl, setUseTpl] = useState(null); // a template to start "Write email" from
+  const fail = useCallback((err) => { if (err instanceof AuthError) return onAuthExpired(); setMsg({ type: "error", text: err.message }); window.scrollTo({ top: 0, behavior: "smooth" }); }, [onAuthExpired]);
+  const [meta, reloadTemplates] = useEmailMeta(fail);
+  const [info, setInfo] = useState(null);
+  const [loadMsg, setLoadMsg] = useState("Loading…");
+  const load = useCallback(async (tries = 0) => {
+    try { setInfo(await emailPeople()); }
+    catch (err) {
+      if (err instanceof AuthError) return onAuthExpired();
+      if (isServerStarting(err) && tries < 24) { setLoadMsg("Connecting to the server…"); setTimeout(() => load(tries + 1), 5000); }
+      else setLoadMsg(err.message);
+    }
+  }, [onAuthExpired]);
+  useEffect(() => { load(); }, [load]);
 
+  const go = (k) => { setTab(k); setMsg(null); };
   const body = (
     <div className="em-page">
       <section className="page-head"><div className="page-title"><h1>Send email</h1>
-        <p className="page-sub">Email portal users: whole groups, the Jamaat Coordinators and JCs of chosen Jamiats or Jamaats, or chosen people. Write it with formatting, attach files, and send it now or at a set time.</p></div></section>
+        <p className="page-sub">Email portal users: whole groups, the Jamaat Coordinators and JCs of chosen Jamiats or Jamaats, or chosen people. Start from a template or write it here, with formatting, images, variables and attachments, and send it now or at a set time.</p></div></section>
       <div className="cp-tabs" role="tablist">
-        {[["write", "Write email"], ["sent", "Sent & scheduled"], ...(isAdmin ? [["settings", "Settings"]] : [])].map(([k, l]) => (
-          <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? "is-on" : ""} onClick={() => { setTab(k); setMsg(null); }}>{l}</button>
+        {[["write", "Write email"], ["templates", "Templates"], ["sent", "Sent & scheduled"], ...(isAdmin ? [["settings", "Settings"]] : [])].map(([k, l]) => (
+          <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? "is-on" : ""} onClick={() => go(k)}>{l}</button>
         ))}
       </div>
       <Notice type={msg && msg.type} text={msg && msg.text} onClose={() => setMsg(null)} />
-      {tab === "write" && <Compose fail={fail} onAuthExpired={onAuthExpired} onSent={(text) => { setMsg({ type: "ok", text }); setTab("sent"); }} />}
+      {!info && tab !== "settings" && tab !== "sent" ? <div className="panel em-loading">{loadMsg}</div> : <>
+        {tab === "write" && <Compose info={info} meta={meta} startTpl={useTpl} fail={fail} onAuthExpired={onAuthExpired}
+          onSent={(text) => { setUseTpl(null); setMsg({ type: "ok", text }); setTab("sent"); }} />}
+        {tab === "templates" && <Templates meta={meta} reload={reloadTemplates} fail={fail} setMsg={setMsg} maxMb={info.maxAttachMb} onAuthExpired={onAuthExpired}
+          onUse={(id) => { setUseTpl({ id, at: Date.now() }); go("write"); }} />}
+      </>}
       {tab === "sent" && <Sent fail={fail} setMsg={setMsg} />}
       {tab === "settings" && isAdmin && <Settings fail={fail} setMsg={setMsg} />}
     </div>
@@ -58,9 +81,7 @@ export default function Emails({ embedded, nav, page, user, onSignOut, onAuthExp
 }
 
 // ---------------------------------------------------------------- Write
-function Compose({ fail, onSent, onAuthExpired }) {
-  const [info, setInfo] = useState(null);
-  const [loadMsg, setLoadMsg] = useState("Loading…");
+function Compose({ info, meta, startTpl, fail, onSent, onAuthExpired }) {
   const [roles, setRoles] = useState([]);
   const [jamiats, setJamiats] = useState([]);
   const [jamaats, setJamaats] = useState([]); // "JAMIAT\u0000JAMAAT"
@@ -68,23 +89,21 @@ function Compose({ fail, onSent, onAuthExpired }) {
   const [typed, setTyped] = useState("");
   const [preview, setPreview] = useState(null);
   const [showList, setShowList] = useState(false);
+  const [tpl, setTpl] = useState(null); // the template it started from ({ id, name, files })
+  const [tplKeep, setTplKeep] = useState([]);
   const [subject, setSubject] = useState("");
-  const [files, setFiles] = useState([]); // { id?, name, size, progress?, error? }
+  const html = useRef("");
+  const [edKey, setEdKey] = useState(0);
+  const [initial, setInitial] = useState("");
+  const [cc, setCc] = useState("");
+  const [bcc, setBcc] = useState("");
+  const [greeting, setGreeting] = useState(true);
+  const [form, setForm] = useState("");
+  const [files, setFiles] = useState([]);
   const [later, setLater] = useState(false);
   const [sendAt, setSendAt] = useState("");
   const [busy, setBusy] = useState(false);
-  const editor = useRef(null);
-  const [empty, setEmpty] = useState(true);
-
-  const load = useCallback(async (tries = 0) => {
-    try { setInfo(await emailPeople()); }
-    catch (err) {
-      if (err instanceof AuthError) return onAuthExpired();
-      if (isServerStarting(err) && tries < 24) { setLoadMsg("Connecting to the server…"); setTimeout(() => load(tries + 1), 5000); }
-      else setLoadMsg(err.message);
-    }
-  }, [onAuthExpired]);
-  useEffect(() => { load(); }, [load]);
+  const [bodyText, setBodyText] = useState(""); // to know if a {{Form …}} variable is used
 
   const to = useMemo(() => ({
     roles, jamiats,
@@ -93,50 +112,43 @@ function Compose({ fail, onSent, onAuthExpired }) {
   }), [roles, jamiats, jamaats, picked, typed]);
   const anyone = roles.length || picked.length || to.emails.length;
 
-  // Who it goes to (asked from the server, a moment after the last change).
   useEffect(() => {
-    if (!info || !anyone) { setPreview(null); return undefined; }
+    if (!anyone) { setPreview(null); return undefined; }
     let alive = true;
     const t = setTimeout(() => emailPreview(to).then((r) => alive && setPreview(r)).catch((e) => alive && fail(e)), 350);
     return () => { alive = false; clearTimeout(t); };
-  }, [to, info, anyone, fail]);
+  }, [to, anyone, fail]);
 
-  if (!info) return <div className="panel em-loading">{loadMsg}</div>;
+  const loadTemplate = useCallback(async (id) => {
+    if (!id) { setTpl(null); setTplKeep([]); return; }
+    try {
+      const { template: t } = await templateGet(id);
+      setTpl(t); setTplKeep(t.files.map((f, i) => i));
+      setSubject(t.subject); html.current = t.html; setBodyText(t.html); setInitial(t.html); setEdKey((k) => k + 1);
+      setCc(t.cc.join(", ")); setBcc(t.bcc.join(", ")); setGreeting(t.greeting);
+    } catch (e) { fail(e); }
+  }, [fail]);
+  useEffect(() => { if (startTpl) loadTemplate(startTpl.id); }, [startTpl, loadTemplate]);
+  const chooseTemplate = async (id) => {
+    if ((subject || bodyText) && !(await confirmDialog({ title: "Replace what you wrote?", message: "The subject, message, CC / BCC and attachments of the template replace what is here now.", confirmText: "Use template", tone: "caution" }))) return;
+    loadTemplate(id);
+  };
 
   const placeTied = roles.includes("jamaat_coordinator") || roles.includes("jc");
   const jamiatOpts = info.places.map((p) => ({ value: p.jamiat, label: p.jamiat }));
   const jamaatOpts = info.places.filter((p) => !jamiats.length || jamiats.includes(p.jamiat))
     .flatMap((p) => p.jamaats.map((j) => ({ value: `${p.jamiat}\u0000${j}`, label: j, group: p.jamiat })));
   const uploading = files.some((f) => !f.id && !f.error);
-  const totalSize = files.filter((f) => f.id).reduce((n, f) => n + f.size, 0);
-
-  const addFiles = async (list) => {
-    for (const file of list) {
-      const key = `${file.name}-${Date.now()}-${Math.random()}`;
-      if (totalSize + file.size > info.maxAttachMb * 1048576) {
-        setFiles((x) => [...x, { key, name: file.name, size: file.size, error: `Too large: attachments up to ${info.maxAttachMb} MB in total.` }]);
-        continue;
-      }
-      setFiles((x) => [...x, { key, name: file.name, size: file.size, progress: 0 }]);
-      try {
-        const r = await emailAttach(file, (p) => setFiles((x) => x.map((f) => (f.key === key ? { ...f, progress: p } : f))));
-        setFiles((x) => x.map((f) => (f.key === key ? { ...f, id: r.id } : f)));
-      } catch (err) {
-        if (err instanceof AuthError) return onAuthExpired();
-        setFiles((x) => x.map((f) => (f.key === key ? { ...f, error: err.message } : f)));
-      }
-    }
-  };
-  const dropFile = (f) => { setFiles((x) => x.filter((y) => y.key !== f.key)); if (f.id) emailDropFile(f.id).catch(() => {}); };
-
-  const cmd = (c, v) => { editor.current.focus(); document.execCommand(c, false, v); setEmpty(!editor.current.innerText.trim()); };
+  const needForm = usesForm(subject, bodyText);
+  const keptFiles = tpl ? tpl.files.filter((f, i) => tplKeep.includes(i)) : [];
+  const build = () => ({ subject: subject || "(no subject)", html: html.current, greeting, form: form || undefined });
 
   const send = async () => {
-    const html = editor.current.innerHTML;
     if (!preview || !preview.recipients.length) return fail(new Error("Choose who gets this email."));
     if (preview.unknown.length) return fail(new Error(`Not in the portal: ${preview.unknown.join(", ")}. Remove ${preview.unknown.length === 1 ? "it" : "them"}; only portal users can be emailed.`));
     if (!subject.trim()) return fail(new Error("Write a subject."));
-    if (!editor.current.innerText.trim()) return fail(new Error("Write the message."));
+    if (!bodyText.replace(/<[^>]*>|&nbsp;/g, "").trim() && !/<img/i.test(bodyText)) return fail(new Error("Write the message."));
+    if (needForm && !form) return fail(new Error("The email uses a {{Form …}} variable: choose the form it is about."));
     if (uploading) return fail(new Error("Wait for the attachments to finish uploading."));
     let at = null;
     if (later) {
@@ -145,10 +157,12 @@ function Compose({ fail, onSent, onAuthExpired }) {
       if (at.getTime() < Date.now() + 60000) return fail(new Error("Choose a time at least a minute from now, or send it now."));
     }
     const n = preview.recipients.length;
+    const copies = toList(cc).length + toList(bcc).length;
     const ok = await confirmDialog({
       title: later ? "Schedule this email?" : "Send this email?",
-      message: [`"${subject.trim()}" goes to ${plural(n, "person", "people")}${later ? ` on ${when(at)}` : " now"}.`,
-        ...(files.some((f) => f.id) ? [`With ${plural(files.filter((f) => f.id).length, "attachment")}.`] : []),
+      message: [`"${subject.trim()}" goes to ${plural(n, "person", "people")}${later ? ` on ${when(at)}` : " now"}, each with their own details filled in.`,
+        ...(copies ? [`CC / BCC (${copies}) get one copy.`] : []),
+        ...(keptFiles.length + files.filter((f) => f.id).length ? [`With ${plural(keptFiles.length + files.filter((f) => f.id).length, "attachment")}.`] : []),
         ...(info.ready ? [] : ["Email isn't set up on the server yet, so it will be marked as failed. You can send it again from \"Sent\" once it is set up."])],
       confirmText: later ? "Schedule" : "Send now",
       tone: "info",
@@ -156,7 +170,11 @@ function Compose({ fail, onSent, onAuthExpired }) {
     if (!ok) return;
     setBusy(true);
     try {
-      const r = await emailSend({ subject: subject.trim(), html, to, files: files.filter((f) => f.id).map((f) => f.id), ...(at ? { sendAt: at.toISOString() } : {}) });
+      const r = await emailSend({
+        subject: subject.trim(), html: html.current, to, cc: toList(cc), bcc: toList(bcc), greeting, form: form || undefined,
+        files: files.filter((f) => f.id).map((f) => f.id), ...(tpl ? { template: tpl.id, templateFiles: tplKeep } : {}),
+        ...(at ? { sendAt: at.toISOString() } : {}),
+      });
       onSent(later ? `Scheduled for ${when(r.email.sendAt)}: ${plural(r.email.total, "person", "people")}.` : `Sending to ${plural(r.email.total, "person", "people")}. You can follow it below.`);
     } catch (err) { fail(err); }
     finally { setBusy(false); }
@@ -211,30 +229,40 @@ function Compose({ fail, onSent, onAuthExpired }) {
       </section>
 
       <section className="panel em-card">
-        <div className="panel-head"><div><h2>2. The email</h2><p>Each email starts with "Salaam (their name)," and ends with your name, so you don't need to add them.</p></div></div>
+        <div className="panel-head"><div><h2>2. The email</h2><p>Start from a template, or write it here. {"{{Variables}}"} are filled in for each person.</p></div></div>
         <div className="em-body">
-          <label className="em-label" htmlFor="em-subject">Subject</label>
-          <input id="em-subject" className="input em-subject" maxLength={200} value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="e.g. Monthly meeting on Sunday" />
-          <div className="em-label">Message</div>
-          <div className="em-editor">
-            <Toolbar cmd={cmd} editor={editor} />
-            <div ref={editor} className={`em-text${empty ? " is-empty" : ""}`} contentEditable suppressContentEditableWarning role="textbox" aria-multiline="true" aria-label="Message"
-              data-placeholder="Write your message…" onInput={() => setEmpty(!editor.current.innerText.trim())}
-              onPaste={(e) => { e.preventDefault(); document.execCommand("insertText", false, e.clipboardData.getData("text/plain")); }} />
-          </div>
-          <div className="em-label">Attachments <small>(up to {info.maxAttachMb} MB in total)</small></div>
-          <div className="em-files">
-            {files.map((f) => (
-              <div key={f.key} className={`em-file${f.error ? " is-bad" : ""}`}>
-                <span className="em-file-name">{f.name}</span>
-                <small>{f.error ? f.error : f.id ? size(f.size) : `Uploading ${Math.round((f.progress || 0) * 100)}%`}</small>
-                <button type="button" className="em-x" onClick={() => dropFile(f)} aria-label={`Remove ${f.name}`} title="Remove"><CloseIcon /></button>
-              </div>
-            ))}
-            <label className="btn btn-ghost em-attach">+ Attach files
-              <input type="file" multiple hidden onChange={(e) => { addFiles([...e.target.files]); e.target.value = ""; }} />
+          <div className="em-row em-tpl-row">
+            <label className="em-field">
+              <span className="em-label">Template</span>
+              <select className="input" value={tpl ? tpl.id : ""} onChange={(e) => chooseTemplate(e.target.value)}>
+                <option value="">— No template —</option>
+                {meta.templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </label>
+            <label className="em-field">
+              <span className="em-label">Form <small>(for {"{{Form link}}"} and other form variables)</small></span>
+              <select className={`input${needForm && !form ? " em-need" : ""}`} value={form} onChange={(e) => setForm(e.target.value)}>
+                <option value="">{needForm ? "— Choose the form —" : "— None —"}</option>
+                {meta.forms.map((f) => <option key={f.code} value={f.code}>{f.title} ({FORM_STAGE[f.stage] || f.stage})</option>)}
+              </select>
             </label>
           </div>
+          <div className="em-label-row">
+            <label className="em-label" htmlFor="em-subject">Subject</label>
+            <select className="re-sel em-subj-var" value="" aria-label="Insert a variable in the subject" onChange={(e) => { if (e.target.value) setSubject((s) => `${s}{{${e.target.value}}}`); }}>
+              <option value="" hidden>{"{{ }}"} Insert variable</option>
+              {meta.variables.map((v) => <option key={v.key} value={v.key}>{v.group}: {v.key}</option>)}
+            </select>
+          </div>
+          <input id="em-subject" className="input em-subject" maxLength={200} value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="e.g. Monthly meeting on Sunday" />
+          <div className="em-label">Message</div>
+          <RichEditor resetKey={edKey} initialHtml={initial} onChange={(h) => { html.current = h; setBodyText(h); }} variables={meta.variables}
+            uploadPublic={emailPublic} onError={(m) => fail(new Error(m))} />
+          <label className="em-check"><input type="checkbox" checked={greeting} onChange={(e) => setGreeting(e.target.checked)} /> Start with "Salaam (their name)," <small className="em-muted">(untick if the message has its own greeting)</small></label>
+          <CopyFields cc={cc} setCc={setCc} bcc={bcc} setBcc={setBcc} />
+          <div className="em-label">Attachments</div>
+          <Attachments kept={keptFiles} onDropKept={(i) => { const idx = tplKeep[i]; setTplKeep((k) => k.filter((x) => x !== idx)); }}
+            files={files} setFiles={setFiles} maxMb={info.maxAttachMb} onAuthExpired={onAuthExpired} />
         </div>
       </section>
 
@@ -250,56 +278,12 @@ function Compose({ fail, onSent, onAuthExpired }) {
           {later && <p className="field-hint">In your own time. The server sends it at that moment, even if nobody is signed in.</p>}
           {!info.ready && <div className="alert em-unknown">Email isn't set up on the server yet (no Gmail / SendGrid account), so emails can't go out. The Super Admin can check this under Settings.</div>}
           <div className="em-actions">
+            <PreviewButton build={build} people={preview ? preview.recipients : []} fail={fail} />
             <button type="button" className="btn btn-primary" disabled={busy || uploading} onClick={send}><SendIcon /> {busy ? "Saving…" : later ? "Schedule email" : "Send email"}</button>
           </div>
         </div>
       </section>
-    </div>
-  );
-}
-
-function Toolbar({ cmd, editor }) {
-  const [link, setLink] = useState(null); // the link box: { url, range }
-  const openLink = () => {
-    const sel = window.getSelection();
-    const range = sel && sel.rangeCount && editor.current.contains(sel.anchorNode) ? sel.getRangeAt(0).cloneRange() : null;
-    setLink({ url: "https://", range });
-  };
-  const applyLink = () => {
-    const url = link.url.trim();
-    if (!/^(https?:\/\/|mailto:)\S+$/i.test(url)) return;
-    editor.current.focus();
-    const sel = window.getSelection();
-    if (link.range) { sel.removeAllRanges(); sel.addRange(link.range); }
-    if (sel.isCollapsed || !link.range) document.execCommand("insertHTML", false, `<a href="${url.replace(/"/g, "%22")}">${url.replace(/[<>&]/g, "")}</a>`);
-    else document.execCommand("createLink", false, url);
-    setLink(null);
-    editor.current.dispatchEvent(new Event("input", { bubbles: true }));
-  };
-  const B = ({ c, v, title, children }) => (
-    <button type="button" title={title} aria-label={title} onMouseDown={(e) => e.preventDefault()} onClick={() => cmd(c, v)}>{children}</button>
-  );
-  return (
-    <div className="em-tools">
-      <B c="bold" title="Bold"><b>B</b></B>
-      <B c="italic" title="Italic"><i>I</i></B>
-      <B c="underline" title="Underline"><u>U</u></B>
-      <span className="em-sep" />
-      <B c="formatBlock" v="h3" title="Heading">H</B>
-      <B c="insertUnorderedList" title="Bulleted list">• List</B>
-      <B c="insertOrderedList" title="Numbered list">1. List</B>
-      <B c="formatBlock" v="blockquote" title="Quote">“ ”</B>
-      <span className="em-sep" />
-      <button type="button" title="Link" aria-label="Link" onMouseDown={(e) => e.preventDefault()} onClick={openLink}>Link</button>
-      <B c="removeFormat" title="Clear formatting">Clear</B>
-      {link && (
-        <div className="em-linkbox">
-          <input className="input" autoFocus value={link.url} onChange={(e) => setLink({ ...link, url: e.target.value })} aria-label="Link address"
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); applyLink(); } if (e.key === "Escape") setLink(null); }} />
-          <button type="button" className="btn btn-primary" onClick={applyLink}>Add link</button>
-          <button type="button" className="btn btn-ghost" onClick={() => setLink(null)}>Cancel</button>
-        </div>
-      )}
+      <VariableHelp meta={meta} />
     </div>
   );
 }
@@ -414,7 +398,7 @@ function SentOne({ id, onBack, fail, setMsg }) {
     try { await emailCancel(id); setMsg({ type: "ok", text: "The scheduled email was cancelled." }); await load(); } catch (e) { fail(e); } finally { setBusy(false); }
   };
   const retry = async () => {
-    if (!(await confirmDialog({ title: "Send again?", message: `It is sent again only to the ${plural(m.failed, "person", "people")} it failed for.`, confirmText: "Send again", tone: "info" }))) return;
+    if (!(await confirmDialog({ title: "Send again?", message: `It is sent again only to ${m.failed ? `the ${plural(m.failed, "person", "people")} it failed for` : "CC / BCC"}.`, confirmText: "Send again", tone: "info" }))) return;
     setBusy(true);
     try { await emailRetry(id); setMsg({ type: "ok", text: "Sending again to those it failed for." }); await load(); } catch (e) { fail(e); } finally { setBusy(false); }
   };
@@ -427,7 +411,7 @@ function SentOne({ id, onBack, fail, setMsg }) {
         <button type="button" className="btn btn-ghost em-back" onClick={onBack}>← All emails</button>
         <div className="em-one-actions">
           {m.status === "scheduled" && <button type="button" className="btn btn-ghost" disabled={busy} onClick={cancel}>Cancel email</button>}
-          {(m.status === "done" || m.status === "failed") && m.failed > 0 && <button type="button" className="btn btn-primary" disabled={busy} onClick={retry}>Send again to {plural(m.failed, "failed one")}</button>}
+          {(m.status === "done" || m.status === "failed") && (m.failed > 0 || (m.copy && m.copy.status === "failed")) && <button type="button" className="btn btn-primary" disabled={busy} onClick={retry}>Send again to {m.failed ? plural(m.failed, "failed one") : "CC / BCC"}</button>}
         </div>
       </div>
       <section className="panel em-card">
@@ -439,11 +423,18 @@ function SentOne({ id, onBack, fail, setMsg }) {
             <span>{m.status === "scheduled" ? "Planned for" : "Sent"}: <b>{when(m.status === "scheduled" ? m.sendAt : m.startedAt || m.sendAt)}</b></span>
             {m.by && <span>By: <b>{m.by.name || m.by.email}</b></span>}
             {m.cancelledBy && <span>Cancelled by: <b>{m.cancelledBy.name || m.cancelledBy.email}</b></span>}
+            {m.templateName && <span>Template: <b>{m.templateName}</b></span>}
+            {m.form && <span>Form: <b>{m.form.title}</b></span>}
+          </div>
+          <div className="em-meta-row">
+            {m.cc.length > 0 && <span>CC: <b>{m.cc.join(", ")}</b></span>}
+            {m.bcc.length > 0 && <span>BCC: <b>{m.bcc.join(", ")}</b></span>}
+            {m.copy && <span>CC / BCC copy: <span className={`pill ${m.copy.status === "sent" ? "good" : m.copy.status === "failed" ? "bad" : "na"}`}>{m.copy.status === "sent" ? "Sent" : m.copy.status === "failed" ? "Failed" : "Waiting"}</span>{m.copy.error ? <small className="em-fail"> {m.copy.error}</small> : ""}</span>}
           </div>
           {m.status !== "scheduled" && m.status !== "cancelled" && <Bar m={m} />}
         </div>
         <div className="em-preview">
-          <div className="em-preview-hello">Salaam (name),</div>
+          {m.greeting && <div className="em-preview-hello">Salaam (name),</div>}
           {/* Already cleaned on the server: only safe formatting is kept. */}
           <div className="em-preview-body" dangerouslySetInnerHTML={{ __html: m.html }} />
           {m.attachments.length > 0 && (

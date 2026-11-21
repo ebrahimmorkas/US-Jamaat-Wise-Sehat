@@ -26,6 +26,14 @@ const emailMessageSchema = new mongoose.Schema(
     text: { type: String, default: "" },
     audience: { type: String, default: "" }, // who it was for, in words ("All Jamaat Coordinators of AHMEDABAD, + 2 people")
     files: { type: [fileSchema], default: [] },
+    cc: { type: [String], default: [] },
+    bcc: { type: [String], default: [] },
+    greeting: { type: Boolean, default: true }, // start with "Salaam (name),"
+    form: { type: mongoose.Schema.Types.ObjectId, ref: "Form" }, // for the {{Form …}} variables
+    template: { type: mongoose.Schema.Types.ObjectId, ref: "EmailTemplate" },
+    templateName: String,
+    // The single copy for CC / BCC (after everyone else got theirs).
+    copy: { status: { type: String, enum: ["none", "pending", "sent", "failed"], default: "none" }, error: String, sentAt: Date },
     recipients: { type: [recipientSchema], default: [] },
     total: { type: Number, default: 0 },
     sent: { type: Number, default: 0 },

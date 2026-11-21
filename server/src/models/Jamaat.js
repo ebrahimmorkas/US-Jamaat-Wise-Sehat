@@ -13,6 +13,9 @@ const jamaatSchema = new mongoose.Schema(
     mauzeType: { type: String, trim: true, maxlength: 40, default: "" },
     houseCount: { ...count, default: null },
     children: { ...count, default: null },
+    // Country + time zone: times in emails are written in the Jamaat's own time ("" = not tagged yet -> India time).
+    country: { type: String, trim: true, maxlength: 60, default: "" },
+    timeZone: { type: String, trim: true, maxlength: 60, default: "" },
     isActive: { type: Boolean, default: true },
     ...softDeleteFields(), // status "D" = deleted (kept, restorable)
   },

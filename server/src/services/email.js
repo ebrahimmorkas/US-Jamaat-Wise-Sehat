@@ -20,6 +20,12 @@ function parseFrom(s) {
   return m ? { name: m[1].replace(/^"|"$/g, ""), email: m[2].trim() } : { name: "", email: String(s || "").trim() };
 }
 
+/** "a@x.com" | ["a@x.com", …] -> unique list (SendGrid refuses the same address twice in one email). */
+function list(v) {
+  const seen = new Set();
+  return (Array.isArray(v) ? v : v ? [v] : []).map((x) => String(x).trim()).filter((x) => x && !seen.has(x.toLowerCase()) && seen.add(x.toLowerCase()));
+}
+
 let smtpTransport = null;
 const PROVIDERS = {
   nodemailer: {
@@ -34,6 +40,7 @@ const PROVIDERS = {
       }
       const out = await smtpTransport.sendMail({
         from: fromOf("nodemailer"), to: msg.to, subject: msg.subject, text: msg.text, html: msg.html,
+        ...(list(msg.cc).length ? { cc: list(msg.cc) } : {}), ...(list(msg.bcc).length ? { bcc: list(msg.bcc) } : {}),
         ...(msg.replyTo || config.email.replyTo ? { replyTo: msg.replyTo || config.email.replyTo } : {}),
         attachments: (msg.attachments || []).map((a) => ({ filename: a.name, content: a.content, contentType: a.type })),
       });
@@ -48,7 +55,11 @@ const PROVIDERS = {
       const from = parseFrom(fromOf("sendgrid"));
       const replyTo = msg.replyTo || config.email.replyTo;
       const body = {
-        personalizations: [{ to: [{ email: msg.to }] }],
+        personalizations: [{
+          to: list(msg.to).map((email) => ({ email })),
+          ...(list(msg.cc).length ? { cc: list(msg.cc).map((email) => ({ email })) } : {}),
+          ...(list(msg.bcc).length ? { bcc: list(msg.bcc).map((email) => ({ email })) } : {}),
+        }],
         from: { email: from.email, ...(from.name ? { name: from.name } : {}) },
         ...(replyTo ? { reply_to: parseFrom(replyTo) } : {}),
         subject: msg.subject,
@@ -138,7 +149,7 @@ function viaProvider(name, msg) {
 
 /**
  * Send one email with the active provider; if it isn't set up or fails, with nodemailer (the backup).
- * @param {{ to: string, subject: string, text: string, html?: string, replyTo?: string,
+ * @param {{ to: string|string[], cc?: string[], bcc?: string[], subject: string, text: string, html?: string, replyTo?: string,
  *           attachments?: { name: string, type: string, content: Buffer }[] }} msg
  * @param {{ provider?: string }} [opt] force one provider (the settings page's test email); no backup then
  * @returns {Promise<{ provider: string, id: string, fellBack: boolean, firstError?: string }>}

@@ -322,3 +322,16 @@ export const emailRetry = (id) => raw(`/api/emails/${id}/retry`, { method: "POST
 export const emailProviders = () => raw("/api/emails/settings/providers");
 export const emailSetProvider = (provider) => raw("/api/emails/settings/providers", { method: "PUT", body: { provider } });
 export const emailTest = (provider) => raw("/api/emails/settings/test", { method: "POST", body: { provider } });
+
+// Email templates, variables, images / documents inside emails, preview
+export const emailVariables = () => raw("/api/emails/variables");
+export const emailForms = () => raw("/api/emails/forms");
+export const emailPublic = (file, onProgress) =>
+  raw("/api/emails/public", { method: "POST", file, onProgress, headers: { "X-File-Type": file.type || "application/octet-stream" } });
+export const emailRender = (body) => raw("/api/emails/render", { method: "POST", body });
+export const templateList = (deleted) => raw(`/api/emails/templates${deleted ? "?deleted=1" : ""}`);
+export const templateGet = (id) => raw(`/api/emails/templates/${id}`);
+export const templateCreate = (body) => raw("/api/emails/templates", { method: "POST", body });
+export const templateSave = (id, body) => raw(`/api/emails/templates/${id}`, { method: "PUT", body });
+export const templateDelete = (id) => raw(`/api/emails/templates/${id}`, { method: "DELETE" });
+export const templateRestore = (id) => raw(`/api/emails/templates/${id}/restore`, { method: "POST" });
