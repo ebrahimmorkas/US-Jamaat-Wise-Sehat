@@ -307,3 +307,18 @@ export const fillGet = (id, t, editKey, forJ) => raw(`/api/f/${id}${tq(t, forJ) 
 export const fillUpload = (id, field, t, file, onProgress, forJ) =>
   raw(`/api/f/${id}/upload?field=${encodeURIComponent(field)}${tq(t, forJ) ? `&${tq(t, forJ)}` : ""}`, { method: "POST", file, onProgress });
 export const fillSubmit = (id, body) => raw(`/api/f/${id}/submit`, { method: "POST", body });
+
+// ---- "Send email" (Super Admin, Saheb) + the email provider (Super Admin) ----
+export const emailPeople = () => raw("/api/emails/people");
+export const emailPreview = (to) => raw("/api/emails/preview", { method: "POST", body: { to } });
+export const emailAttach = (file, onProgress) =>
+  raw("/api/emails/files", { method: "POST", file, onProgress, headers: { "X-File-Type": file.type || "application/octet-stream" } });
+export const emailDropFile = (id) => raw(`/api/emails/files/${id}`, { method: "DELETE" });
+export const emailSend = (body) => raw("/api/emails", { method: "POST", body });
+export const emailList = () => raw("/api/emails");
+export const emailGet = (id) => raw(`/api/emails/${id}`);
+export const emailCancel = (id) => raw(`/api/emails/${id}/cancel`, { method: "POST" });
+export const emailRetry = (id) => raw(`/api/emails/${id}/retry`, { method: "POST" });
+export const emailProviders = () => raw("/api/emails/settings/providers");
+export const emailSetProvider = (provider) => raw("/api/emails/settings/providers", { method: "PUT", body: { provider } });
+export const emailTest = (provider) => raw("/api/emails/settings/test", { method: "POST", body: { provider } });

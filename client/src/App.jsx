@@ -8,6 +8,7 @@ import JcMetrics from "./JcMetrics";
 import SahebMetrics from "./SahebMetrics";
 import SahebStats from "./SahebStats";
 import FormResponses from "./FormResponses";
+import Emails from "./Emails";
 import { SAHEB_NAV } from "./Dashboard";
 import { JC_NAV } from "./JcDashboard";
 import JcStats from "./JcStats";
@@ -142,6 +143,7 @@ function Main({ path, theme, onToggleTheme }) {
   else page = path === "/jc-metrics" ? <SahebMetrics key={auth.user.id} {...common} />
     : path === "/stats" ? <SahebStats key={auth.user.id} {...common} />
     : path === "/responses" ? <FormResponses key={auth.user.id} {...common} nav={SAHEB_NAV} page="/responses" />
+    : path === "/emails" ? <Emails key={auth.user.id} {...common} nav={SAHEB_NAV} page="/emails" />
     : <Dashboard key={auth.user.id} {...common} />;
   return (
     <>

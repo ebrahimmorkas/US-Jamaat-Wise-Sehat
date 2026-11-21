@@ -66,7 +66,7 @@ app.use(
 app.use(compression());
 app.use(cors({ origin: config.corsOrigins, methods: ["GET", "POST", "PUT", "PATCH", "DELETE"], credentials: true }));
 // Forms: a big form (up to 150 questions) or long answers need more room than the rest of the API.
-app.use(["/api/forms", "/api/f"], express.json({ limit: "1mb" }));
+app.use(["/api/forms", "/api/f", "/api/emails"], express.json({ limit: "1mb" }));
 app.use(express.json({ limit: "100kb" })); // a JC with "All" Jamaats sends ~470 ids
 app.use(cookieParser());
 
@@ -87,6 +87,7 @@ app.use("/api/stats", statsRoutes);
 app.use("/api/forms", formsRoutes); // forms the Super Admin builds; JC links; a Coordinator's "My forms"
 app.use("/api/form-results", require("./routes/formResults")); // responses of forms (Super Admin, Saheb, JC)
 app.use("/api/coordinator", require("./routes/coordinator")); // the Jamaat Coordinator portal (own responses, notifications, profile)
+app.use("/api/emails", require("./routes/emails")); // "Send email" (Super Admin, Saheb) + email provider settings
 app.use("/api/f", formFillRoutes); // filling a form (sign-in depends on the form) // Stats image (Super Admin uploads; every portal sees it + history)
 app.use("/api/metrics", metricsRoutes); // JC metrics (JC writes their own; Saheb / Super Admin read)
 app.use("/api/data", dataRoutes); // Data tab (Excel upload by Super Admin; JCs see their Jamaats)

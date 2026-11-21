@@ -86,10 +86,16 @@ const config = {
     folder: (process.env.IMAGEKIT_FOLDER || "/umoor-sehhat/stats").trim(),
   },
 
-  // ---- Email (pluggable): EMAIL_PROVIDER = smtp (e.g. Gmail with an app password) | log (prints instead of
-  // sending, for testing) | empty (off: nothing is sent; portal notifications still work). More providers later.
+  // ---- Email (switchable providers, see services/email.js) ----
+  // EMAIL_PROVIDER = nodemailer (default) | sendgrid | log (testing: prints, sends nothing).
+  // The Super Admin can switch between nodemailer and sendgrid in the portal; nodemailer is always the backup.
   email: {
     provider: (process.env.EMAIL_PROVIDER || "").trim().toLowerCase(),
+    sendgrid: {
+      apiKey: (process.env.SENDGRID_API_KEY || "").trim(),
+      from: (process.env.SENDGRID_FROM || "").trim(), // a sender verified in SendGrid (empty = EMAIL_FROM)
+      perMinute: num(process.env.SENDGRID_PER_MINUTE, 300) || 300,
+    },
     from: (process.env.EMAIL_FROM || "").trim(), // e.g. "Umoor Sehhat <umoor.sehhat@gmail.com>"
     replyTo: (process.env.EMAIL_REPLY_TO || "").trim(),
     smtp: {
@@ -100,6 +106,9 @@ const config = {
     },
     // At most this many emails a minute (Gmail allows about 500 a day on a normal account, 2000 on Workspace).
     perMinute: num(process.env.EMAIL_PER_MINUTE, 30) || 30,
+    // "Send email": all attachments of one email together (Gmail takes up to 25 MB; keep it lower).
+    maxAttachMb: num(process.env.EMAIL_MAX_ATTACH_MB, 10) || 10,
+    folder: (process.env.IMAGEKIT_EMAIL_FOLDER || "/umoor-sehhat/emails").trim(),
     // Times written inside emails (the website shows each person's own time).
     timeZone: (process.env.EMAIL_TIME_ZONE || "Asia/Kolkata").trim(),
     timeZoneLabel: (process.env.EMAIL_TIME_ZONE_LABEL || "India time").trim(),

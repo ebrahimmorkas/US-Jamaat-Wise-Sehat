@@ -46,6 +46,9 @@ const ACTIONS = [
   "form_submitted",       // someone filled a form
   "form_responses_exported", // downloaded a form's responses (Excel)
   "form_announced", // emailed the form link to every Jamaat Coordinator
+  "email_sent",           // "Send email": an email sent / scheduled (or sent again to those it failed for)
+  "email_cancelled",      // ... a scheduled email cancelled
+  "email_settings_changed", // the email provider switched (Nodemailer / SendGrid)
   "form_response_edited", // ... and changed their response
   // data changes (audit trail)
   "user_created",
