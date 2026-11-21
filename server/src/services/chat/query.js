@@ -24,8 +24,8 @@ const ROLE_TEXT = { jc: "JC", saheb: "Saheb", superadmin: "Super Admin" };
 const SAHEB_UP = ["saheb", "superadmin"];
 const ADMIN = ["superadmin"];
 const ALL = ["jc", "saheb", "superadmin"];
-const OPS = ["is", "is_not", "contains", "not_contains", "gt", "gte", "lt", "lte", "empty", "not_empty"];
-const OP_TEXT = { is: "is", is_not: "is not", contains: "contains", not_contains: "doesn't contain", gt: "more than", gte: "at least", lt: "less than", lte: "at most", empty: "is empty", not_empty: "is filled" };
+const OPS = ["is", "is_not", "contains", "not_contains", "starts_with", "ends_with", "gt", "gte", "lt", "lte", "empty", "not_empty"];
+const OP_TEXT = { is: "is", is_not: "is not", contains: "contains", not_contains: "doesn't contain", starts_with: "starts with", ends_with: "ends with", gt: "more than", gte: "at least", lt: "less than", lte: "at most", empty: "is empty", not_empty: "is filled" };
 const ROW_CAP = 200;
 
 const norm = (s) => String(s == null ? "" : s).toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9@.]+/g, " ").trim();
@@ -316,7 +316,11 @@ const textHas = (a, b) => { const x = norm(a), y = norm(b); return !!y && (x ===
 
 const wordIn = (a, b) => { const y = norm(b); return !!y && (` ${norm(a)} `).includes(` ${y} `); };
 /** The strictest way of matching v that finds something among all the values: exact, whole word, then part of a word. */
-function matcher(pool, v) {
+function matcher(pool, v, op = "is") {
+  const y = norm(v);
+  if (op === "starts_with") return (x) => !!y && norm(x).startsWith(y);
+  if (op === "ends_with") return (x) => !!y && norm(x).endsWith(y);
+  if ((op === "contains" || op === "not_contains") && y.length < 3) return (x) => !!y && norm(x).includes(y);
   if (pool.some((x) => textIs(x, v))) return (x) => textIs(x, v);
   if (pool.some((x) => wordIn(x, v))) return (x) => wordIn(x, v);
   return (x) => textHas(x, v);
@@ -343,7 +347,7 @@ function condition(c, ds, dsKey, rows = []) {
       const n = toNumber(v);
       if (Number.isNaN(n)) return { error: `“${v}” is not a number for ${field.label}.` };
       if (field.type === "stars" && (n < 0 || n > 5)) return { error: "A star rating is from 1 to 5." };
-      const cmp = { is: (x) => x === n, is_not: (x) => x !== n, gt: (x) => x > n, gte: (x) => x >= n, lt: (x) => x < n, lte: (x) => x <= n, contains: (x) => x === n, not_contains: (x) => x !== n }[op];
+      const cmp = { is: (x) => x === n, is_not: (x) => x !== n, gt: (x) => x > n, gte: (x) => x >= n, lt: (x) => x < n, lte: (x) => x <= n, contains: (x) => x === n, not_contains: (x) => x !== n, starts_with: (x) => x === n, ends_with: (x) => x === n }[op];
       // Not rated = no rating: it is never "more than 2 stars", and "less than 3" means rated 1 or 2.
       const get = (row) => (field.type === "stars" ? row[c.field] || 0 : Number(row[c.field]) || 0);
       const rated = (row) => field.type !== "stars" || !!row[c.field] || (n === 0 && ["is", "lte", "lt"].includes(op));
@@ -356,7 +360,7 @@ function condition(c, ds, dsKey, rows = []) {
       const monthOnly = /^\d{4}-\d{2}$/.test(String(v));
       const t = d.getTime();
       const end = monthOnly ? Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1) - 86400000 : t;
-      const cmp = { is: (x) => x >= t && x <= end, is_not: (x) => x < t || x > end, gt: (x) => x > end, gte: (x) => x >= t, lt: (x) => x < t, lte: (x) => x <= end, contains: (x) => x >= t && x <= end, not_contains: (x) => x < t || x > end }[op];
+      const cmp = { is: (x) => x >= t && x <= end, is_not: (x) => x < t || x > end, gt: (x) => x > end, gte: (x) => x >= t, lt: (x) => x < t, lte: (x) => x <= end, contains: (x) => x >= t && x <= end, not_contains: (x) => x < t || x > end }[op] || ((x) => x >= t && x <= end);
       return { test: (row) => { const x = dayOf(row[c.field]); return x != null && cmp(x); }, words: `${field.label} ${{ gt: "after", gte: "on or after", lt: "before", lte: "on or before" }[op] || OP_TEXT[op]} ${monthOnly ? String(v) : fmtDate(d)}` };
     }
     case "bool": {
@@ -369,10 +373,11 @@ function condition(c, ds, dsKey, rows = []) {
       if (v == null || v === "") return { error: `Say which value ${field.label} should have.` };
       const vals = Array.isArray(v) ? v : [v];
       const all = pool();
-      const fits = vals.map((val) => matcher(all, val));
+      const fits = vals.map((val) => matcher(all, val, op));
       const any = (row) => fits.every((fit) => (row[c.field] || []).some(fit));
       const neg = op === "is_not" || op === "not_contains";
-      return { test: (row) => (neg ? !any(row) : any(row)), words: `${field.label} ${neg ? "don't include" : "include"} ${vals.join(", ")}` };
+      const how = op === "starts_with" ? "starting with " : op === "ends_with" ? "ending with " : "";
+      return { test: (row) => (neg ? !any(row) : any(row)), words: `${field.label} ${neg ? "don't include" : "include"} ${how}${vals.join(", ")}` };
     }
     default: { // text
       if (["gt", "gte", "lt", "lte"].includes(op)) {
@@ -384,19 +389,19 @@ function condition(c, ds, dsKey, rows = []) {
       if (v == null || v === "") return { error: `Say what ${field.label} should be.` };
       const neg = op === "is_not" || op === "not_contains";
       // "Dhar" = DHAR (not DHARAMPURI); "Ebrahim" = every "Ebrahim …"; only if nothing fits that way, a part of a word.
-      const fit = dsKey === "data" && (op === "is" || op === "is_not") ? (x) => textIs(x, v) : matcher(pool(), v);
+      const fit = dsKey === "data" && (op === "is" || op === "is_not") ? (x) => textIs(x, v) : matcher(pool(), v, op);
       return { test: (row) => { const hit = fit(row[c.field]); return neg ? !hit : hit; }, words: words(`“${v}”`) };
     }
   }
 }
 
 // ---------- show ----------
-function cell(row, key, field) {
+function cell(row, key, field, full = false) {
   const v = row[key];
   switch (field.type) {
     case "list": {
       const n = v || [];
-      return n.length > 6 ? `${n.slice(0, 6).join(", ")} +${n.length - 6} more` : n.join(", ") || "—";
+      return n.length > 6 && !full ? `${n.slice(0, 6).join(", ")} +${n.length - 6} more` : n.join(", ") || "—";
     }
     case "stars": return starsText(v);
     case "date": return v ? fmtDate(v) : "—";
@@ -544,7 +549,21 @@ async function runQuery(q, scope, user) {
     if (c === "name" && (dsKey === "jcs" || dsKey === "users") && !r.hasName && cols.includes("email")) return "(no name set)";
     return cell(r, c, ds.fields[c]);
   }));
-  if (asked.length && cols.length === 1 && rows.length === 1) return [...notes, text(`**${headTitle}**: ${values[0][0]}`)];
+  // One thing, one value asked (the name/Gmail beside it don't count): answer in a sentence.
+  const valueCols = cols.filter((c) => c !== "name" && !(c === "email" && cols.length > 1));
+  if (asked.length && rows.length === 1 && (cols.length === 1 || (valueCols.length === 1 && !limited))) {
+    // Say WHAT the number/value is and WHOSE it is ("Jamiats assigned to EBRAHIM MORKAS: 25"), not "JCs where …: 1".
+    const c = cols.length === 1 ? cols[0] : valueCols[0], r = rows[0];
+    values[0] = [cell(r, c, ds.fields[c], true)];
+    const who = ds.fields.name && c !== "name" && r.name && (dsKey !== "jcs" && dsKey !== "users" || r.hasName) ? r.name : null;
+    if (who) {
+      const label = ds.fields[c].label;
+      const link = /assigned$/i.test(label) ? "to" : "of";
+      return [...notes, text(`**${label} ${link} ${who}**: ${values[0][0]}`)];
+    }
+    if (cols.length > 1) return [...notes, text(`**${ds.fields[c].label}** (the ${ds.one}${what.length ? ` where ${what.join(" and ")}` : ""}): ${values[0][0]}`)];
+    return [...notes, text(`**${headTitle}**: ${values[0][0]}`)];
+  }
   const capped = values.length > ROW_CAP;
   return [...notes, text(`**${headTitle}**${limited && sortWords ? ":" : `: ${rows.length}.`}`),
     { type: "table", columns: cols.map((c) => ds.fields[c].label), rows: values.slice(0, ROW_CAP), ...(capped ? { note: `Showing the first ${ROW_CAP} of ${values.length}.` } : {}) }];

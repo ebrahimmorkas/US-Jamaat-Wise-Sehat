@@ -9,7 +9,7 @@ const User = require("../../models/User");
 const { currentMonth, monthLabel, rangeText, portalMonths } = require("../../lib/month");
 const { hijriMonthNames } = require("../../formConfig");
 const { norm, STATUS_WORDS } = require("./engine");
-const { schemaFor, describeSchema, OPS } = require("./query");
+const { schemaFor, describeSchema, OPS, DATASETS } = require("./query");
 
 const INTENTS = ["list", "count", "submission", "jamaat_detail", "masters", "questions", "comments", "query", "users", "help", "greeting", "off_topic", "unclear"];
 const str = (v, n = 80) => (typeof v === "string" && v.trim() ? v.trim().slice(0, n) : null);
@@ -115,8 +115,8 @@ OUTPUT: only a JSON object with these keys (omit keys that don't apply):
    "list" (which Jamaats/Jamiats have an answer, e.g. "which jamaats completed injection", "which jamiat filled tibb"),
    "count" (how many / breakdown / status of a question, e.g. "how many pending for tibb", "tibb status in barwani"),
    "submission" (which Jamaats/Jamiats submitted or not the monthly form, no specific question),
-   "jamaat_detail" (all answers of one Jamaat, e.g. "show dhar's form", "what did dhar answer"),
-   "masters" (Jamiats, Jamaats in a Jamiat, a Jamaat's Mauze Type / House Count, how many Jamaats),
+   "jamaat_detail" (all FORM answers of one Jamaat, e.g. "show dhar's form", "what did dhar answer"; not its Mauze Type / houses / JCs - that is "query"),
+   "masters" (ONLY: list the Jamiats, list ALL Jamaats of one Jamiat, or one Jamaat's details - with NO condition, number, sort or count; anything with a condition like "more than 100 houses", "Ummal", "no Mauze Type", "most Jamaats" is "query"),
    "questions" (what questions / activities / answer options exist; with "question" when one is named, e.g. "which are the activities in Tibb" -> {"intent":"questions","question":"tibb"}),
    "comments" (comments or remarks written by JCs),
    "query" (anything else about the stored lists: JCs, users, Jamiats, Jamaats, metrics, star ratings, Stats images, the Data sheet - see QUERIES),
@@ -135,11 +135,12 @@ OUTPUT: only a JSON object with these keys (omit keys that don't apply):
 
 QUERIES - for anything about the stored lists below (people, places, metrics, ratings, images, the Data sheet), use
 {"intent":"query","dataset":<one of the datasets>,"where":[{"field":<field>,"op":<op>,"value":<value>}],"fields":[<only the fields the user asked to SEE; omit if not said>],"sort":{"field":<field>,"dir":"desc"|"asc"},"limit":<n>,"count_only":true (only "how many"),"group_by":<field> ("how many per ...")}
-ops: is, is_not, contains, not_contains, gt, gte, lt, lte, empty, not_empty. (list) fields hold several names: use "contains". (bool): value true/false. (date): value "YYYY-MM-DD" or "YYYY-MM". (stars): 1-5.
-"fields", "where" and "sort" use ONLY the field names of the chosen dataset. EVERY condition in the question must become a "where" item or the sort/limit; never drop one. If a condition fits no field, still write it with the closest field name (the software will explain).
+ops: is, is_not, contains, not_contains, starts_with, ends_with, gt, gte, lt, lte, empty, not_empty ("names starting with E" -> starts_with "E"). (list) fields hold several names: use "contains". (bool): value true/false. (date): value "YYYY-MM-DD" or "YYYY-MM". (stars): 1-5.
+"fields", "where" and "sort" use ONLY the field names of the chosen dataset. "count_only" ONLY when they ask how many rows/things match ("how many JCs ..."); a number ABOUT one thing ("how many Jamiats does X have", "total Jamiats assigned to X") is a field (e.g. jamiat_count), not count_only.
+FOLLOW-UPS: when the new message only adds or changes something (e.g. "give me gmail", "only names", "their metrics", "sort by rating", "and in Barwani?"), repeat the previous query from the earlier turns with ALL its conditions, changing only what was asked. Never ask "whose?" when an earlier turn already says it. EVERY condition in the question must become a "where" item or the sort/limit; never drop one. If a condition fits no field, still write it with the closest field name (the software will explain).
 Datasets this person may ask about:
 ${describeSchema(cat.schema)}
-Examples: ${cat.role === "jc" ? "" : `"JC with 2 stars rating" -> {"intent":"query","dataset":"jcs","where":[{"field":"rating","op":"is","value":2}]}; "Name of JC who has zero metrics" -> {"intent":"query","dataset":"jcs","where":[{"field":"metric_count","op":"is","value":0}],"fields":["name"]}; "Just give me the email of JC who has been assigned all the jamiats" -> {"intent":"query","dataset":"jcs","where":[{"field":"all_jamiats","op":"is","value":true}],"fields":["email"]}; "Who all has been assigned the Mumbai Jamiat?" -> {"intent":"query","dataset":"jcs","where":[{"field":"jamiats","op":"contains","value":"Mumbai"}],"fields":["name"]}; "Which JC has the most metrics?" -> {"intent":"query","dataset":"jcs","sort":{"field":"metric_count","dir":"desc"},"limit":1}; "which jamaats are assigned to Ebrahim" -> {"intent":"query","dataset":"jcs","where":[{"field":"name","op":"contains","value":"Ebrahim"}],"fields":["name","jamaats"]}; "who is the JC of Dhar" -> {"intent":"query","dataset":"jcs","where":[{"field":"jamaats","op":"contains","value":"Dhar"}],"fields":["name"]} (a Jamaat name -> jamaats, a Jamiat name -> jamiats); "top rated JC" / "best JC" / "highest rated" -> {"intent":"query","dataset":"jcs","sort":{"field":"rating","dir":"desc"},"limit":1} (a ranking, NOT rating = 5; "top 3" -> limit 3); "JCs rated 4 or more" -> where rating gte 4;"JCs not rated yet" -> where rating empty; `}"Jamaats with more than 100 houses in Barwani" -> {"intent":"query","dataset":"jamaats","where":[{"field":"houses","op":"gt","value":100},{"field":"jamiat","op":"is","value":"Barwani"}]}; "how many Jamaats are Ummal" -> {"intent":"query","dataset":"jamaats","where":[{"field":"mauze_type","op":"is","value":"Ummal"}],"count_only":true}; "Jamaats per Mauze Type" -> {"intent":"query","dataset":"jamaats","group_by":"mauze_type"}; "when was the Ahmedabad stats image uploaded" -> {"intent":"query","dataset":"stats","where":[{"field":"jamiat","op":"is","value":"Ahmedabad"},{"field":"current","op":"is","value":true}]}.
+Examples: ${cat.role === "jc" ? "" : `"JC with 2 stars rating" -> {"intent":"query","dataset":"jcs","where":[{"field":"rating","op":"is","value":2}]}; "Name of JC who has zero metrics" -> {"intent":"query","dataset":"jcs","where":[{"field":"metric_count","op":"is","value":0}],"fields":["name"]}; "Just give me the email of JC who has been assigned all the jamiats" -> {"intent":"query","dataset":"jcs","where":[{"field":"all_jamiats","op":"is","value":true}],"fields":["email"]}; "Who all has been assigned the Mumbai Jamiat?" -> {"intent":"query","dataset":"jcs","where":[{"field":"jamiats","op":"contains","value":"Mumbai"}],"fields":["name"]}; "Which JC has the most metrics?" -> {"intent":"query","dataset":"jcs","sort":{"field":"metric_count","dir":"desc"},"limit":1}; "Which JC names start with E" -> {"intent":"query","dataset":"jcs","where":[{"field":"name","op":"starts_with","value":"E"}],"fields":["name"]}; "Total number of jamiats assigned to a@b.com" -> {"intent":"query","dataset":"jcs","where":[{"field":"email","op":"is","value":"a@b.com"}],"fields":["name","jamiat_count"]}; after "JC with 4 metrics" -> {"intent":"query","dataset":"jcs","where":[{"field":"metric_count","op":"is","value":4}]}, the follow-up "Give me Gmail" -> {"intent":"query","dataset":"jcs","where":[{"field":"metric_count","op":"is","value":4}],"fields":["email"]}; "which jamaats are assigned to Ebrahim" -> {"intent":"query","dataset":"jcs","where":[{"field":"name","op":"contains","value":"Ebrahim"}],"fields":["name","jamaats"]}; "who is the JC of Dhar" -> {"intent":"query","dataset":"jcs","where":[{"field":"jamaats","op":"contains","value":"Dhar"}],"fields":["name"]} (a Jamaat name -> jamaats, a Jamiat name -> jamiats); "top rated JC" / "best JC" / "highest rated" -> {"intent":"query","dataset":"jcs","sort":{"field":"rating","dir":"desc"},"limit":1} (a ranking, NOT rating = 5; "top 3" -> limit 3); "JCs rated 4 or more" -> where rating gte 4;"JCs not rated yet" -> where rating empty; `}"Jamaats with more than 100 houses in Barwani" -> {"intent":"query","dataset":"jamaats","where":[{"field":"houses","op":"gt","value":100},{"field":"jamiat","op":"is","value":"Barwani"}]}; "how many Jamaats are Ummal" -> {"intent":"query","dataset":"jamaats","where":[{"field":"mauze_type","op":"is","value":"Ummal"}],"count_only":true}; "Jamaats per Mauze Type" -> {"intent":"query","dataset":"jamaats","group_by":"mauze_type"}; "what is the mauze type of Dhar" / "how many houses in Dhar" -> {"intent":"query","dataset":"jamaats","where":[{"field":"name","op":"is","value":"Dhar"}],"fields":["name","mauze_type"]} (or "houses"; "jamaat_detail" is only for the FORM answers of a Jamaat); "when was the Ahmedabad stats image uploaded" -> {"intent":"query","dataset":"stats","where":[{"field":"jamiat","op":"is","value":"Ahmedabad"},{"field":"current","op":"is","value":true}]}.
 ${cat.role === "jc" ? `Questions about other JCs, Sahebs or users (who they are, what they handle, their metrics or anything about them) -> {"intent":"query","dataset":"jcs"} (the software replies).
 "my Jamaats"/"my Jamiats" = this person's own; e.g. "how many jamaats do I have" -> {"intent":"query","dataset":"jamaats","count_only":true}.
 ` : `JC "metrics" = permanent work a JC handles (entered by the JC); "rating" = the Super Admin's 1-5 star rating of a JC.
@@ -252,6 +253,8 @@ function basicIntent(cat, message, history) {
   const words = t.split(" ");
   const prev = history.length ? history[history.length - 1].intent : null;
   if (!t) return { intent: "unclear" };
+  const fq = followUpQuery(cat, message, history);
+  if (fq) return fq;
   if (words.length <= 4 && has(t, ["hi", "hello", "salaam", "salam", "salaams", "thanks", "thank you", "shukran"])) return { intent: "greeting" };
   if (has(t, ["help", "what can you do", "how to use", "examples"])) return { intent: "help" };
 
@@ -287,8 +290,8 @@ function basicIntent(cat, message, history) {
   // Only a place name: about the place's data only when nothing points elsewhere ("weather in Mumbai" is not).
   if (!dataWords && (out.jamiat || out.jamaat) && has(t, OFF_WORDS)) return { intent: "off_topic" };
   if (!dataWords && !out.jamiat && !out.jamaat) return { intent: "off_topic" };
-  if (has(t, ["user", "users", "jc", "jcs", "who is", "assigned", "saheb", "admin", "metric", "metrics", "rating", "rated", "star", "stars", "handles", "handle", "handling"]) && !out.question) {
-    return basicPeople(t, out, cat);
+  if ((/[a-z0-9._%+-]+@[a-z0-9-]+\.[a-z]/i.test(message) && !out.question) || has(t, ["user", "users", "jc", "jcs", "who is", "assigned", "saheb", "admin", "metric", "metrics", "rating", "rated", "star", "stars", "handles", "handle", "handling"]) && !out.question) {
+    return basicPeople(t, out, cat, message);
   }
   if (has(t, ["comment", "comments", "remark", "remarks"])) return cleanIntent({ ...out, intent: "comments" });
   // "jamaats in <a name we don't know>": let the engine say it isn't found (instead of listing everything).
@@ -312,9 +315,36 @@ function basicIntent(cat, message, history) {
   return cleanIntent({ ...out, intent: out.status ? "list" : "count" });
 }
 
+// "Give me Gmail", "only names", "their metrics" right after a data question: the same question, those details.
+function followUpQuery(cat, message, history) {
+  const prev = history.length ? history[history.length - 1].intent : null;
+  if (!prev || prev.intent !== "query" || !cat.schema || !cat.schema[prev.dataset]) return null;
+  const t = norm(message);
+  if (!t || t.split(" ").length > 7) return null;
+  const fields = cat.schema[prev.dataset].fields;
+  const words = { email: ["gmail", "gmails", "email", "emails", "mail", "mails", "mail id", "email id"], name: ["name", "names"], rating: ["rating", "ratings", "stars", "star"],
+    jamiats: ["jamiats", "jamiat"], jamaats: ["jamaats", "jamaat"], metrics: ["metrics", "metric"], jamiat_count: ["number of jamiats", "jamiat count", "how many jamiats", "total jamiats"],
+    jamaat_count: ["number of jamaats", "jamaat count", "how many jamaats", "total jamaats"], metric_count: ["number of metrics", "how many metrics", "metric count"],
+    last_login: ["last login", "last sign in", "last signed in", "logged in"], houses: ["houses", "house count"], children: ["children"], mauze_type: ["mauze", "mauze type"], jcs: ["jcs", "jc"] };
+  const asked = [];
+  for (const [k, ws] of Object.entries(words)) {
+    if (!fields[k] && !(DATASETS[prev.dataset].fields || {})[k]) continue; // hidden ones too: the answer then says who sees them
+    if (ws.some((w) => has(t, [w]))) asked.push(k);
+  }
+  for (const [k, f] of Object.entries(fields)) if (!asked.includes(k) && f.label.length > 3 && has(t, [norm(f.label)])) asked.push(k);
+  // counts beat the list of the same thing ("number of jamiats" -> jamiat_count, not jamiats)
+  for (const [n, l] of [["jamiat_count", "jamiats"], ["jamaat_count", "jamaats"], ["metric_count", "metrics"]]) if (asked.includes(n)) { const i = asked.indexOf(l); if (i >= 0) asked.splice(i, 1); }
+  if (!asked.length) return null;
+  // Anything else that looks like a new condition: not a pure follow-up.
+  if (/\d|more than|less than|at least|at most|starts? with|where|which|who has|with no|without/.test(t)) return null;
+  // "their jamiats" -> name + Jamiats (whose they are); "give me gmail" -> just the Gmail.
+  const withName = !asked.includes("name") && !asked.includes("email") && ["jcs", "users", "jamaats", "jamiats"].includes(prev.dataset);
+  return cleanIntent({ ...prev, fields: withName ? ["name", ...asked] : asked, count_only: false });
+}
+
 // The built-in reader for questions about JCs / users. It only answers what it fully understood:
 // anything left over that looks like a condition (a number, "more than", a field word) -> "unclear".
-function basicPeople(t, out, cat) {
+function basicPeople(t, out, cat, message = "") {
   const where = [];
   const q = { intent: "query", dataset: has(t, ["user", "users", "saheb", "admin", "everyone"]) && !has(t, ["jc", "jcs"]) ? "users" : "jcs" };
   let rest = ` ${t} `;
@@ -329,6 +359,19 @@ function basicPeople(t, out, cat) {
   if (eat(/ (has |have |with |assigned |handles? )?(all|every) (the )?jamiats? /)) where.push({ field: "all_jamiats", op: "is", value: true });
   if (out.jamiat) { where.push({ field: "jamiats", op: "contains", value: out.jamiat }); rest = rest.replace(` ${norm(out.jamiat)} `, " "); }
   if (out.jamaat && q.dataset === "jcs") { where.push({ field: "jamaats", op: "contains", value: out.jamaat }); rest = rest.replace(` ${norm(out.jamaat)} `, " "); }
+  // A Gmail address (read from the original text: the cleaned text has no "@" or ".").
+  const mail = /[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+/i.exec(message);
+  if (mail) { where.push({ field: "email", op: "is", value: mail[0].toLowerCase() }); rest = rest.replace(` ${norm(mail[0])} `, " "); }
+  if ((m = eat(/ (whose )?(names? )?(starts?|starting|begins?|beginning) with (the letter )?([a-z0-9]+) /))) where.push({ field: "name", op: "starts_with", value: m[5] });
+  if ((m = eat(/ (whose )?(names? )?(ends?|ending) with (the letter )?([a-z0-9]+) /))) where.push({ field: "name", op: "ends_with", value: m[5] });
+  if ((m = eat(/ (whose )?(names? )?(contains?|containing) (the letter )?([a-z0-9]+) /))) where.push({ field: "name", op: "contains", value: m[5] });
+  // A number ABOUT each JC ("total number of jamiats assigned to …") is a column, not "how many JCs".
+  const countCols = [];
+  // "number" also as typed in a hurry (numebr, nubmer, numbr), and "jamiats count" / "count of jamiats".
+  const NUM = "(the )?(total )?(nu[a-z]{2,5} of|no of|count of|how many|total)";
+  for (const [word, col] of [["(jamiats?|jamaits?|jamiyats?)", "jamiat_count"], ["(jamaats?|jamats?)", "jamaat_count"], ["metrics?", "metric_count"]]) {
+    if (eat(new RegExp(` ${NUM} ${word} `)) || eat(new RegExp(` (the )?(total )?${word} (count|total|number) `))) countCols.push(col);
+  }
   if ((m = eat(/ (who|which jcs?|jcs?) (handles?|handling|looks? after|manages?|is in charge of) (the )?(.+?)( department| work)? $/))) where.push({ field: "metrics", op: "contains", value: m[4].trim() });
   if (eat(/ (most|highest|maximum|max) metrics? /)) { q.sort = { field: "metric_count", dir: "desc" }; q.limit = 1; }
   else if (eat(/ (least|fewest|lowest|minimum|min) metrics? /)) { q.sort = { field: "metric_count", dir: "asc" }; q.limit = 1; }
@@ -336,12 +379,13 @@ function basicPeople(t, out, cat) {
   else if (eat(/ (lowest|worst|least) (rated|rating)|fewest stars /)) { q.sort = { field: "rating", dir: "asc" }; q.limit = 1; }
   const fields = [];
   if (/(only|just) (the )?names?|names? only|^names? of/.test(t)) fields.push("name");
-  if (/(e ?mail|gmail| mail )/.test(` ${t} `)) fields.push("email");
+  if (/(e ?mail|gmail| mail )/.test(rest)) fields.push("email");
   if (/ (their|the) metrics /.test(rest)) fields.push("metrics");
-  if (fields.length) q.fields = fields;
-  if (/^(how many|count|number of)/.test(t)) q.count_only = true;
+  if (countCols.length) fields.push("name", ...countCols);
+  if (fields.length) q.fields = [...new Set(fields)];
+  if (/^(how many|count|number of)/.test(t) && !countCols.length) q.count_only = true;
   // Left-over conditions we didn't understand: don't guess.
-  if (/\d/.test(rest) || /(more than|less than|at least|at most|above|below|between|greater|fewer|before|after|since|rated|rating|stars?|metric|login|sign ?in|house|children|mauze)/.test(rest)) {
+  if (/\d/.test(rest) || /(more than|less than|at least|at most|above|below|between|greater|fewer|before|after|since|rated|rating|stars?|metric|login|sign ?in|house|children|mauze|@|starts?|ends?|begin|contain|total|number|named|called)/.test(rest)) {
     return { intent: "unclear", clarify: "I couldn't read every part of that question precisely right now. Please try again in a minute." };
   }
   if (where.length) q.where = where;
@@ -354,6 +398,36 @@ function cleanHistory(h) {
   return h.slice(-6).map((x) => ({ q: str(x && x.q, 500), intent: cleanIntent(x && x.intent) })).filter((x) => x.q);
 }
 
+/**
+ * Checks on the AI's query that the words of the question settle for certain:
+ *  - a Gmail address is used exactly as typed (the AI sometimes drops or adds a letter);
+ *  - "number of Jamiats assigned to X" / "Jamiats count of X" is X's own count, never "how many JCs".
+ */
+function fixQuery(intent, message) {
+  if (!intent || intent.intent !== "query") return intent;
+  const q = { ...intent, where: (intent.where || []).map((c) => ({ ...c })) };
+  const mails = (String(message).match(/[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+/gi) || []).map((m) => m.toLowerCase());
+  if (mails.length === 1) {
+    const c = q.where.find((w) => w.field === "email");
+    if (c) { c.value = mails[0]; if (!["is", "contains"].includes(c.op)) c.op = "is"; }
+    else if (q.dataset === "jcs" || q.dataset === "users") q.where.push({ field: "email", op: "is", value: mails[0] });
+  }
+  if (q.dataset === "jcs" || q.dataset === "users") {
+    const t = ` ${String(message).toLowerCase().replace(/[^a-z0-9@.]+/g, " ")} `;
+    const NUM = "(total )?(nu[a-z]{2,5} of|no of|count of|how many|total)";
+    for (const [word, col, list] of [["(jamiats?|jamaits?|jamiyats?)", "jamiat_count", "jamiats"], ["(jamaats?|jamats?)", "jamaat_count", "jamaats"], ["metrics?", "metric_count", "metrics"]]) {
+      if (new RegExp(` ${NUM} ${word} `).test(t) || new RegExp(` ${word} (count|total|number) `).test(t)) {
+        if (q.dataset === "jcs" || col !== "metric_count") {
+          q.fields = [...new Set(["name", ...(q.fields || []).filter((f) => f !== list), col])];
+          delete q.count_only;
+        }
+      }
+    }
+  }
+  if (!q.where.length) delete q.where;
+  return q;
+}
+
 async function readQuestion(user, message, history) {
   const cat = await catalog(user);
   if (config.groqApiKey) {
@@ -364,13 +438,17 @@ async function readQuestion(user, message, history) {
       if ((intent.intent === "count" || intent.intent === "list") && !intent.question && basic.intent === "submission") intent = { ...basic, month: intent.month, english_date: intent.english_date };
       // Submitted or not: the words decide ("haven't sent", "not submitted", "pending", "remaining").
       if (intent.intent === "submission") intent = { ...intent, submitted: !NOT_YET.test(norm(message)) };
+      // A follow-up like "give me gmail" that the AI didn't connect to the previous question.
+      if (["unclear", "off_topic", "help"].includes(intent.intent)) { const f = followUpQuery(cat, message, history); if (f) return { intent: f, source: "ai" }; }
+      // The AI asked "did you mean …?" but the built-in reader understood every word: answer instead of asking.
+      if (intent.intent === "unclear" && basic.intent === "query") return { intent: fixQuery(basic, message), source: "basic" };
       // "Which Jamiat(s) …": the answer is by Jamiat, even if the AI left that out.
       if (["list", "count", "submission"].includes(intent.intent) && !intent.level && basic.level === "jamiat") intent = { ...intent, level: "jamiat" };
       // Safety net: if the AI calls it off-topic but the question clearly names this data, use the built-in reading.
       if (intent.intent === "off_topic") {
         if (!["off_topic", "unclear", "greeting", "help"].includes(basic.intent)) return { intent: basic, source: "basic" };
       }
-      return { intent, source: "ai" };
+      return { intent: fixQuery(intent, message), source: "ai" };
     } catch (err) {
       console.warn("[chat] Groq failed, using the built-in reader:", err.message);
       return { intent: basicIntent(cat, message, history), source: "basic", aiError: err.status === 429 ? "busy" : "failed" };
@@ -379,4 +457,4 @@ async function readQuestion(user, message, history) {
   return { intent: basicIntent(cat, message, history), source: "basic" };
 }
 
-module.exports = { readQuestion, cleanIntent, cleanHistory, basicIntent, catalog, systemPrompt };
+module.exports = { readQuestion, cleanIntent, cleanHistory, basicIntent, catalog, systemPrompt, fixQuery };
