@@ -1913,3 +1913,17 @@ textarea.input { font-family: inherit; line-height: 1.45; }
 .fill-mine-list li { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; justify-content: center; font-size: 13px; }
 /* phones hide button text in the top bar; form pages keep their labels */
 .fill-shell .btn span, .form-editor .btn span, .myforms .btn span, .form-links .btn span { display: inline; }
+/* builder: back button, share panel, bottom bar, phone field */
+.back-btn { margin-bottom: 10px; padding: 7px 12px; font-size: 13px; }
+.share-panel { margin-bottom: 18px; }
+.share-panel .link-out { margin: 6px 0 12px; }
+.share-grid { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: end; }
+@media (max-width: 720px) { .share-grid { grid-template-columns: 1fr; } }
+.editor-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 18px; padding: 14px 18px; }
+.editor-foot-right { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.fv-phone-row { display: flex; gap: 8px; }
+.fv-cc { flex: 0 0 auto; max-width: 46%; min-height: 44px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--ink); padding: 0 8px; font: inherit; }
+.fv-phone-row .fv-input { flex: 1; min-width: 0; }
+.fv-phone-check { display: block; font-size: 12.5px; margin-top: 6px; }
+.fv-phone-check.good { color: var(--good, #15803d); }
+.fv-phone-check.bad { color: var(--warn-ink, #b45309); }

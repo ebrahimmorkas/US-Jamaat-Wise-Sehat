@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import FormView, { fmtWhen, myZone } from "./components/FormView";
+import FormView, { fmtWhen, myZone, phoneOk, phoneValue } from "./components/FormView";
 import LoginPage from "./components/LoginPage";
 import { CheckIcon, ClockIcon, InfoIcon, LockIcon, MoonIcon, SunIcon, WarnIcon } from "./components/Icons";
 import { fillGet, fillSubmit, fillUpload, isServerStarting } from "./lib/api";
@@ -104,8 +104,10 @@ export default function FormFillPage({ id, theme, onToggleTheme }) {
     for (const f of form.fields) {
       const v = values[f.key];
       if (["heading", "paragraph"].includes(f.type)) continue;
+      const empty = v == null || v === "" || (Array.isArray(v) && !v.length) || (f.type === "phone" && !phoneValue(v));
       if (Array.isArray(v) && v.some((x) => x.error)) p[f.key] = "Remove the file that couldn't be uploaded.";
-      else if (f.required && (v == null || v === "" || (Array.isArray(v) && !v.length))) p[f.key] = "This question needs an answer.";
+      else if (f.required && empty) p[f.key] = "This question needs an answer.";
+      else if (f.type === "phone" && !empty && !phoneOk(v)) p[f.key] = "Enter a valid phone number for the chosen country.";
     }
     if (data.me.needEmail && !editing && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) p._email = "Enter a valid email address.";
     if (Object.keys(p).length) return showProblems(p);
@@ -113,6 +115,7 @@ export default function FormFillPage({ id, theme, onToggleTheme }) {
     for (const f of form.fields) {
       const v = values[f.key];
       if (v == null || v === "") continue;
+      if (f.type === "phone") { const ph = phoneValue(v); if (ph) answers[f.key] = ph; continue; }
       answers[f.key] = Array.isArray(v) && ["image", "video", "file"].includes(f.type) ? v.map((x) => (x.token ? { id: x.id, token: x.token } : { id: x.id })) : v;
     }
     setBusy(true); setError("");

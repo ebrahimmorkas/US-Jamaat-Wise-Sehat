@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { getCountries, getCountryCallingCode, parsePhoneNumberFromString } from "libphonenumber-js/min";
 import MultiSelect from "./MultiSelect";
 import { CloseIcon, UploadIcon } from "./Icons";
 
@@ -11,6 +12,25 @@ export const fmtWhen = (d) => (d ? new Date(d).toLocaleString([], { weekday: "sh
 export const myZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { return ""; } };
 export const fmtSize = (b) => (b >= 1024 * 1024 * 1024 ? `${(b / 1024 / 1024 / 1024).toFixed(1)} GB` : b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 const isLayout = (t) => t === "heading" || t === "paragraph";
+
+// ---------- Phone numbers: a country + the number, checked with that country's rules ----------
+const regionOfBrowser = () => {
+  try { const r = new Intl.Locale(navigator.language || "en-IN").maximize().region; return r && getCountries().includes(r) ? r : "IN"; } catch { return "IN"; }
+};
+/** Saved answer ("+919876543210") or what is being typed ({ country, number }) -> { country, number }. */
+export function phoneParts(v) {
+  if (v && typeof v === "object") return v;
+  const ph = typeof v === "string" && v ? parsePhoneNumberFromString(v) : null;
+  return ph ? { country: ph.country || regionOfBrowser(), number: ph.formatNational() } : { country: regionOfBrowser(), number: "" };
+}
+/** What is sent: "+<code><number>" (the server checks it again). Empty when no number was typed. */
+export function phoneValue(v) {
+  const { country, number } = phoneParts(v);
+  if (!String(number || "").trim()) return "";
+  const ph = parsePhoneNumberFromString(number, country);
+  return ph ? ph.number : `+${getCountryCallingCode(country)}${String(number).replace(/\D/g, "")}`;
+}
+export const phoneOk = (v) => { const s = phoneValue(v); const ph = s && parsePhoneNumberFromString(s); return !!(ph && ph.isValid()); };
 
 export default function FormView({ form, values, onChange, problems = {}, onUpload, onRemoveFile, preview, locked }) {
   let n = 0;
@@ -69,7 +89,7 @@ function Input({ f, value, set, id, preview, onUpload, onRemoveFile }) {
   switch (f.type) {
     case "short_text": return text("text", { maxLength: f.max || 500 });
     case "email": return text("email", { inputMode: "email", autoComplete: "email" });
-    case "phone": return text("tel", { inputMode: "tel", autoComplete: "tel" });
+    case "phone": return <PhoneField value={value} set={set} placeholder={f.placeholder} />;
     case "number": return text("number", { inputMode: "decimal", min: f.min ?? undefined, max: f.max ?? undefined, step: "any" });
     case "date": return text("date");
     case "time": return text("time");
@@ -132,6 +152,30 @@ function Input({ f, value, set, id, preview, onUpload, onRemoveFile }) {
       return <Files f={f} list={Array.isArray(value) ? value : []} preview={preview} onUpload={onUpload} onRemove={(item) => onRemoveFile(f, item)} />;
     default: return null;
   }
+}
+
+const flag = (cc) => String.fromCodePoint(...[...cc].map((c) => 127397 + c.charCodeAt(0)));
+function PhoneField({ value, set, placeholder }) {
+  const { country, number } = phoneParts(value);
+  const countries = useMemo(() => {
+    let names = null;
+    try { names = new Intl.DisplayNames([navigator.language || "en"], { type: "region" }); } catch { /* old browser */ }
+    return getCountries().map((c) => ({ c, name: (names && names.of(c)) || c, code: getCountryCallingCode(c) })).sort((a, b) => a.name.localeCompare(b.name));
+  }, []);
+  const typed = String(number || "").replace(/\D/g, "").length >= 4;
+  const good = typed && phoneOk({ country, number });
+  return (
+    <div className="fv-phone">
+      <div className="fv-phone-row">
+        <select className="fv-cc" value={country} aria-label="Country" onChange={(e) => set({ country: e.target.value, number })}>
+          {countries.map((x) => <option key={x.c} value={x.c}>{flag(x.c)} {x.name} (+{x.code})</option>)}
+        </select>
+        <input className="input fv-input" type="tel" inputMode="tel" autoComplete="tel-national" value={number} placeholder={placeholder || "Phone number"}
+          onChange={(e) => set({ country, number: e.target.value.replace(/[^\d\s()-]/g, "").slice(0, 20) })} />
+      </div>
+      {typed && <span className={`fv-phone-check ${good ? "good" : "bad"}`}>{good ? "✓ Valid number" : "Not a valid number for this country yet"}</span>}
+    </div>
+  );
 }
 
 function AutoArea({ value, max, placeholder, onChange }) {

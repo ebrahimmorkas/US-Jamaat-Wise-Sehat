@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const config = require("../config");
 const { InputError } = require("../lib/validate");
 const { parseGmail } = require("../lib/gmail");
+const { parsePhoneNumberFromString } = require("libphonenumber-js/min");
 
 // ---------- Field types ----------
 // group: how the builder lists them · choice: has options · upload: a file picker · layout: not a question
@@ -292,10 +293,13 @@ async function checkAnswers(form, input, files, previous = {}) {
         if (typeof v !== "string" || !simpleEmail(v) || v.length > 200) fail("Enter a valid email address.");
         else answers[f.key] = v.toLowerCase();
         break;
-      case "phone":
-        if (typeof v !== "string" || !/^\+?[0-9][0-9 ()-]{5,22}$/.test(v)) fail("Enter a valid phone number (digits, with + and country code if outside India).");
-        else answers[f.key] = v;
+      case "phone": {
+        // Checked with each country's real numbering rules (length, valid prefixes); saved as +<country code><number>.
+        const ph = typeof v === "string" && v.length <= 30 ? parsePhoneNumberFromString(v.startsWith("+") ? v : `+${v}`) : null;
+        if (!ph || !ph.isValid()) fail("Enter a valid phone number for the chosen country.");
+        else answers[f.key] = ph.number; // e.g. +919876543210
         break;
+      }
       case "date":
         if (typeof v !== "string" || !realDate(v)) fail("Choose a valid date.");
         else answers[f.key] = v;

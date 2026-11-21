@@ -171,7 +171,7 @@ export default function FormsAdmin({ onAuthExpired }) {
                   <td className="row-actions">
                     {f.deleted ? <button type="button" className="mini-btn primary" disabled={busy} onClick={() => act(() => formRestore(f.id), `Restored “${f.title}”.`)}>Restore</button> : <>
                       <button type="button" className="mini-btn" onClick={() => edit(f)} disabled={busy}>Edit</button>
-                      {f.status !== "draft" && <button type="button" className="mini-btn" onClick={() => copy(f.link).then(() => setMsg({ type: "ok", text: f.access === "personal_link" ? "Copied the form's address. People need their own personal link to fill it (see Edit → Links)." : "Link copied." }))}>Copy link</button>}
+                      {f.status !== "draft" && <button type="button" className="mini-btn" onClick={() => copy(f.link).then(() => setMsg({ type: "ok", text: f.access === "personal_link" ? "Copied the form's address. People need their own personal link to fill it (Edit → Share this form)." : "Link copied." }))}>Copy link</button>}
                       <button type="button" className="mini-btn danger" onClick={() => remove(f)} disabled={busy}>Delete</button>
                     </>}
                   </td>
@@ -197,6 +197,7 @@ function FormEditor({ start, meta, onClose, onAuthExpired }) {
   const [hourText, setHourText] = useState("");
   const [linkEmail, setLinkEmail] = useState("");
   const [personal, setPersonal] = useState("");
+  const [pendingTop, setPendingTop] = useState(null); // { file, url }: chosen before the form exists, uploaded on Create
   const top = useRef(null);
   const dirty = JSON.stringify(toBody(d)) !== base;
   const answered = useMemo(() => new Set((saved && saved.answered) || []), [saved]);
@@ -209,9 +210,20 @@ function FormEditor({ start, meta, onClose, onAuthExpired }) {
     setBusy(true); setMsg(null);
     try {
       const r = saved ? await formSave(saved.id, toBody(d)) : await formCreate(toBody(d));
-      took(r.form);
-      setMsg({ type: "ok", text: saved ? "Saved." : "Form created as a Draft. Add a top image, test it, then publish." });
-      return r.form;
+      let form = r.form;
+      let note = "";
+      if (!saved && pendingTop) {
+        try {
+          const t = await formTopImage(form.id, pendingTop.file);
+          form = { ...form, topImage: t.topImage };
+          URL.revokeObjectURL(pendingTop.url);
+          setPendingTop(null);
+        } catch (err) { note = ` But the top image couldn't be uploaded (${err.message}); add it again under “Top image”.`; }
+      }
+      took(form);
+      setMsg({ type: note ? "error" : "ok", text: saved ? "Saved." : `Form created as a Draft. Next: “Move to Testing” to try it, then “Publish”.${note}` });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return form;
     } catch (err) { fail(err); return null; } finally { setBusy(false); }
   };
   const move = async (status, confirm) => {
@@ -295,7 +307,7 @@ function FormEditor({ start, meta, onClose, onAuthExpired }) {
     <div className="form-editor" ref={top}>
       <section className="page-head">
         <div className="page-title">
-          <button type="button" className="link-btn back-link" onClick={close}>← All forms</button>
+          <button type="button" className="btn btn-ghost back-btn" onClick={close}>← Back to all forms</button>
           <h1>{d.title || "New form"} {saved && <span className={`pill ${STATUS[status].tone}`}>{STATUS[status].label}</span>}</h1>
           <p className="page-sub">{saved ? `${plural(saved.responses, "response")}${saved.testResponses ? ` · ${plural(saved.testResponses, "test response")}` : ""} · ${STATE_TEXT[saved.state] || ""}` : "Not saved yet."}</p>
         </div>
@@ -327,7 +339,32 @@ function FormEditor({ start, meta, onClose, onAuthExpired }) {
             {status === "closed" && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => move("published")}>Reopen</button>}
             {saved.testResponses > 0 && <button type="button" className="btn btn-ghost" disabled={busy} onClick={clearTests}>Remove test responses ({saved.testResponses})</button>}
           </div>
+          {status === "draft" && <p className="status-note">The links to share appear here once you move the form to Testing or Published.</p>}
           {status === "testing" && <p className="status-note">Only users ticked as <b>Tester</b> (Users page) can fill it now, after signing in. Their responses are marked “Test”.</p>}
+        </div>
+      )}
+
+      {saved && status !== "draft" && (
+        <div className="panel ed-section share-panel">
+          <h2>Share this form</h2>
+          {status === "testing" && <p className="field-hint"><b>Testing:</b> open the link below in this browser (you are signed in). Only users ticked as Tester can fill it; everyone else is refused until you publish.</p>}
+          <span className="field-label">The form's link{d.access === "personal_link" ? " (for testers; Coordinators get personal links below)" : ""}</span>
+          <div className="link-out"><code>{saved.link}</code>
+            <button type="button" className="mini-btn primary" onClick={() => copy(saved.link).then(() => setMsg({ type: "ok", text: "Link copied." }))}>Copy</button>
+            <a className="mini-btn" href={saved.link} target="_blank" rel="noreferrer">Open</a></div>
+          {d.access === "personal_link" && <>
+            <p className="field-hint">Each Coordinator needs their own personal link (their Gmail is inside it, so send each one only to that person). JCs also see their Coordinators' links on their dashboard once the form is published.</p>
+            <div className="share-grid">
+              <label className="field wide"><span className="field-label">Personal link for one email</span>
+                <span className="add-line"><input className="input" type="email" value={linkEmail} placeholder="name@gmail.com" onChange={(e) => { setLinkEmail(e.target.value); setPersonal(""); }}
+                  onKeyDown={(e) => { if (e.key === "Enter" && linkEmail.trim()) { e.preventDefault(); getPersonal(); } }} />
+                  <button type="button" className="btn btn-ghost" onClick={getPersonal} disabled={!linkEmail.trim()}>Get link</button></span></label>
+              <div className="field"><span className="field-label">Everyone at once</span>
+                <button type="button" className="btn btn-ghost" onClick={() => formLinksExcel(saved.id).catch(fail)}><DownloadIcon /> <span>Excel: links of all Coordinators</span></button></div>
+            </div>
+            {personal && <div className="link-out"><code>{personal}</code><button type="button" className="mini-btn primary" onClick={() => copy(personal).then(() => setMsg({ type: "ok", text: "Personal link copied." }))}>Copy</button></div>}
+          </>}
+          {d.access !== "personal_link" && <button type="button" className="btn btn-ghost" onClick={() => formLinksExcel(saved.id).catch(fail)}><DownloadIcon /> <span>Excel: all Coordinators</span></button>}
         </div>
       )}
 
@@ -341,7 +378,14 @@ function FormEditor({ start, meta, onClose, onAuthExpired }) {
               <textarea className="input" rows={3} maxLength={5000} value={d.description} onChange={(e) => setD({ ...d, description: e.target.value })} placeholder="What this form is for (shown under the title)" /></label>
             <div className="field wide">
               <span className="field-label">Top image</span>
-              {!saved ? <span className="field-hint">Create the form first, then add the image.</span> : saved.topImage ? (
+              {!saved ? (pendingTop ? (
+                <div className="top-img"><img src={pendingTop.url} alt="Top image" />
+                  <button type="button" className="mini-btn danger" onClick={() => { URL.revokeObjectURL(pendingTop.url); setPendingTop(null); }}>Remove</button>
+                  <span className="field-hint">It is uploaded when you click “Create form”.</span></div>
+              ) : (
+                <label className="btn btn-ghost file-btn"><UploadIcon /> <span>Upload image</span>
+                  <input type="file" hidden accept=".jpg,.jpeg,.png,.webp,.gif" onChange={(e) => { const f = e.target.files[0]; e.target.value = ""; if (f) setPendingTop({ file: f, url: URL.createObjectURL(f) }); }} /></label>
+              )) : saved.topImage ? (
                 <div className="top-img"><img src={saved.topImage.src} alt="Top image" /><button type="button" className="mini-btn danger" onClick={dropTop} disabled={busy}>Remove</button></div>
               ) : (
                 <label className="btn btn-ghost file-btn"><UploadIcon /> <span>Upload image</span>
@@ -421,27 +465,19 @@ function FormEditor({ start, meta, onClose, onAuthExpired }) {
               <span className="field-hint">Highest allowed: {meta.maxMb.image} MB (set on the server).</span></label>
           </div>
 
-          {saved && (
-            <div className="panel ed-section">
-              <h2>Links</h2>
-              {d.access === "personal_link" ? <>
-                <p className="field-hint">Each person needs their own link. JCs also see their Coordinators' links on their dashboard.</p>
-                <button type="button" className="btn btn-ghost" onClick={() => formLinksExcel(saved.id).catch(fail)}><DownloadIcon /> <span>Excel: links of all Coordinators</span></button>
-                <label className="field wide"><span className="field-label">Link for one email</span>
-                  <span className="add-line"><input className="input" type="email" value={linkEmail} placeholder="name@gmail.com" onChange={(e) => { setLinkEmail(e.target.value); setPersonal(""); }} />
-                    <button type="button" className="btn btn-ghost" onClick={getPersonal} disabled={!linkEmail.trim()}>Get link</button></span></label>
-                {personal && <div className="link-out"><code>{personal}</code><button type="button" className="mini-btn primary" onClick={() => copy(personal).then(() => setMsg({ type: "ok", text: "Personal link copied." }))}>Copy</button></div>}
-              </> : <>
-                <div className="link-out"><code>{saved.link}</code><button type="button" className="mini-btn primary" onClick={() => copy(saved.link).then(() => setMsg({ type: "ok", text: "Link copied." }))}>Copy</button></div>
-                <button type="button" className="btn btn-ghost" onClick={() => formLinksExcel(saved.id).catch(fail)}><DownloadIcon /> <span>Excel: all Coordinators</span></button>
-              </>}
-              {status === "draft" && <p className="field-hint">Links work once the form is in Testing or Published.</p>}
-            </div>
-          )}
         </div>
       </div>
 
-      {preview && <PreviewDialog form={previewForm(d, meta, saved && saved.topImage ? saved.topImage.src : "")} onClose={() => setPreview(false)} />}
+      <div className="panel editor-foot">
+        <button type="button" className="btn btn-ghost" onClick={close}>← Back to all forms</button>
+        <span className="editor-foot-right">
+          {dirty && saved && <span className="muted">Unsaved changes</span>}
+          <button type="button" className="btn btn-ghost" onClick={() => setPreview(true)}><EyeIcon /> <span>Preview</span></button>
+          <button type="button" className="btn btn-primary" onClick={save} disabled={busy || (saved && !dirty)}>{busy ? "Saving…" : saved ? (dirty ? "Save changes" : "Saved") : "Create form"}</button>
+        </span>
+      </div>
+
+      {preview && <PreviewDialog form={previewForm(d, meta, saved && saved.topImage ? saved.topImage.src : pendingTop ? pendingTop.url : "")} onClose={() => setPreview(false)} />}
     </div>
   );
 }
