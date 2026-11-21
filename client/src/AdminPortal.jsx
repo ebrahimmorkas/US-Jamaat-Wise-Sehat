@@ -5,6 +5,7 @@ import Masters from "./Masters";
 import PortalFields from "./PortalFields";
 import Logs from "./Logs";
 import FormsAdmin from "./FormsAdmin";
+import FormResponses from "./FormResponses";
 import DataAdmin from "./DataAdmin";
 import JcMetricsPanel from "./components/JcMetricsPanel";
 import StatsView from "./components/StatsView";
@@ -15,6 +16,7 @@ const NAV = [
   { to: "/admin/masters", label: "Masters", icon: <ListIcon /> },
   { to: "/admin/fields", label: "Portal Fields", icon: <FormIcon /> },
   { to: "/admin/forms", label: "Forms", icon: <PencilIcon /> },
+  { to: "/admin/responses", label: "Responses", icon: <ListIcon /> },
   { to: "/admin/data", label: "Data", icon: <TableIcon /> },
   { to: "/admin/metrics", label: "Metrics & Ratings", icon: <BriefcaseIcon /> },
   { to: "/admin/stats", label: "Stats", icon: <ImageIcon /> },
@@ -40,6 +42,7 @@ export default function AdminPortal({ path, user, onSignOut, onAuthExpired, them
         {page === "/admin/masters" && <Masters onAuthExpired={onAuthExpired} />}
         {page === "/admin/fields" && <PortalFields onAuthExpired={onAuthExpired} />}
         {page === "/admin/forms" && <FormsAdmin onAuthExpired={onAuthExpired} />}
+        {page === "/admin/responses" && <FormResponses embedded onAuthExpired={onAuthExpired} />}
         {page === "/admin/data" && <DataAdmin onAuthExpired={onAuthExpired} />}
         {page === "/admin/stats" && (
           <>

@@ -74,9 +74,9 @@ function Question({ n, f, value, problem, set, preview, locked, onUpload, onRemo
 
 function hintOf(f) {
   const t = f.type;
-  if (t === "number") return f.min != null && f.max != null ? `From ${f.min} to ${f.max}` : f.min != null ? `At least ${f.min}` : f.max != null ? `At most ${f.max}` : "";
+  if (t === "number") return f.min != null && f.max != null ? `Enter a number from ${f.min} to ${f.max}` : f.min != null ? `Enter a number of ${f.min} or more` : f.max != null ? `Enter a number up to ${f.max}` : "";
   if (t === "checkbox" || t === "multi_select") return f.min != null && f.max != null ? `Choose ${f.min} to ${f.max}` : f.min != null ? `Choose at least ${f.min}` : f.max != null ? `Choose up to ${f.max}` : "";
-  if (t === "short_text" || t === "long_text") return f.max != null ? `Up to ${f.max} characters` : "";
+  if (t === "short_text" || t === "long_text") return f.min != null && f.max != null ? `Write ${f.min} to ${f.max} characters` : f.min != null ? `Write at least ${f.min} characters` : f.max != null ? `Up to ${f.max} characters` : "";
   if (t === "image" || t === "video" || t === "file") return `${(f.accept || []).map((e) => e.toUpperCase()).join(", ")} · up to ${f.maxMb} MB${(f.maxFiles || 1) > 1 ? ` each · up to ${f.maxFiles} files` : ""}`;
   return "";
 }

@@ -11,7 +11,8 @@ const formResponseSchema = new mongoose.Schema(
     verified: { type: Boolean, default: false }, // signed in or personal link
     name: { type: String, trim: true, maxlength: 200, default: "" },
     user: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
-    jamaat: { type: mongoose.Schema.Types.ObjectId, ref: "Jamaat", default: null },
+    jamiat: { type: mongoose.Schema.Types.ObjectId, ref: "Jamiat", default: null, index: true }, // the response's Jamiat and Jamaat
+    jamaat: { type: mongoose.Schema.Types.ObjectId, ref: "Jamaat", default: null, index: true },
     answers: { type: mongoose.Schema.Types.Mixed, default: {} }, // { <field key>: value }
     editKeyHash: { type: String, select: false }, // "anyone" forms: the browser's key to edit this response
     edits: { type: Number, default: 0 },

@@ -27,6 +27,7 @@ export default function FormFillPage({ id, theme, onToggleTheme }) {
   const [stop, setStop] = useState(null); // { code, error, form?, startAt?, endAt? }
   const [values, setValues] = useState({});
   const [email, setEmail] = useState("");
+  const [place, setPlace] = useState({ jamiat: "", jamaat: "" }); // chosen in the dropdowns (when not filled in for them)
   const [problems, setProblems] = useState({});
   const [editing, setEditing] = useState(null); // response id being edited
   const [done, setDone] = useState(null); // { edited }
@@ -108,7 +109,18 @@ export default function FormFillPage({ id, theme, onToggleTheme }) {
       if (Array.isArray(v) && v.some((x) => x.error)) p[f.key] = "Remove the file that couldn't be uploaded.";
       else if (f.required && empty) p[f.key] = "This question needs an answer.";
       else if (f.type === "phone" && !empty && !phoneOk(v)) p[f.key] = "Enter a valid phone number for the chosen country.";
+      else if (!empty && (f.type === "short_text" || f.type === "long_text")) {
+        const n = String(v).trim().length;
+        if (f.min != null && n < f.min) p[f.key] = `Write at least ${f.min} characters (now ${n}).`;
+        else if (f.max != null && n > f.max) p[f.key] = `Write at most ${f.max} characters (now ${n}).`;
+      } else if (!empty && f.type === "number") {
+        const n = Number(v);
+        if (!Number.isFinite(n)) p[f.key] = "Enter a number.";
+        else if (f.min != null && n < f.min) p[f.key] = `The number must be ${f.min} or more.`;
+        else if (f.max != null && n > f.max) p[f.key] = `The number must be ${f.max} or less.`;
+      }
     }
+    if (data.me.needJamaat && (!place.jamiat || !place.jamaat)) p._jamaat = "Choose your Jamiat and Jamaat.";
     if (data.me.needEmail && !editing && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) p._email = "Enter a valid email address.";
     if (Object.keys(p).length) return showProblems(p);
     const answers = {};
@@ -120,7 +132,7 @@ export default function FormFillPage({ id, theme, onToggleTheme }) {
     }
     setBusy(true); setError("");
     try {
-      const r = await fillSubmit(id, { t, email: email.trim(), answers, ...(editing ? { responseId: editing, editKey: readKey(id) } : {}) });
+      const r = await fillSubmit(id, { t, email: email.trim(), answers, ...(data.me.needJamaat ? place : {}), ...(editing ? { responseId: editing, editKey: readKey(id) } : {}) });
       if (r.editKey) saveKey(id, r.editKey);
       setDone({ edited: !!r.edited });
       window.scrollTo(0, 0);
@@ -133,17 +145,18 @@ export default function FormFillPage({ id, theme, onToggleTheme }) {
     setProblems(p);
     setError(`Please check ${Object.keys(p).length === 1 ? "the highlighted answer" : `the ${Object.keys(p).length} highlighted answers`}.`);
     const first = data.form.fields.find((f) => p[f.key]);
-    const el = document.getElementById(p._email ? "fv-email" : first ? `q-${first.key}` : "");
+    const el = document.getElementById(p._email ? "fv-email" : p._jamaat ? "fv-place" : first ? `q-${first.key}` : "");
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
   const startEdit = (r) => {
     setEditing(r.id);
     setValues(r.answers || {});
+    setPlace({ jamiat: r.jamiat || "", jamaat: r.jamaat || "" });
     setProblems({}); setError(""); setDone(null);
     window.scrollTo(0, 0);
   };
-  const again = () => { setValues({}); setEditing(null); setDone(null); setProblems({}); load(); };
+  const again = () => { setValues({}); setPlace({ jamiat: "", jamaat: "" }); setEditing(null); setDone(null); setProblems({}); load(); };
 
   // ---------- pages ----------
   const shell = (body) => (
@@ -248,11 +261,34 @@ export default function FormFillPage({ id, theme, onToggleTheme }) {
             {form.sendCopy && <span className="field-hint">A copy of your response is sent to this email.</span>}
           </label>
         ) : (
-          <p className="fill-as"><LockIcon /> Filling as <b>{me.email}</b>{me.name ? ` (${me.name})` : ""}{me.jamaat ? ` · ${me.jamaat}` : ""}
+          <p className="fill-as"><LockIcon /> Filling as <b>{me.email}</b>{me.name ? ` (${me.name})` : ""}
             {form.sendCopy && <span className="muted"> — a copy of your response is sent to this email.</span>}</p>
         )}
         <p className="fill-close muted">Closes {fmtWhen(form.endAt)} <span>(your time{myZone() ? `, ${myZone()}` : ""})</span>
           {form.maxPerPerson != null && <> · You can fill it {form.maxPerPerson === 1 ? "once" : `${form.maxPerPerson} times`}{data.used ? ` (used ${data.used})` : ""}</>}</p>
+      </div>
+
+      <div className="panel fill-place" id="fv-place">
+        {!me.needJamaat ? (
+          <div className="fill-place-grid">
+            <div className="field"><span className="field-label">Jamiat</span><span className="fill-locked"><LockIcon /> {me.jamiat}</span></div>
+            <div className="field"><span className="field-label">Jamaat</span><span className="fill-locked"><LockIcon /> {me.jamaat}</span></div>
+          </div>
+        ) : (
+          <div className="fill-place-grid">
+            <label className="field"><span className="field-label">Jamiat <span className="fv-star">*</span></span>
+              <select className="fv-select" value={place.jamiat} onChange={(e) => { setPlace({ jamiat: e.target.value, jamaat: "" }); if (problems._jamaat) setProblems((x) => ({ ...x, _jamaat: undefined })); }}>
+                <option value="">Choose your Jamiat…</option>
+                {(data.places || []).map((pl) => <option key={pl.jamiat}>{pl.jamiat}</option>)}
+              </select></label>
+            <label className="field"><span className="field-label">Jamaat <span className="fv-star">*</span></span>
+              <select className="fv-select" value={place.jamaat} disabled={!place.jamiat} onChange={(e) => { setPlace({ ...place, jamaat: e.target.value }); if (problems._jamaat) setProblems((x) => ({ ...x, _jamaat: undefined })); }}>
+                <option value="">{place.jamiat ? "Choose your Jamaat…" : "Choose the Jamiat first"}</option>
+                {((data.places || []).find((pl) => pl.jamiat === place.jamiat) || { jamaats: [] }).jamaats.map((j) => <option key={j}>{j}</option>)}
+              </select></label>
+          </div>
+        )}
+        {problems._jamaat && <span className="fv-problem">{problems._jamaat}</span>}
       </div>
 
       <div className="panel fv-card">

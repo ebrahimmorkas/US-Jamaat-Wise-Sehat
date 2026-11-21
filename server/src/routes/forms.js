@@ -47,7 +47,7 @@ function formOut(f, counts = {}) {
     reminderHours: f.reminderHours || [],
     imageExt: f.imageExt || [], imageMaxMb: f.imageMaxMb,
     fields: (f.fields || []).map((x) => ({ ...(x.toObject ? x.toObject() : x), options: x.options || undefined })),
-    link: F.formLink(f._id),
+    link: F.formLink(f.code),
     responses: counts.responses || 0,
     testResponses: counts.tests || 0,
     answered: counts.answered || [],
@@ -98,7 +98,7 @@ async function coordinators(jamaatIds) {
     return { email: u.email, name: u.name || "", jamaat: jm ? jm.name : "", jamiat: jm ? jtName.get(String(jm.jamiat)) || "" : "" };
   }).sort((a, b) => a.jamiat.localeCompare(b.jamiat) || a.jamaat.localeCompare(b.jamaat));
 }
-const linkFor = (f, email) => (f.access === "personal_link" ? F.personalLink(f._id, email) : F.formLink(f._id));
+const linkFor = (f, email) => (f.access === "personal_link" ? F.personalLink(f.code, email) : F.formLink(f.code));
 
 // ---------- Super Admin ----------
 router.get("/meta", admin, (req, res) => res.json(F.meta()));
@@ -120,7 +120,7 @@ router.get("/jc-links", requireRole("jc"), async (req, res, next) => {
     res.json({
       forms: live.map((f) => ({
         id: String(f._id), title: f.title, startAt: f.startAt, endAt: f.endAt, state: F.stateOf(f), access: f.access,
-        link: F.formLink(f._id),
+        link: F.formLink(f.code),
         coordinators: people.map((p) => ({ ...p, link: linkFor(f, p.email) })),
       })),
     });
@@ -257,8 +257,8 @@ router.get("/:id/link", admin, async (req, res, next) => {
   try {
     const f = await findForm(req.params.id);
     const email = String(req.query.email || "").trim().toLowerCase();
-    if (f.access !== "personal_link") return res.json({ link: F.formLink(f._id), personal: false });
-    res.json({ link: F.personalLink(f._id, email), personal: true, email });
+    if (f.access !== "personal_link") return res.json({ link: F.formLink(f.code), personal: false });
+    res.json({ link: F.personalLink(f.code, email), personal: true, email });
   } catch (err) { sendError(err, res, next); }
 });
 

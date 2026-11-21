@@ -44,6 +44,7 @@ const ACTIONS = [
   "form_links_downloaded",// the Excel of personal links
   "form_test_cleared",    // responses filled while testing were removed
   "form_submitted",       // someone filled a form
+  "form_responses_exported", // downloaded a form's responses (Excel)
   "form_response_edited", // ... and changed their response
   // data changes (audit trail)
   "user_created",

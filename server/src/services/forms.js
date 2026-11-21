@@ -207,33 +207,62 @@ function stateOf(form, now = new Date()) {
   return "open";
 }
 
-// ---------- Personal links ----------
+// ---------- Links ----------
+// A form's address uses a random code (never the database id): /f/<code>.
+// A personal link adds ?t=<token>: the form's code + the person's email, ENCRYPTED (AES-256-GCM) with a
+// server-only key, so nobody can read the email or the form inside it, and any change makes it invalid.
+const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"; // no look-alikes (0/O, 1/l/I)
+function newCode(len = 10) {
+  const bytes = crypto.randomBytes(len * 2);
+  let out = "";
+  for (let i = 0; out.length < len && i < bytes.length; i++) if (bytes[i] < 228) out += CODE_CHARS[bytes[i] % 57]; // 228 = 4*57: no bias
+  return out.length === len ? out : newCode(len);
+}
+const isCode = (v) => typeof v === "string" && /^[A-Za-z0-9]{8,16}$/.test(v);
 const linkSecret = () => config.forms.linkSecret || crypto.createHmac("sha256", config.jwtAccessSecret).update("forms-personal-link").digest("hex");
-const b64 = (s) => Buffer.from(s).toString("base64url");
-const sign = (payload) => crypto.createHmac("sha256", linkSecret()).update(payload).digest("base64url").slice(0, 32);
+const tokenKey = () => crypto.createHash("sha256").update(`${linkSecret()}:token-encryption`).digest();
 const simpleEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
 
-/** The token for one person and one form: their email + a signature. */
-function personalToken(formId, email) {
+/** The token for one person and one form (encrypted; see above). */
+function personalToken(code, email) {
   const e = String(email || "").trim().toLowerCase();
   if (!simpleEmail(e)) throw new InputError("Enter a valid email address.");
-  const payload = b64(JSON.stringify({ f: String(formId), e }));
-  return `${payload}.${sign(payload)}`;
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv("aes-256-gcm", tokenKey(), iv);
+  const body = Buffer.concat([c.update(JSON.stringify({ c: String(code), e }), "utf8"), c.final()]);
+  return Buffer.concat([iv, c.getAuthTag(), body]).toString("base64url");
 }
-/** The email inside a token, or "" if it was changed or belongs to another form. */
-function readToken(formId, token) {
-  const [payload, sig] = String(token || "").split(".");
-  if (!payload || !sig || sig.length !== 32) return "";
-  const good = sign(payload);
-  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(good))) return "";
+/** The email inside a token, or "" if it was changed, can't be read, or belongs to another form. */
+function readToken(code, token) {
   try {
-    const d = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-    return d && d.f === String(formId) && simpleEmail(d.e) ? d.e : "";
+    const buf = Buffer.from(String(token || ""), "base64url");
+    if (buf.length < 30 || buf.length > 600) return "";
+    const d = crypto.createDecipheriv("aes-256-gcm", tokenKey(), buf.subarray(0, 12));
+    d.setAuthTag(buf.subarray(12, 28));
+    const j = JSON.parse(Buffer.concat([d.update(buf.subarray(28)), d.final()]).toString("utf8"));
+    return j && j.c === String(code) && simpleEmail(j.e) ? j.e : "";
+  } catch { return ""; }
+}
+/** A database id as an opaque string for the public form page (and back). "" when it was changed. */
+function seal(id) {
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv("aes-256-gcm", tokenKey(), iv);
+  const body = Buffer.concat([c.update(`id:${id}`, "utf8"), c.final()]);
+  return Buffer.concat([iv, c.getAuthTag(), body]).toString("base64url");
+}
+function unseal(v) {
+  try {
+    const buf = Buffer.from(String(v || ""), "base64url");
+    if (buf.length < 30 || buf.length > 100) return "";
+    const d = crypto.createDecipheriv("aes-256-gcm", tokenKey(), buf.subarray(0, 12));
+    d.setAuthTag(buf.subarray(12, 28));
+    const s = Buffer.concat([d.update(buf.subarray(28)), d.final()]).toString("utf8");
+    return /^id:[a-f0-9]{24}$/.test(s) ? s.slice(3) : "";
   } catch { return ""; }
 }
 const siteUrl = () => config.forms.publicUrl || config.corsOrigins[0] || "";
-const formLink = (formId) => `${siteUrl()}/f/${formId}`;
-const personalLink = (formId, email) => `${formLink(formId)}?t=${personalToken(formId, email)}`;
+const formLink = (code) => `${siteUrl()}/f/${code}`;
+const personalLink = (code, email) => `${formLink(code)}?t=${personalToken(code, email)}`;
 
 /** Same person however the address is written (Gmail ignores dots and "+…"). */
 function emailKeyOf(email) {
@@ -407,6 +436,6 @@ const randomKey = () => crypto.randomBytes(24).toString("base64url");
 
 module.exports = {
   TYPES, LIMITS, meta, parseForm, readyProblems, stateOf,
-  personalToken, readToken, formLink, personalLink, emailKeyOf, simpleEmail,
+  personalToken, readToken, formLink, personalLink, emailKeyOf, simpleEmail, newCode, isCode, seal, unseal,
   checkAnswers, uploadRules, checkUpload, hash, randomKey,
 };

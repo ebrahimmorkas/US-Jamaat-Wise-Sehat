@@ -7,6 +7,9 @@ import JcData from "./JcData";
 import JcMetrics from "./JcMetrics";
 import SahebMetrics from "./SahebMetrics";
 import SahebStats from "./SahebStats";
+import FormResponses from "./FormResponses";
+import { SAHEB_NAV } from "./Dashboard";
+import { JC_NAV } from "./JcDashboard";
 import JcStats from "./JcStats";
 import MyForms from "./MyForms";
 import FormFillPage from "./FormFillPage";
@@ -72,7 +75,7 @@ export default function App() {
     <>
       <ErrorBoundary resetKey={path} onError={showError} fallback={<ErrorPage theme={theme} onToggleTheme={toggle} />}>
         {path === "/error" ? <ErrorPage theme={theme} onToggleTheme={toggle} />
-          : /^\/f\/[a-f0-9]{24}$/.test(path) ? <FormFillPage id={path.slice(3)} theme={theme} onToggleTheme={toggle} /> // a form: sign-in depends on the form
+          : /^\/f\/[A-Za-z0-9]{8,16}$/.test(path) ? <FormFillPage id={path.slice(3)} theme={theme} onToggleTheme={toggle} /> // a form: sign-in depends on the form
           : <Main path={path} theme={theme} onToggleTheme={toggle} />}
       </ErrorBoundary>
       <ConfirmHost />
@@ -132,10 +135,12 @@ function Main({ path, theme, onToggleTheme }) {
       : path === "/jc-portal/data" ? <JcData key={auth.user.id} {...common} />
       : path === "/jc-portal/metrics" ? <JcMetrics key={auth.user.id} {...common} />
       : path === "/jc-portal/stats" ? <JcStats key={auth.user.id} {...common} />
+      : path === "/jc-portal/responses" ? <FormResponses key={auth.user.id} {...common} nav={JC_NAV} page="/jc-portal/responses" />
       : <JcDashboard key={auth.user.id} {...common} />;
   } else if (role === "jamaat_coordinator") page = <MyForms key={auth.user.id} {...common} />;
   else page = path === "/jc-metrics" ? <SahebMetrics key={auth.user.id} {...common} />
     : path === "/stats" ? <SahebStats key={auth.user.id} {...common} />
+    : path === "/responses" ? <FormResponses key={auth.user.id} {...common} nav={SAHEB_NAV} page="/responses" />
     : <Dashboard key={auth.user.id} {...common} />;
   return (
     <>

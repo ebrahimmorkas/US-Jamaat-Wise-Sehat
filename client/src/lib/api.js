@@ -266,6 +266,21 @@ export async function formLinksExcel(id) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 export const jcFormLinks = () => request("/api/forms/jc-links");
+
+// Responses (Super Admin, Saheb, JC — a JC sees only their own Jamaats). Forms are addressed by their code.
+const rq = (p) => new URLSearchParams(Object.entries(p || {}).filter(([, v]) => v != null && v !== "")).toString();
+export const resultsList = () => request("/api/form-results");
+export const resultsGet = (code, p) => request(`/api/form-results/${encodeURIComponent(code)}?${rq(p)}`);
+export async function resultsExcel(code, p) {
+  let tz = "UTC";
+  try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { /* old browser */ }
+  const { blob, name } = await request(`/api/form-results/${encodeURIComponent(code)}/excel?${rq({ ...p, tz })}`, { blob: true });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
 export const myForms = () => request("/api/forms/mine");
 
 // Filling (works signed in or not; `t` = personal link token, editKey = this browser's key for "anyone" forms).

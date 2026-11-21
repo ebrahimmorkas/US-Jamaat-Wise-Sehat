@@ -1,11 +1,14 @@
-// Filling a form: /api/f/:id — open to everyone; who may fill depends on the form:
+// Filling a form: /api/f/:code — open to everyone; who may fill depends on the form:
 //   signed_in      a signed-in Jamaat Coordinator
-//   personal_link  the signed link (?t=) — the Gmail inside it is the person; no sign-in
-//   anyone         anyone with the link; they type their email (not verified)
+//   personal_link  the encrypted personal link (?t=) — the Gmail inside it is the person; no sign-in
+//   anyone         anyone with the link; they type their email, which must be a Jamaat Coordinator's
 // While a form is in "Testing", only signed-in testers can open it (the form's own rules still apply).
-//   GET    /:id?t=           the form + who is filling + their earlier responses (when editing is allowed)
-//   POST   /:id/upload       raw file body (?field=&t=) -> { id, token } to send with the answers
-//   POST   /:id/submit       { answers, email?, t?, responseId?, editKey? }
+// Every response has a Jamiat and Jamaat: the Coordinator's own (locked) when we know who they are
+// (signed in / personal link), otherwise chosen from dropdowns ("anyone" forms, testers).
+// The public page never sees a database id: forms use their random code, other ids are sealed (F.seal).
+//   GET    /:code?t=          the form + who is filling + their earlier responses (when editing is allowed)
+//   POST   /:code/upload      raw file body (?field=&t=) -> { id, token } to send with the answers
+//   POST   /:code/submit      { answers, email?, jamiat?, jamaat?, t?, responseId?, editKey? }
 const express = require("express");
 const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const { isDbReady } = require("../db");
@@ -15,8 +18,10 @@ const FormResponse = require("../models/FormResponse");
 const FormUpload = require("../models/FormUpload");
 const User = require("../models/User");
 const Jamaat = require("../models/Jamaat");
+const Jamiat = require("../models/Jamiat");
 const { audit } = require("../services/audit");
-const { InputError, isId, sendError } = require("../lib/validate");
+const { activeMasters } = require("../services/data");
+const { InputError, sendError } = require("../lib/validate");
 const { isDeleted, notDeleted } = require("../lib/softDelete");
 const { clientIp } = require("../lib/clientIp");
 const storage = require("../services/imagekit");
@@ -42,16 +47,34 @@ class Stop extends Error {
 }
 const stop = (res, e) => res.status(e.code === "NOT_FOUND" ? 404 : 403).json({ error: e.message, code: e.code, ...e.extra });
 
-async function loadForm(id) {
-  if (!isId(id)) throw new Stop("NOT_FOUND", "This form doesn't exist. Check the link.");
-  const f = await Form.findById(id).lean();
+async function loadForm(code) {
+  if (!F.isCode(code)) throw new Stop("NOT_FOUND", "This form doesn't exist. Check the link.");
+  const f = await Form.findOne({ code }).lean();
   if (!f || isDeleted(f) || f.stage === "draft") throw new Stop("NOT_FOUND", "This form doesn't exist or isn't available yet. Check the link.");
   return f;
 }
 
+/** A Jamaat (active, in an active Jamiat) -> { jamaat, jamiat, jamaatName, jamiatName }, or null. */
+async function place(jamaatId) {
+  if (!jamaatId) return null;
+  const jm = await Jamaat.findOne({ _id: jamaatId, isActive: true, ...notDeleted() }).select("name jamiat").lean();
+  const jt = jm && (await Jamiat.findOne({ _id: jm.jamiat, isActive: true, ...notDeleted() }).select("name").lean());
+  return jm && jt ? { jamaat: jm._id, jamiat: jt._id, jamaatName: jm.name, jamiatName: jt.name } : null;
+}
+/** Jamiat + Jamaat chosen in the dropdowns (by name; the page never sees ids). */
+async function placeByName(jamiatName, jamaatName) {
+  const a = String(jamiatName || "").trim();
+  const b = String(jamaatName || "").trim();
+  if (!a || !b || a.length > 120 || b.length > 120) return null;
+  const jt = await Jamiat.findOne({ name: a, isActive: true, ...notDeleted() }).select("name").lean();
+  const jm = jt && (await Jamaat.findOne({ jamiat: jt._id, name: b, isActive: true, ...notDeleted() }).select("name").lean());
+  return jm ? { jamaat: jm._id, jamiat: jt._id, jamaatName: jm.name, jamiatName: jt.name } : null;
+}
+
 /**
  * Who is filling, and may they? Resolves to
- * { email, emailKey, name, user, jamaat, verified, via, isTest, emailLocked, needEmail }.
+ * { email, emailKey, name, user, place, coordinator, verified, via, isTest, emailLocked, needEmail, needJamaat }.
+ * place = their own Jamaat (locked on the form) when we know who they are and they are a Coordinator.
  */
 async function filler(req, form, { typedEmail } = {}) {
   const session = await checkAccess(req).catch(() => ({}));
@@ -60,13 +83,12 @@ async function filler(req, form, { typedEmail } = {}) {
   const isTest = form.stage === "testing";
   if (state === "closed" || state === "ended") throw new Stop("CLOSED", "This form is closed. It isn't accepting responses any more.", { endAt: form.endAt });
   if (state === "not_started") throw new Stop("NOT_STARTED", "This form isn't open yet.", { startAt: form.startAt });
-  let tester = null;
   if (isTest) {
     if (!me) throw new Stop("NEED_LOGIN", "This form is being tested. Sign in with a tester account to fill it.");
-    tester = await User.findById(me.id).select("isTester").lean();
+    const tester = await User.findById(me.id).select("isTester").lean();
     if (!tester || !tester.isTester) throw new Stop("NOT_TESTER", "This form is being tested. Only testers can fill it for now.");
   }
-  const base = { via: form.access, isTest, user: null, jamaat: null, name: "", verified: false, emailLocked: false, needEmail: false };
+  const base = { via: form.access, isTest, user: null, place: null, coordinator: false, name: "", verified: false, emailLocked: false, needEmail: false };
   let email = "";
   if (form.access === "signed_in") {
     if (!me) throw new Stop("NEED_LOGIN", "Sign in with your Google account to fill this form.");
@@ -74,7 +96,7 @@ async function filler(req, form, { typedEmail } = {}) {
     email = me.email;
     Object.assign(base, { verified: true, emailLocked: true });
   } else if (form.access === "personal_link") {
-    email = F.readToken(form._id, req.query.t || (req.body && req.body.t));
+    email = F.readToken(form.code, req.query.t || (req.body && req.body.t));
     if (!email && isTest && me) email = me.email; // testers may test without a personal link
     if (!email) throw new Stop("BAD_LINK", "This link isn't valid. Use the personal link you were sent, exactly as it was sent.");
     Object.assign(base, { verified: true, emailLocked: true });
@@ -85,10 +107,17 @@ async function filler(req, form, { typedEmail } = {}) {
   }
   if (email) {
     const key = F.emailKeyOf(email);
-    const u = await User.findOne({ emailKey: key, ...notDeleted() }).select("name role jamaat").lean()
-      || await User.findOne({ email, ...notDeleted() }).select("name role jamaat").lean();
-    if (u) Object.assign(base, { user: u._id, name: u.name || "", jamaat: u.role === "jamaat_coordinator" ? u.jamaat || null : null });
+    const u = await User.findOne({ emailKey: key, ...notDeleted() }).select("name role jamaat isActive").lean()
+      || await User.findOne({ email, ...notDeleted() }).select("name role jamaat isActive").lean();
+    if (u) {
+      base.user = u._id;
+      base.name = u.name || "";
+      base.coordinator = u.role === "jamaat_coordinator" && u.isActive !== false;
+      // Their own Jamaat is filled in and locked only when we know it is them (signed in / personal link).
+      if (base.coordinator && base.verified) base.place = await place(u.jamaat);
+    }
   }
+  base.needJamaat = !base.place;
   return { ...base, email, emailKey: email ? F.emailKeyOf(email) : "" };
 }
 
@@ -98,7 +127,7 @@ const publicField = (f) => ({
 });
 function publicForm(f) {
   return {
-    id: String(f._id), title: f.title, description: f.description || "",
+    id: f.code, title: f.title, description: f.description || "",
     topImage: f.topImage && f.topImage.url ? storage.signedUrl(f.topImage) : "",
     startAt: f.startAt, endAt: f.endAt, status: f.stage, access: f.access,
     maxPerPerson: f.maxPerPerson, allowEdit: !!f.allowEdit, sendCopy: !!f.sendCopy,
@@ -112,16 +141,21 @@ function publicForm(f) {
 // Earlier responses of this person (to edit). "anyone" forms: only the one whose edit key the browser has.
 async function earlier(form, who, editKey) {
   const q = { form: form._id, isTest: who.isTest };
-  let list = [];
-  if (who.verified && who.emailKey) list = await FormResponse.find({ ...q, emailKey: who.emailKey }).sort({ createdAt: -1 }).lean();
-  else if (editKey) list = await FormResponse.find({ ...q, editKeyHash: F.hash(editKey) }).lean();
-  return list;
+  if (who.verified && who.emailKey) return FormResponse.find({ ...q, emailKey: who.emailKey }).sort({ createdAt: -1 }).lean();
+  if (editKey) return FormResponse.find({ ...q, editKeyHash: F.hash(editKey) }).lean();
+  return [];
 }
 const usedCount = (form, who) => (who.emailKey ? FormResponse.countDocuments({ form: form._id, isTest: who.isTest, emailKey: who.emailKey }) : Promise.resolve(0));
 
-router.get("/:id", async (req, res, next) => {
+// Jamiats and their Jamaats, by name, for the dropdowns.
+async function placesList() {
+  return (await activeMasters()).map((j) => ({ jamiat: j.name, jamaats: j.jamaats.map((jm) => jm.name) }));
+}
+const nameOf = async (Model, id) => { if (!id) return ""; const d = await Model.findById(id).select("name").lean(); return d ? d.name : ""; };
+
+router.get("/:code", async (req, res, next) => {
   try {
-    const form = await loadForm(req.params.id);
+    const form = await loadForm(req.params.code);
     let who;
     try { who = await filler(req, form); } catch (e) {
       if (!(e instanceof Stop)) throw e;
@@ -130,14 +164,19 @@ router.get("/:id", async (req, res, next) => {
     }
     const used = await usedCount(form, who);
     const mine = form.allowEdit ? await earlier(form, who, String(req.get("x-edit-key") || "")) : [];
-    let jamaat = "";
-    if (who.jamaat) { const jm = await Jamaat.findById(who.jamaat).select("name").lean(); jamaat = jm ? jm.name : ""; }
     res.json({
       form: publicForm(form),
-      me: { email: who.email, name: who.name, jamaat, emailLocked: who.emailLocked, needEmail: who.needEmail, isTest: who.isTest },
+      me: {
+        email: who.email, name: who.name, emailLocked: who.emailLocked, needEmail: who.needEmail, isTest: who.isTest,
+        jamiat: who.place ? who.place.jamiatName : "", jamaat: who.place ? who.place.jamaatName : "", needJamaat: who.needJamaat,
+      },
+      places: who.needJamaat ? await placesList() : undefined,
       used,
       remaining: form.maxPerPerson == null ? null : Math.max(0, form.maxPerPerson - used),
-      mine: mine.map((r) => ({ id: String(r._id), submittedAt: r.createdAt, editedAt: r.editedAt || null, answers: filesForBrowser(r.answers) })),
+      mine: await Promise.all(mine.map(async (r) => ({
+        id: F.seal(r._id), submittedAt: r.createdAt, editedAt: r.editedAt || null, answers: filesForBrowser(r.answers),
+        jamiat: await nameOf(Jamiat, r.jamiat), jamaat: await nameOf(Jamaat, r.jamaat),
+      }))),
     });
   } catch (err) {
     if (err instanceof Stop) return stop(res, err);
@@ -149,15 +188,15 @@ router.get("/:id", async (req, res, next) => {
 function filesForBrowser(answers) {
   const out = {};
   for (const [k, v] of Object.entries(answers || {})) {
-    out[k] = Array.isArray(v) && v.length && v[0] && typeof v[0] === "object" && v[0].upload ? v.map((x) => ({ id: String(x.upload), name: x.name, size: x.size, type: x.type })) : v;
+    out[k] = Array.isArray(v) && v.length && v[0] && typeof v[0] === "object" && v[0].upload ? v.map((x) => ({ id: F.seal(x.upload), name: x.name, size: x.size, type: x.type })) : v;
   }
   return out;
 }
 
 const uploadCap = Math.round(Math.max(...Object.values(config.forms.maxMb)) * 1024 * 1024);
-router.post("/:id/upload", uploadLimiter, express.raw({ type: "application/octet-stream", limit: uploadCap }), async (req, res, next) => {
+router.post("/:code/upload", uploadLimiter, express.raw({ type: "application/octet-stream", limit: uploadCap }), async (req, res, next) => {
   try {
-    const form = await loadForm(req.params.id);
+    const form = await loadForm(req.params.code);
     await filler(req, form, { typedEmail: "" });
     const field = form.fields.find((x) => x.key === req.query.field && !x.hidden && F.TYPES[x.type].upload);
     if (!field) throw new InputError("This question doesn't take files. Reload the form.");
@@ -168,7 +207,7 @@ router.post("/:id/upload", uploadLimiter, express.raw({ type: "application/octet
     const kept = await storage.uploadImage(req.body, { fileName: `${field.key}.${ext}`, type, folder: `${config.forms.folder}/${form._id}` });
     const token = F.randomKey();
     const up = await FormUpload.create({ form: form._id, field: field.key, kind: rules.kind, ...kept, name: fileName, size: req.body.length, type, tokenHash: F.hash(token) });
-    res.status(201).json({ id: String(up._id), token, name: fileName, size: req.body.length, type });
+    res.status(201).json({ id: F.seal(up._id), token, name: fileName, size: req.body.length, type });
   } catch (err) {
     if (err instanceof Stop) return stop(res, err);
     if (err && err.type === "entity.too.large") return res.status(413).json({ error: "The file is too large." });
@@ -177,23 +216,27 @@ router.post("/:id/upload", uploadLimiter, express.raw({ type: "application/octet
   }
 });
 
-router.post("/:id/submit", submitLimiter, async (req, res, next) => {
+router.post("/:code/submit", submitLimiter, async (req, res, next) => {
   try {
     const body = req.body || {};
-    const form = await loadForm(req.params.id);
+    const form = await loadForm(req.params.code);
     const who = await filler(req, form, { typedEmail: body.email });
 
     // Editing an earlier response (only when the form allows it, and only your own).
     let existing = null;
     if (body.responseId) {
       if (!form.allowEdit) throw new InputError("Responses to this form can't be changed.", 409);
-      if (!isId(body.responseId)) throw new InputError("This response wasn't found.", 404);
-      existing = await FormResponse.findOne({ _id: body.responseId, form: form._id }).select("+editKeyHash");
+      const rid = F.unseal(body.responseId);
+      existing = rid ? await FormResponse.findOne({ _id: rid, form: form._id }).select("+editKeyHash") : null;
       const mineByEmail = existing && who.verified && existing.emailKey === who.emailKey;
       const mineByKey = existing && body.editKey && existing.editKeyHash === F.hash(body.editKey);
       if (!existing || !(mineByEmail || mineByKey)) throw new InputError("This response wasn't found, or it isn't yours.", 404);
-    } else if (who.needEmail && !F.simpleEmail(who.email)) {
-      return res.status(400).json({ error: "Enter your email address.", problems: { _email: "Enter a valid email address." } });
+    } else if (who.needEmail) {
+      if (!F.simpleEmail(who.email)) return res.status(400).json({ error: "Enter your email address.", problems: { _email: "Enter a valid email address." } });
+      // "Anyone" forms take only the emails of Jamaat Coordinators (testers may use any while testing).
+      if (!who.coordinator && !who.isTest) {
+        return res.status(400).json({ error: "This email can't fill this form.", problems: { _email: "This email is not registered as a Jamaat Coordinator. Use the Gmail you were registered with." } });
+      }
     }
     if (!existing && form.maxPerPerson != null) {
       const used = await usedCount(form, who);
@@ -202,13 +245,24 @@ router.post("/:id/submit", submitLimiter, async (req, res, next) => {
       }
     }
 
+    // Jamiat and Jamaat: their own (locked), or chosen in the dropdowns.
+    let where = who.place;
+    if (!where && existing && !body.jamiat && !body.jamaat && existing.jamaat) {
+      where = (await place(existing.jamaat)) || { jamaat: existing.jamaat, jamiat: existing.jamiat, jamaatName: "", jamiatName: "" }; // editing: keep it
+    }
+    if (!where) {
+      where = await placeByName(body.jamiat, body.jamaat);
+      if (!where) return res.status(400).json({ error: "Choose your Jamiat and Jamaat.", problems: { _jamaat: "Choose your Jamiat and Jamaat." } });
+    }
+
     // Files: new ones need the upload token from this browser; kept ones must belong to this response.
     const claimed = [];
     const files = async (field, list) => {
       const out = [];
       for (const item of list) {
-        if (!item || !isId(String(item.id))) throw new Error("Upload the file again.");
-        const up = await FormUpload.findOne({ _id: item.id, form: form._id, field: field.key }).select("+tokenHash").lean();
+        const upId = item && F.unseal(item.id);
+        if (!upId) throw new Error("Upload the file again.");
+        const up = await FormUpload.findOne({ _id: upId, form: form._id, field: field.key }).select("+tokenHash").lean();
         const ok = up && ((existing && String(up.response) === String(existing._id)) || (!up.response && item.token && up.tokenHash === F.hash(item.token)));
         if (!ok) throw new Error("A file couldn't be found. Remove it and upload it again.");
         out.push({ upload: up._id, name: up.name, size: up.size, type: up.type });
@@ -224,6 +278,8 @@ router.post("/:id/submit", submitLimiter, async (req, res, next) => {
     if (existing) {
       const before = new Set(Object.values(existing.answers || {}).flat().filter((x) => x && x.upload).map((x) => String(x.upload)));
       existing.answers = answers;
+      existing.jamiat = where.jamiat;
+      existing.jamaat = where.jamaat;
       existing.edits = (existing.edits || 0) + 1;
       existing.editedAt = new Date();
       existing.markModified("answers");
@@ -240,16 +296,16 @@ router.post("/:id/submit", submitLimiter, async (req, res, next) => {
       editKey = form.allowEdit && !who.verified ? F.randomKey() : undefined;
       r = await FormResponse.create({
         form: form._id, isTest: who.isTest, via: who.via, email: who.email, emailKey: who.emailKey, verified: who.verified,
-        name: who.name, user: who.user, jamaat: who.jamaat, answers, ...(editKey ? { editKeyHash: F.hash(editKey) } : {}),
+        name: who.name, user: who.user, jamiat: where.jamiat, jamaat: where.jamaat, answers, ...(editKey ? { editKeyHash: F.hash(editKey) } : {}),
       });
     }
     if (claimed.length) await FormUpload.updateMany({ _id: { $in: claimed } }, { $set: { response: r._id } });
     audit(req, existing ? "form_response_edited" : "form_submitted", {
       username: who.email,
       target: { type: "form", id: String(form._id), label: form.title },
-      details: { response: String(r._id), via: who.via, test: who.isTest, verified: who.verified },
+      details: { response: String(r._id), via: who.via, test: who.isTest, verified: who.verified, jamaat: where.jamaatName, jamiat: where.jamiatName },
     });
-    res.status(existing ? 200 : 201).json({ id: String(r._id), ...(editKey ? { editKey } : {}), edited: !!existing });
+    res.status(existing ? 200 : 201).json({ id: F.seal(r._id), ...(editKey ? { editKey } : {}), edited: !!existing });
   } catch (err) {
     if (err instanceof Stop) return stop(res, err);
     sendError(err, res, next);

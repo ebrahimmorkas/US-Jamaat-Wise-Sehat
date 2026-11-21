@@ -47,6 +47,7 @@ const ACTION_LABELS = {
   form_links_downloaded: "Downloaded form links",
   form_test_cleared: "Removed test responses",
   form_submitted: "Filled a form",
+  form_responses_exported: "Downloaded form responses",
   form_response_edited: "Changed a form response",
   logs_deleted: "Deleted logs permanently",
   user_created: "Added a user",

@@ -20,7 +20,7 @@ const STATE_TEXT = { open: "Open now", not_started: "Not open yet", ended: "Ende
 const ACCESS = {
   personal_link: { label: "Personal link (no sign-in)", hint: "Each Coordinator gets their own link with their Gmail inside it. Nobody can change the Gmail. Recommended." },
   signed_in: { label: "Sign in with Google", hint: "Only Jamaat Coordinators who sign in with their Gmail can fill it." },
-  anyone: { label: "Anyone with the link", hint: "No sign-in. They type their email (it can't be checked), so the limit per person is not reliable." },
+  anyone: { label: "Anyone with the link", hint: "No sign-in. They type their email: only emails of Jamaat Coordinators are accepted (it can't be proven it is them). They choose their Jamiat and Jamaat." },
 };
 const UNITS = { KB: 1 / 1024, MB: 1, GB: 1024 };
 
@@ -164,7 +164,7 @@ export default function FormsAdmin({ onAuthExpired }) {
                   <td className="idx">{i + 1}</td>
                   <td className="cell-main"><span className="jm-name">{f.title}</span><small className="user-sub">{plural(f.fields.filter((x) => !x.hidden && !["heading", "paragraph"].includes(x.type)).length, "question")}</small></td>
                   <td data-label="Status">{f.deleted ? <span className="pill bad" title={deletedLine(f)}>Deleted (D)</span> : <span className={`pill ${STATUS[f.status].tone}`}>{STATUS[f.status].label}</span>}
-                    {!f.deleted && f.status !== "draft" && <small className="user-sub">{STATE_TEXT[f.state]}</small>}</td>
+                    {!f.deleted && f.status !== "draft" && STATE_TEXT[f.state] !== STATUS[f.status].label && <small className="user-sub">{STATE_TEXT[f.state]}</small>}</td>
                   <td className="muted" data-label="Open">{f.startAt ? <>{fmtWhen(f.startAt)}<br />to {fmtWhen(f.endAt)}</> : "Dates not set"}</td>
                   <td data-label="Who can fill">{ACCESS[f.access].label}</td>
                   <td data-label="Responses">{f.responses}{f.testResponses ? <small className="user-sub">+ {f.testResponses} test</small> : null}</td>
@@ -514,10 +514,13 @@ function FieldCard({ f, i, count, types, groups, meta, locked, set, up, down, re
           <label className="field"><span className="field-label">Placeholder</span><input className="input" value={f.placeholder} maxLength={150} onChange={(e) => set({ placeholder: e.target.value })} /></label>
         )}
         {(f.type === "number" || f.type === "short_text" || f.type === "long_text" || t.many) && <>
-          <label className="field small"><span className="field-label">{f.type === "number" ? "Lowest" : t.many ? "Fewest choices" : "Fewest letters"}</span>
-            <input className="input" type="number" value={f.min} onChange={(e) => set({ min: e.target.value })} /></label>
-          <label className="field small"><span className="field-label">{f.type === "number" ? "Highest" : t.many ? "Most choices" : "Most letters"}</span>
-            <input className="input" type="number" value={f.max} onChange={(e) => set({ max: e.target.value })} /></label>
+          <label className="field small"><span className="field-label">{f.type === "number" ? "Smallest number allowed" : t.many ? "Fewest choices" : "Minimum characters"}</span>
+            <input className="input" type="number" value={f.min} placeholder={f.type === "number" ? "e.g. 0" : "No minimum"} onChange={(e) => set({ min: e.target.value })} /></label>
+          <label className="field small"><span className="field-label">{f.type === "number" ? "Largest number allowed" : t.many ? "Most choices" : "Maximum characters"}</span>
+            <input className="input" type="number" value={f.max} placeholder={f.type === "number" ? "e.g. 500" : "No maximum"} onChange={(e) => set({ max: e.target.value })} /></label>
+          <span className="field-hint q-minmax-hint">{f.type === "number"
+            ? "The value of the answer, not how many digits it has. E.g. 1 and 100: people can enter 1, 57 or 100, but not 0 or 101. Leave empty for no limit."
+            : t.many ? "How many options people must / may tick." : "How many letters (characters) the answer must / may have. People see it under the question."}</span>
         </>}
         {f.type === "rating" && (
           <label className="field small"><span className="field-label">Stars</span>

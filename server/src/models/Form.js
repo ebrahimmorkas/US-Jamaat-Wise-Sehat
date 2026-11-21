@@ -43,6 +43,8 @@ const fieldSchema = new mongoose.Schema(
 
 const formSchema = new mongoose.Schema(
   {
+    // Random public code used in links (/f/<code>) so the database id is never shown.
+    code: { type: String, unique: true, sparse: true },
     title: { type: String, required: true, trim: true, maxlength: 200 },
     description: { type: String, trim: true, maxlength: 5000, default: "" },
     topImage: { type: fileSchema, default: undefined },
@@ -68,6 +70,10 @@ const formSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+formSchema.pre("validate", function setCode() {
+  if (!this.code) this.code = require("../services/forms").newCode();
+});
 
 module.exports = mongoose.model("Form", formSchema);
 module.exports.STATUSES = STATUSES;

@@ -163,6 +163,13 @@ async function migrate() {
   await once("form-2026-11", formUpdate2026_11);
   await once("hijri-activities-2026-11", hijriActivities2026_11);
   await once("remove-no-2026-11", removeNo2026_11);
+
+  // 6) Forms: every form has a public code (links never show the database id).
+  const Form = require("../models/Form");
+  const { newCode } = require("./forms");
+  for (const f of await Form.find({ code: { $exists: false } }).select("_id").lean()) {
+    await Form.updateOne({ _id: f._id, code: { $exists: false } }, { $set: { code: newCode() } });
+  }
 }
 
 module.exports = { migrate };
