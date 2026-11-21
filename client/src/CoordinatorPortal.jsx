@@ -151,7 +151,7 @@ function MyResponses({ onAuthExpired }) {
   return (
     <>
       <section className="page-head"><div className="page-title"><h1>My responses</h1>
-        <p className="page-sub">Everything you have sent. Open one to see your answers exactly as you filled them.</p></div></section>
+        <p className="page-sub">Everything sent for your Jamaat — by you, or by your JC on your behalf. Open one to see the answers as they were filled.</p></div></section>
       {!data ? <div className="panel portal-empty">{msg}</div> : !data.rows.length ? <Notice type="info" text="You haven't filled any form yet." /> : (
         <>
           <div className="panel rs-panel cp-filter">
@@ -172,7 +172,7 @@ function MyResponses({ onAuthExpired }) {
                   <div key={i} className="panel cp-resp">
                     <span className="myform-icon"><FormIcon /></span>
                     <div className="cp-resp-text">
-                      <b>{f.title}</b>{r.isTest && <span className="pill warn">Test</span>}
+                      <b>{f.title}</b>{r.isTest && <span className="pill warn">Test</span>}{r.byJc && <span className="pill info">Filled by your JC{r.byJc.name ? ` (${r.byJc.name})` : ""}</span>}
                       <small className="muted">Sent {fmtWhen(r.submittedAt)}{r.editedAt ? ` · changed ${fmtWhen(r.editedAt)}` : ""}{r.jamaat ? ` · ${r.jamaat}` : ""}</small>
                     </div>
                     <div className="cp-resp-actions">

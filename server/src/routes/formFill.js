@@ -6,9 +6,11 @@
 // Every response has a Jamiat and Jamaat: the Coordinator's own (locked) when we know who they are
 // (signed in / personal link), otherwise chosen from dropdowns ("anyone" forms, testers).
 // The public page never sees a database id: forms use their random code, other ids are sealed (F.seal).
-//   GET    /:code?t=          the form + who is filling + their earlier responses (when editing is allowed)
+// A signed-in JC may fill for one of their Jamaats, on behalf of its Coordinator (?for=<sealed Jamaat>):
+// the response is the Jamaat's (it counts for the Coordinator) and is marked "filled by JC".
+//   GET    /:code?t=&for=     the form + who is filling + their earlier responses (when editing is allowed)
 //   POST   /:code/upload      raw file body (?field=&t=) -> { id, token } to send with the answers
-//   POST   /:code/submit      { answers, email?, jamiat?, jamaat?, t?, responseId?, editKey? }
+//   POST   /:code/submit      { answers, email?, jamiat?, jamaat?, t?, for?, responseId?, editKey? }
 const express = require("express");
 const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const { isDbReady } = require("../db");
@@ -88,6 +90,8 @@ async function filler(req, form, { typedEmail } = {}) {
     const tester = await User.findById(me.id).select("isTester").lean();
     if (!tester || !tester.isTester) throw new Stop("NOT_TESTER", "This form is being tested. Only testers can fill it for now.");
   }
+  const forJamaat = req.query.for || (req.body && req.body.for);
+  if (forJamaat) return onBehalf(me, forJamaat, isTest);
   const base = { via: form.access, isTest, user: null, place: null, coordinator: false, name: "", verified: false, emailLocked: false, needEmail: false };
   let email = "";
   if (form.access === "signed_in") {
@@ -119,6 +123,28 @@ async function filler(req, form, { typedEmail } = {}) {
   }
   base.needJamaat = !base.place;
   return { ...base, email, emailKey: email ? F.emailKeyOf(email) : "" };
+}
+
+/** A JC filling for one of their Jamaats (sealed id), on behalf of its Jamaat Coordinator. */
+async function onBehalf(me, sealedJamaat, isTest) {
+  if (!me) throw new Stop("NEED_LOGIN", "Sign in with your Google account to fill this form for a Jamaat.");
+  if (me.role !== "jc") throw new Stop("NOT_ALLOWED", "Only a JC can fill a form on behalf of a Jamaat.");
+  const jcUser = await User.findOne({ _id: me.id, isActive: true, ...notDeleted() }).select("name email jamiats jamaats").lean();
+  const id = F.unseal(sealedJamaat);
+  const where = id ? await place(id) : null;
+  const mine = (list, x) => (list || []).some((y) => String(y) === String(x));
+  if (!jcUser || !where || !mine(jcUser.jamaats, where.jamaat) || !mine(jcUser.jamiats, where.jamiat)) {
+    throw new Stop("NOT_ALLOWED", "This Jamaat isn't one of yours, so you can't fill the form for it.");
+  }
+  const coord = await User.findOne({ role: "jamaat_coordinator", jamaat: where.jamaat, ...notDeleted() }).select("name email").lean();
+  const email = coord ? coord.email : "";
+  return {
+    via: "jc_on_behalf", isTest, user: coord ? coord._id : null, place: where, coordinator: true, name: coord ? coord.name || "" : "",
+    verified: true, emailLocked: true, needEmail: false, needJamaat: false, email,
+    // The Jamaat's responses: its Coordinator's Gmail (the same limit), or the Jamaat itself when it has no Coordinator yet.
+    emailKey: coord ? F.emailKeyOf(email) : `jamaat:${where.jamaat}`,
+    onBehalf: { user: jcUser._id, email: jcUser.email, name: jcUser.name || "", role: "jc", coordinatorName: coord ? coord.name || "" : "", coordinatorEmail: email },
+  };
 }
 
 const publicField = (f) => ({
@@ -169,6 +195,7 @@ router.get("/:code", async (req, res, next) => {
       me: {
         email: who.email, name: who.name, emailLocked: who.emailLocked, needEmail: who.needEmail, isTest: who.isTest,
         jamiat: who.place ? who.place.jamiatName : "", jamaat: who.place ? who.place.jamaatName : "", needJamaat: who.needJamaat,
+        onBehalf: who.onBehalf ? { jc: who.onBehalf.name || who.onBehalf.email, coordinator: who.onBehalf.coordinatorName || who.onBehalf.coordinatorEmail || "" } : null,
       },
       places: who.needJamaat ? await placesList() : undefined,
       used,
@@ -176,6 +203,7 @@ router.get("/:code", async (req, res, next) => {
       mine: await Promise.all(mine.map(async (r) => ({
         id: F.seal(r._id), submittedAt: r.createdAt, editedAt: r.editedAt || null, answers: filesForBrowser(r.answers),
         jamiat: await nameOf(Jamiat, r.jamiat), jamaat: await nameOf(Jamaat, r.jamaat),
+        byJc: r.onBehalf ? (r.filledBy && (r.filledBy.name || r.filledBy.email)) || "JC" : "",
       }))),
     });
   } catch (err) {
@@ -282,6 +310,7 @@ router.post("/:code/submit", submitLimiter, async (req, res, next) => {
       existing.jamaat = where.jamaat;
       existing.edits = (existing.edits || 0) + 1;
       existing.editedAt = new Date();
+      existing.editedBy = who.onBehalf ? { email: who.onBehalf.email, name: who.onBehalf.name, role: "jc" } : { email: who.email, name: who.name, role: who.coordinator ? "jamaat_coordinator" : "" };
       existing.markModified("answers");
       r = await existing.save();
       // Files removed while editing are deleted.
@@ -297,13 +326,15 @@ router.post("/:code/submit", submitLimiter, async (req, res, next) => {
       r = await FormResponse.create({
         form: form._id, isTest: who.isTest, via: who.via, email: who.email, emailKey: who.emailKey, verified: who.verified,
         name: who.name, user: who.user, jamiat: where.jamiat, jamaat: where.jamaat, answers, ...(editKey ? { editKeyHash: F.hash(editKey) } : {}),
+        ...(who.onBehalf ? { onBehalf: true, filledBy: { user: who.onBehalf.user, email: who.onBehalf.email, name: who.onBehalf.name, role: "jc" } } : {}),
       });
     }
     if (claimed.length) await FormUpload.updateMany({ _id: { $in: claimed } }, { $set: { response: r._id } });
     audit(req, existing ? "form_response_edited" : "form_submitted", {
-      username: who.email,
+      username: who.onBehalf ? who.onBehalf.email : who.email,
       target: { type: "form", id: String(form._id), label: form.title },
-      details: { response: String(r._id), via: who.via, test: who.isTest, verified: who.verified, jamaat: where.jamaatName, jamiat: where.jamiatName },
+      details: { response: String(r._id), via: who.via, test: who.isTest, verified: who.verified, jamaat: where.jamaatName, jamiat: where.jamiatName,
+        ...(who.onBehalf ? { onBehalfOf: who.onBehalf.coordinatorEmail || "(no Coordinator yet)" } : {}) },
     });
     res.status(existing ? 200 : 201).json({ id: F.seal(r._id), ...(editKey ? { editKey } : {}), edited: !!existing });
   } catch (err) {

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import FormView, { fmtWhen, myZone, phoneOk, phoneValue } from "./components/FormView";
 import LoginPage from "./components/LoginPage";
-import { CheckIcon, ClockIcon, InfoIcon, LockIcon, MoonIcon, SunIcon, WarnIcon } from "./components/Icons";
+import { CheckIcon, ClockIcon, InfoIcon, LockIcon, MoonIcon, SunIcon, UsersIcon, WarnIcon } from "./components/Icons";
 import { fillGet, fillSubmit, fillUpload, isServerStarting } from "./lib/api";
 import { useAuth } from "./hooks/useAuth";
 
 // Filling a form: /f/<id>?t=<personal link>. Works without signing in for "personal link" and
 // "anyone" forms; "sign in" forms (and forms in Testing) show the Google sign-in here.
+// ?for=<sealed Jamaat>: a signed-in JC fills for one of their Jamaats, on behalf of its Jamaat Coordinator.
 const keyStore = (id) => `form-edit:${id}`;
 const readKey = (id) => { try { return localStorage.getItem(keyStore(id)) || ""; } catch { return ""; } };
 const saveKey = (id, k) => { try { localStorage.setItem(keyStore(id), k); } catch { /* private mode */ } };
@@ -23,6 +24,7 @@ const MESSAGES = {
 export default function FormFillPage({ id, theme, onToggleTheme }) {
   const auth = useAuth();
   const t = new URLSearchParams(window.location.search).get("t") || "";
+  const forJ = new URLSearchParams(window.location.search).get("for") || "";
   const [data, setData] = useState(null); // { form, me, used, remaining, mine }
   const [stop, setStop] = useState(null); // { code, error, form?, startAt?, endAt? }
   const [values, setValues] = useState({});
@@ -37,7 +39,7 @@ export default function FormFillPage({ id, theme, onToggleTheme }) {
 
   const load = useCallback(async (tries = 0) => {
     try {
-      const d = await fillGet(id, t, readKey(id));
+      const d = await fillGet(id, t, readKey(id), forJ);
       setData(d); setStop(null); setError("");
       setEmail((e) => e || d.me.email || "");
     } catch (err) {
@@ -45,7 +47,7 @@ export default function FormFillPage({ id, theme, onToggleTheme }) {
       if (err.data && err.data.code) setStop({ code: err.data.code, error: err.message, ...err.data });
       else setError(err.message);
     }
-  }, [id, t]);
+  }, [id, t, forJ]);
   // Wait for the sign-in check, so a signed-in person is recognised.
   useEffect(() => { if (auth.status !== "checking") load(); }, [auth.status, load]);
 
@@ -85,7 +87,7 @@ export default function FormFillPage({ id, theme, onToggleTheme }) {
     if (bad) return;
     uploads.current += 1;
     try {
-      const up = await fillUpload(id, f.key, t, file, (p) => patch((x) => ({ ...x, progress: Math.min(p, 0.99) })));
+      const up = await fillUpload(id, f.key, t, file, (p) => patch((x) => ({ ...x, progress: Math.min(p, 0.99) })), forJ);
       patch((x) => ({ ...x, id: up.id, token: up.token, progress: 1 }));
     } catch (err) {
       patch((x) => ({ ...x, error: err.message, progress: null }));
@@ -132,7 +134,7 @@ export default function FormFillPage({ id, theme, onToggleTheme }) {
     }
     setBusy(true); setError("");
     try {
-      const r = await fillSubmit(id, { t, email: email.trim(), answers, ...(data.me.needJamaat ? place : {}), ...(editing ? { responseId: editing, editKey: readKey(id) } : {}) });
+      const r = await fillSubmit(id, { t, ...(forJ ? { for: forJ } : {}), email: email.trim(), answers, ...(data.me.needJamaat ? place : {}), ...(editing ? { responseId: editing, editKey: readKey(id) } : {}) });
       if (r.editKey) saveKey(id, r.editKey);
       setDone({ edited: !!r.edited });
       window.scrollTo(0, 0);
@@ -211,11 +213,13 @@ export default function FormFillPage({ id, theme, onToggleTheme }) {
         <div className="fill-msg-body">
           <span className="fill-msg-icon good"><CheckIcon /></span>
           <p className="fill-msg-form">{form.title}</p>
-          <h1>{done.edited ? "Your changes are saved" : "Thank you! Your response is sent"}</h1>
+          <h1>{done.edited ? "Your changes are saved" : me.onBehalf ? `Response sent for ${me.jamaat}` : "Thank you! Your response is sent"}</h1>
+          {me.onBehalf && <p className="muted">It is marked as filled by you (JC) on behalf of the Jamaat Coordinator.</p>}
           {me.isTest && <p className="pill warn">Test response</p>}
           {form.allowEdit && <p className="muted">You can change it until {fmtWhen(form.endAt)} (your time).</p>}
           <div className="fill-actions">
-            {form.allowEdit && <button type="button" className="btn btn-ghost" onClick={again}>See / change my response</button>}
+            {me.onBehalf && <a className="btn btn-ghost" href="/jc-portal/responses">Back to Jamaat status</a>}
+            {form.allowEdit && <button type="button" className="btn btn-ghost" onClick={again}>See / change {me.onBehalf ? "the" : "my"} response</button>}
             {(left == null || left > 0) && <button type="button" className="btn btn-primary" onClick={again}>Fill again</button>}
           </div>
         </div>
@@ -232,18 +236,20 @@ export default function FormFillPage({ id, theme, onToggleTheme }) {
         <div className="fill-msg-body">
           <span className="fill-msg-icon good"><CheckIcon /></span>
           <p className="fill-msg-form">{form.title}</p>
-          <h1>You have already filled this form</h1>
+          <h1>{me.onBehalf ? `${me.jamaat} has already filled this form` : "You have already filled this form"}</h1>
           <p>{data.used > 1 ? `You filled it ${data.used} times (the limit is ${form.maxPerPerson}).` : "Thank you, your response was received."}</p>
           {me.isTest && <p className="pill warn">Test responses</p>}
           {data.mine.length > 0 && (
             <ul className="fill-mine-list">
               {data.mine.map((r) => (
                 <li key={r.id}><span>Sent {fmtWhen(r.submittedAt)}{r.editedAt ? ` · changed ${fmtWhen(r.editedAt)}` : ""}</span>
-                  <button type="button" className="btn btn-primary" onClick={() => startEdit(r)}>Change my response</button></li>
+                  {r.byJc && <span className="pill info">Filled by JC {r.byJc}</span>}
+                  <button type="button" className="btn btn-primary" onClick={() => startEdit(r)}>Change {me.onBehalf ? "the" : "my"} response</button></li>
               ))}
             </ul>
           )}
           {form.allowEdit && data.mine.length > 0 && <p className="muted">You can change it until {fmtWhen(form.endAt)} (your time).</p>}
+          {me.onBehalf && <p><a className="btn btn-ghost" href="/jc-portal/responses">Back to Jamaat status</a></p>}
         </div>
       </div>
     );
@@ -251,8 +257,20 @@ export default function FormFillPage({ id, theme, onToggleTheme }) {
   return shell(
     <form className="fill-form" onSubmit={submit} noValidate>
       {me.isTest && <div className="alert info notice fill-test"><InfoIcon /><span className="notice-text"><b>Testing.</b> Only testers can fill this form now. What you send is saved as a test response.</span></div>}
+      {me.onBehalf && (
+        <div className="panel fill-behalf" role="note">
+          <span className="fill-behalf-icon"><UsersIcon /></span>
+          <div>
+            <b>You are filling this form on behalf of {me.jamaat}</b>
+            <p>{me.onBehalf.coordinator ? <>for its Jamaat Coordinator <b>{me.onBehalf.coordinator}</b>.</> : "This Jamaat has no Jamaat Coordinator yet."} The response
+              will be clearly marked as <b>filled by JC {me.onBehalf.jc}</b>, not by the Jamaat Coordinator.</p>
+          </div>
+        </div>
+      )}
       <div className="panel fill-who" id="fv-email">
-        {me.needEmail ? (
+        {me.onBehalf ? (
+          <p className="fill-as"><LockIcon /> Filled by <b>you (JC {me.onBehalf.jc})</b> for <b>{me.jamaat}</b>{me.email ? <> · Coordinator: {me.email}</> : null}</p>
+        ) : me.needEmail ? (
           <label className="field fill-email">
             <span className="field-label">Your email <span className="fv-star">*</span></span>
             <input className="input" type="email" inputMode="email" autoComplete="email" value={email} disabled={!!editing}
@@ -297,11 +315,11 @@ export default function FormFillPage({ id, theme, onToggleTheme }) {
 
       {data.mine.length > 0 && (
         <div className="panel fill-mine">
-          <h2>Your responses</h2>
+          <h2>{me.onBehalf ? `${me.jamaat}'s responses` : "Your responses"}</h2>
           <ul>
             {data.mine.map((r) => (
               <li key={r.id} className={editing === r.id ? "is-on" : ""}>
-                <span>Sent {fmtWhen(r.submittedAt)}{r.editedAt ? ` · changed ${fmtWhen(r.editedAt)}` : ""}</span>
+                <span>Sent {fmtWhen(r.submittedAt)}{r.editedAt ? ` · changed ${fmtWhen(r.editedAt)}` : ""}{r.byJc ? ` · filled by JC ${r.byJc}` : ""}</span>
                 {editing === r.id ? <span className="pill info">Editing</span>
                   : <button type="button" className="mini-btn" onClick={() => startEdit(r)}>Change</button>}
               </li>
@@ -317,7 +335,7 @@ export default function FormFillPage({ id, theme, onToggleTheme }) {
       ) : (
         <div className="fill-submit">
           <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? "Sending…" : editing ? "Save changes" : "Send"}</button>
-          {form.access === "personal_link" && <span className="muted">Don't share your personal link: anyone with it can fill as you.</span>}
+          {form.access === "personal_link" && !me.onBehalf && <span className="muted">Don't share your personal link: anyone with it can fill as you.</span>}
         </div>
       )}
     </form>

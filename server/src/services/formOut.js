@@ -38,6 +38,9 @@ async function responsesOut(list, { hours } = {}) {
     return {
       submittedAt: r.createdAt, editedAt: r.editedAt || null, edits: r.edits || 0,
       email: r.email || "", name: r.name || "", verified: !!r.verified, via: r.via, isTest: !!r.isTest,
+      // Filled by a JC on behalf of the Jamaat Coordinator (email / name above are the Coordinator's).
+      byJc: r.onBehalf ? { name: (r.filledBy && r.filledBy.name) || "", email: (r.filledBy && r.filledBy.email) || "" } : null,
+      editedBy: r.editedBy && r.editedBy.email ? { name: r.editedBy.name || "", email: r.editedBy.email, role: r.editedBy.role || "" } : null,
       jamiat: jtName.get(String(r.jamiat)) || "", jamaat: jmName.get(String(r.jamaat)) || "",
       answers,
     };

@@ -281,6 +281,17 @@ export async function resultsExcel(code, p) {
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
+export const resultsStatus = (code, p) => request(`/api/form-results/${encodeURIComponent(code)}/status?${rq(p)}`);
+export async function resultsStatusExcel(code, p) {
+  let tz = "UTC";
+  try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { /* old browser */ }
+  const { blob, name } = await request(`/api/form-results/${encodeURIComponent(code)}/status/excel?${rq({ ...p, tz })}`, { blob: true });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
 export const myForms = () => request("/api/forms/mine");
 // Jamaat Coordinator portal (only their own data).
 export const coordResponses = () => request("/api/coordinator/responses");
@@ -290,8 +301,9 @@ export const coordMarkRead = (id) => request("/api/coordinator/notifications/rea
 export const coordProfile = () => request("/api/coordinator/profile");
 
 // Filling (works signed in or not; `t` = personal link token, editKey = this browser's key for "anyone" forms).
-const tq = (t) => (t ? `t=${encodeURIComponent(t)}` : "");
-export const fillGet = (id, t, editKey) => raw(`/api/f/${id}${t ? `?${tq(t)}` : ""}`, { headers: editKey ? { "X-Edit-Key": editKey } : undefined });
-export const fillUpload = (id, field, t, file, onProgress) =>
-  raw(`/api/f/${id}/upload?field=${encodeURIComponent(field)}${t ? `&${tq(t)}` : ""}`, { method: "POST", file, onProgress });
+// `forJ` = a JC filling for one of their Jamaats (sealed Jamaat, on behalf of its Coordinator).
+const tq = (t, forJ) => [t ? `t=${encodeURIComponent(t)}` : "", forJ ? `for=${encodeURIComponent(forJ)}` : ""].filter(Boolean).join("&");
+export const fillGet = (id, t, editKey, forJ) => raw(`/api/f/${id}${tq(t, forJ) ? `?${tq(t, forJ)}` : ""}`, { headers: editKey ? { "X-Edit-Key": editKey } : undefined });
+export const fillUpload = (id, field, t, file, onProgress, forJ) =>
+  raw(`/api/f/${id}/upload?field=${encodeURIComponent(field)}${tq(t, forJ) ? `&${tq(t, forJ)}` : ""}`, { method: "POST", file, onProgress });
 export const fillSubmit = (id, body) => raw(`/api/f/${id}/submit`, { method: "POST", body });

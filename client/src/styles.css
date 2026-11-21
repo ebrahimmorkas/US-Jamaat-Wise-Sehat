@@ -2056,3 +2056,61 @@ textarea.input { font-family: inherit; line-height: 1.45; }
 .cp-prof-note { display: flex; gap: 8px; align-items: center; margin: 0; font-size: 13px; color: var(--muted); }
 .cp-prof-note svg { width: 16px; height: 16px; flex: none; }
 .cp .btn span { display: inline; }
+
+/* ---------- Form responses: Jamaat status (filled / not filled) ---------- */
+.rs-tabs { margin-bottom: 16px; }
+.rs-tabs svg { width: 15px; height: 15px; }
+.st-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }
+@media (max-width: 900px) { .st-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; } }
+.st-card { position: relative; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 12px; align-items: center; text-align: left;
+  padding: 14px 16px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow); font: inherit; color: var(--ink); cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.st-card:not(.is-static):hover { border-color: var(--brand); }
+.st-card.is-on { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); }
+.st-card.is-static { cursor: default; }
+.st-icon { grid-row: span 2; width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; }
+.st-icon svg { width: 18px; height: 18px; }
+.st-icon.brand { background: var(--brand-soft); color: var(--brand); }
+.st-icon.good { background: var(--soft-good); color: var(--t-good); }
+.st-icon.bad { background: var(--soft-bad); color: var(--t-bad); }
+.st-icon.info { background: var(--soft-info); color: var(--t-info); }
+.st-num { font-size: 26px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.st-label { font-size: 12.5px; color: var(--muted); }
+.st-card .st-bar { position: absolute; left: 16px; right: 56px; bottom: 8px; }
+.st-pct { position: absolute; right: 14px; bottom: 3px; font-size: 11.5px; font-weight: 700; color: var(--t-good); }
+.st-bar { display: block; height: 5px; border-radius: 999px; background: var(--s-empty); overflow: hidden; }
+.st-bar > span { display: block; height: 100%; border-radius: 999px; background: var(--s-good); transition: width .4s; }
+.st-panel { margin-bottom: 18px; }
+.st-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.st-filters .field { min-width: 150px; }
+.st-filters select, .st-filters input { min-height: 40px; }
+.st-seg { margin: 0; }
+.st-seg button { padding: 6px 12px; }
+.st-tools { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; margin: 14px 0 10px; font-size: 13px; }
+.st-xl { margin-left: auto; }
+.st-xl svg { width: 15px; height: 15px; }
+.st-hint { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: var(--soft-info); color: var(--t-info); font-size: 13px; }
+.st-hint svg { width: 16px; height: 16px; flex: none; }
+.st-table td { vertical-align: middle; }
+.st-table tr.is-missing td { background: color-mix(in srgb, var(--soft-bad) 35%, var(--surface)); }
+.st-by { display: inline-flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+.st-by small { flex-basis: 100%; font-size: 11.5px; }
+.st-actions { white-space: nowrap; }
+.st-actions .mini-btn { text-decoration: none; }
+.st-actions .mini-btn svg { width: 13px; height: 13px; }
+.st-actions .mini-btn + .mini-btn { margin-left: 6px; }
+.st-mini { min-width: 120px; }
+.st-mini > span:first-child { display: block; margin-bottom: 4px; }
+.rs-jc-pill { align-self: flex-start; margin-bottom: 2px; }
+.rs-jc-banner { display: flex; gap: 10px; align-items: center; padding: 10px 12px; margin-bottom: 14px; border-radius: 10px; background: var(--soft-info); color: var(--t-info); font-size: 13.5px; }
+.rs-jc-banner svg { width: 18px; height: 18px; flex: none; }
+/* the fill page, when a JC fills for a Jamaat */
+.fill-behalf { display: flex; gap: 12px; align-items: flex-start; padding: 14px 18px; border-color: var(--s-info); background: color-mix(in srgb, var(--soft-info) 70%, var(--surface)); }
+.fill-behalf-icon { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--surface); color: var(--t-info); flex: none; }
+.fill-behalf-icon svg { width: 18px; height: 18px; }
+.fill-behalf p { margin: 4px 0 0; font-size: 13.5px; color: var(--ink-2); }
+.cp-resp-text .pill.info { font-size: 11.5px; }
+@media (max-width: 640px) {
+  .st-tools .st-xl { margin-left: 0; }
+  .st-filters .field { min-width: 0; flex: 1 1 140px; }
+  .st-actions { white-space: normal; }
+}
