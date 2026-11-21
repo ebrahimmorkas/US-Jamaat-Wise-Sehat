@@ -21,15 +21,22 @@ const storage = require("../services/imagekit");
 const config = require("../config");
 const F = require("../services/forms");
 const mail = require("../services/email");
-const { announceInBackground } = require("../services/formAnnounce");
+const EmailTemplate = require("../models/EmailTemplate");
+const reminders = require("../services/reminders");
 
-/** Published with "send email to Jamaat Coordinators" ticked and not sent yet -> send now (in the background). */
-function announceIfDue(req, f) {
-  if (f.stage !== "published" || !f.announceEmail || (f.announce && f.announce.at)) return false;
-  announceInBackground(f._id);
-  audit(req, "form_announced", { target: target(f), details: { emailReady: mail.isReady() } });
-  return true;
+/** Every reminder's template must exist (not deleted). */
+async function checkTemplates(data) {
+  const ids = [...new Set((data.reminders || []).map((r) => String(r.template)))];
+  if (!ids.length) return;
+  const found = new Set((await EmailTemplate.find({ _id: { $in: ids }, ...notDeleted() }).select("_id").lean()).map((t) => String(t._id)));
+  const i = (data.reminders || []).findIndex((r) => !found.has(String(r.template)));
+  if (i >= 0) throw new InputError(`Email / reminder ${i + 1}: that template no longer exists. Choose another.`);
 }
+const reminderOut = (f) => (f.reminders || []).map((r) => ({
+  key: r.key, template: String(r.template), when: r.when, hours: r.hours || 0, at: r.at || null, audience: r.audience || "coordinators",
+  dueAt: reminders.dueAt(f, r),
+  state: r.state && r.state.status ? { status: r.state.status, at: r.state.at || null, total: r.state.total || 0, note: r.state.note || "" } : null,
+}));
 
 const router = express.Router();
 router.use(requireAuth, (req, res, next) => {
@@ -53,10 +60,9 @@ function formOut(f, counts = {}) {
     status: f.stage, state: F.stateOf(f),
     access: f.access,
     maxPerPerson: f.maxPerPerson,
-    allowEdit: !!f.allowEdit, sendCopy: !!f.sendCopy, announceEmail: !!f.announceEmail,
-    announce: f.announce && f.announce.at ? { at: f.announce.at, finishedAt: f.announce.finishedAt || null, status: f.announce.status, total: f.announce.total || 0, sent: f.announce.sent || 0, failed: f.announce.failed || 0, error: f.announce.error || "" } : null,
+    allowEdit: !!f.allowEdit, sendCopy: !!f.sendCopy,
     emailReady: mail.isReady(),
-    reminderHours: f.reminderHours || [],
+    reminders: reminderOut(f),
     imageExt: f.imageExt || [], imageMaxMb: f.imageMaxMb,
     fields: (f.fields || []).map((x) => ({ ...(x.toObject ? x.toObject() : x), options: x.options || undefined })),
     link: F.formLink(f.code),
@@ -171,6 +177,7 @@ router.get("/:id", admin, async (req, res, next) => {
 router.post("/", admin, async (req, res, next) => {
   try {
     const data = F.parseForm(req.body);
+    await checkTemplates(data);
     const f = await Form.create({ ...data, stage: "draft", createdBy: req.user.email, updatedBy: req.user.email });
     audit(req, "form_created", { target: target(f), details: { fields: f.fields.length, access: f.access } });
     res.status(201).json({ form: formOut(f) });
@@ -183,6 +190,7 @@ router.put("/:id", admin, async (req, res, next) => {
     notDeletedForm(f);
     const answered = await answeredKeys(f._id);
     const data = F.parseForm(req.body, f, answered);
+    await checkTemplates(data);
     if (f.stage !== "draft") {
       const problems = F.readyProblems({ ...data });
       if (f.stage !== "closed" && problems.length) throw new InputError(`This form is ${STATUS_LABEL[f.stage]}: ${problems.join(" ")}`);
@@ -196,8 +204,7 @@ router.put("/:id", admin, async (req, res, next) => {
         .map(([k, label]) => ({ field: k, label, from: before[k] instanceof Date ? before[k].toISOString() : before[k], to: k === "fields" ? f.fields.length : f[k] instanceof Date ? f[k].toISOString() : f[k] }))
         .filter((c) => JSON.stringify(c.from) !== JSON.stringify(c.to)),
     });
-    // Ticked "send email to Jamaat Coordinators" on a form that is already published: send now.
-    if (announceIfDue(req, f)) f.announce = { at: new Date(), status: "sending", total: 0, sent: 0, failed: 0 };
+    if (f.stage === "published") reminders.kickRules(); // a rule that is already due goes out now
     const counts = (await countsFor([f._id])).get(String(f._id)) || {};
     res.json({ form: formOut(f, { ...counts, answered: [...answered] }) });
   } catch (err) { sendError(err, res, next); }
@@ -224,7 +231,7 @@ router.post("/:id/status", admin, async (req, res, next) => {
     f.updatedBy = req.user.email;
     await f.save();
     audit(req, "form_status_changed", { target: target(f), changes: [{ field: "status", label: "Status", from: STATUS_LABEL[from], to: STATUS_LABEL[to] }] });
-    if (announceIfDue(req, f)) f.announce = { at: new Date(), status: "sending", total: 0, sent: 0, failed: 0 };
+    if (to === "published") reminders.kickRules(); // "When published" emails go out now
     const counts = (await countsFor([f._id])).get(String(f._id)) || {};
     res.json({ form: formOut(f, counts) });
   } catch (err) { sendError(err, res, next); }

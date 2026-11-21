@@ -52,6 +52,7 @@ const ACTIONS = [
   "email_template_saved",   // an email template added / changed
   "email_template_deleted",
   "email_template_restored",
+  "reminder_sent", // "Send reminder" on a form's Jamaat status page
   "email_file_published",   // an image / document put inside an email (public link)
   "form_response_edited", // ... and changed their response
   // data changes (audit trail)

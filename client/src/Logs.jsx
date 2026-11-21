@@ -55,6 +55,7 @@ const ACTION_LABELS = {
   email_template_saved: "Saved an email template",
   email_template_deleted: "Deleted an email template",
   email_template_restored: "Restored an email template",
+  reminder_sent: "Sent a form reminder",
   email_file_published: "Added an image / document to an email",
   form_response_edited: "Changed a form response",
   logs_deleted: "Deleted logs permanently",

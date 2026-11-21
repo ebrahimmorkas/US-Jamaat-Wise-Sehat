@@ -15,12 +15,17 @@ const recipientSchema = new mongoose.Schema(
     user: mongoose.Schema.Types.ObjectId, email: String, name: String, role: String, place: String,
     status: { type: String, enum: ["pending", "sent", "failed"], default: "pending" },
     provider: String, fellBack: Boolean, error: String, sentAt: Date,
+    notified: Boolean, // the portal notification was given (reminders to Jamaat Coordinators)
   },
   { _id: false }
 );
 
 const emailMessageSchema = new mongoose.Schema(
   {
+    // email = written in "Send email"; reminder = a form reminder (automatic or "Send reminder");
+    // response_copy = the copy of a filled form sent to the person.
+    kind: { type: String, enum: ["email", "reminder", "response_copy"], default: "email", index: true },
+    rule: String, // the form's reminder rule (automatic reminders)
     subject: { type: String, required: true, trim: true, maxlength: 200 },
     html: { type: String, required: true }, // cleaned (only safe formatting)
     text: { type: String, default: "" },

@@ -18,6 +18,7 @@ async function main() {
     startKeepAlive(); // Render free plan: ping our own public address so the server never sleeps
     require("./routes/formFill").startUploadCleanup(); // form files never sent with a response
     require("./services/outbox").startOutbox(); // "Send email": sends now / at the scheduled time
+    require("./services/reminders").startReminders(); // a form's emails / reminders, at their times
     require("./routes/emails").startFileCleanup(); // attachments never sent
   });
 

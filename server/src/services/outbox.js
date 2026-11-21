@@ -7,6 +7,7 @@ const EmailMessage = require("../models/EmailMessage");
 const storage = require("./imagekit");
 const mail = require("./email");
 const vars = require("./emailVars");
+const { notify } = require("./notify");
 const config = require("../config");
 
 const LOCK_MS = 5 * 60 * 1000;
@@ -97,6 +98,19 @@ async function loadFiles(files) {
   return out;
 }
 
+/**
+ * Reminders: a Jamaat Coordinator also gets the same message in the portal (Notifications), once,
+ * even if the email itself can't be delivered.
+ */
+async function notifyOne(msg, r, i, values) {
+  if (msg.kind !== "reminder" || r.role !== "jamaat_coordinator" || !r.user || r.notified) return;
+  try {
+    const hello = msg.greeting !== false && r.name ? `Salaam ${r.name},\n\n` : "";
+    await notify([r.user], { kind: "reminder", title: vars.fillText(msg.subject, values), body: `${hello}${toText(vars.fillHtml(msg.html, values))}`, form: msg.form || null });
+    await EmailMessage.updateOne({ _id: msg._id }, { $set: { [`recipients.${i}.notified`]: true } });
+  } catch (e) { console.error("[outbox] notification", e && e.message); }
+}
+
 /** Claim one email whose time has come (or whose sender stopped) and send it. */
 async function sendOne() {
   const now = new Date();
@@ -130,7 +144,9 @@ async function sendOne() {
     if (fileError) set = { status: "failed", error: fileError };
     else {
       try {
-        const body = framed(msg, r, vars.valuesFor(ctx, r));
+        const values = vars.valuesFor(ctx, r);
+        await notifyOne(msg, r, i, values);
+        const body = framed(msg, r, values);
         const out = await mail.sendMail({ to: r.email, subject: body.subject, html: body.html, text: body.text, replyTo: msg.createdBy && msg.createdBy.email, attachments: files });
         set = { status: "sent", provider: out.provider, fellBack: out.fellBack, sentAt: new Date(), error: out.fellBack ? `Sent by the backup (${out.firstError || "first provider failed"})` : "" };
       } catch (e) { set = { status: "failed", error: String((e && e.message) || e).slice(0, 300) }; }

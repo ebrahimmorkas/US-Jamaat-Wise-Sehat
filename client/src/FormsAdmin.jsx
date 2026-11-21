@@ -5,7 +5,7 @@ import { confirmDialog } from "./components/ConfirmDialog";
 import { CloseIcon, DownloadIcon, EyeIcon, UploadIcon } from "./components/Icons";
 import {
   AuthError, isServerStarting, formsList, formGet, formCreate, formSave, formStatus, formTopImage, formTopImageRemove,
-  formLinkFor, formClearTests, formDelete, formRestore, formLinksExcel,
+  formLinkFor, formClearTests, formDelete, formRestore, formLinksExcel, templateList,
 } from "./lib/api";
 import { deletedLine, plural } from "./lib/helpers";
 
@@ -52,11 +52,15 @@ const blankField = (type) => ({
   uid: uid(), type, label: "", help: "", placeholder: "", required: false, optionsText: ["select", "multi_select", "radio", "checkbox"].includes(type) ? "Option 1\nOption 2" : "",
   options: [], min: "", max: type === "rating" ? "5" : "", accept: [], size: { n: "", unit: "MB" }, maxFiles: "1",
 });
+// Emails & reminders (an email template + when + to whom). Hours before closing are typed as days + hours.
+const ruleIn = (r) => ({ uid: uid(), key: r.key, template: r.template, when: r.when, days: r.when === "before_close" ? String(Math.floor(r.hours / 24)) : "", hrs: r.when === "before_close" ? String(r.hours % 24) : "", at: toLocal(r.at), audience: r.audience, state: r.state, dueAt: r.dueAt });
+const ruleOut = (r) => ({ key: r.key, template: r.template, when: r.when, hours: r.when === "before_close" ? (Number(r.days) || 0) * 24 + (Number(r.hrs) || 0) : 0, at: r.when === "at" ? fromLocal(r.at) : null, audience: r.audience });
+const blankRule = (first) => ({ uid: uid(), key: "", template: "", when: first ? "publish" : "before_close", days: first ? "" : "1", hrs: first ? "" : "0", at: "", audience: "coordinators", state: null, dueAt: null });
 function toDraft(f) {
   return {
     id: f.id, title: f.title, description: f.description, startAt: toLocal(f.startAt), endAt: toLocal(f.endAt), access: f.access,
-    maxPerPerson: f.maxPerPerson == null ? "" : String(f.maxPerPerson), allowEdit: f.allowEdit, sendCopy: f.sendCopy, announceEmail: !!f.announceEmail,
-    reminderHours: f.reminderHours || [], imageExt: f.imageExt || [], imageSize: sizeIn(f.imageMaxMb),
+    maxPerPerson: f.maxPerPerson == null ? "" : String(f.maxPerPerson), allowEdit: f.allowEdit, sendCopy: f.sendCopy,
+    reminders: (f.reminders || []).map(ruleIn), imageExt: f.imageExt || [], imageSize: sizeIn(f.imageMaxMb),
     fields: f.fields.filter((x) => !x.hidden).map((x) => ({
       uid: uid(), key: x.key, type: x.type, label: x.label || "", help: x.help || "", placeholder: x.placeholder || "", required: !!x.required,
       options: x.options || [], optionsText: (x.options || []).map((o) => o.label).join("\n"),
@@ -65,13 +69,13 @@ function toDraft(f) {
     })),
   };
 }
-const newDraft = () => ({ id: "", title: "", description: "", startAt: "", endAt: "", access: "personal_link", maxPerPerson: "", allowEdit: false, sendCopy: false, announceEmail: false, reminderHours: [], imageExt: [], imageSize: { n: "", unit: "MB" }, fields: [blankField("short_text")] });
+const newDraft = () => ({ id: "", title: "", description: "", startAt: "", endAt: "", access: "personal_link", maxPerPerson: "", allowEdit: false, sendCopy: false, reminders: [], imageExt: [], imageSize: { n: "", unit: "MB" }, fields: [blankField("short_text")] });
 // Choices keep their ids when the text is the same, so saved answers stay linked.
 function toBody(d) {
   return {
     title: d.title, description: d.description, startAt: fromLocal(d.startAt), endAt: fromLocal(d.endAt), access: d.access,
-    maxPerPerson: d.maxPerPerson === "" ? null : Number(d.maxPerPerson), allowEdit: d.allowEdit, sendCopy: d.sendCopy, announceEmail: d.announceEmail,
-    reminderHours: d.reminderHours, imageExt: d.imageExt, imageMaxMb: sizeOut(d.imageSize),
+    maxPerPerson: d.maxPerPerson === "" ? null : Number(d.maxPerPerson), allowEdit: d.allowEdit, sendCopy: d.sendCopy,
+    reminders: d.reminders.map(ruleOut), imageExt: d.imageExt, imageMaxMb: sizeOut(d.imageSize),
     fields: d.fields.map((f) => ({
       key: f.key, type: f.type, label: f.label, help: f.help, placeholder: f.placeholder, required: f.required,
       options: f.optionsText.split("\n").map((s) => s.trim()).filter(Boolean).map((label) => ({ label, id: (f.options.find((o) => o.label === label) || {}).id })),
@@ -187,37 +191,81 @@ export default function FormsAdmin({ onAuthExpired }) {
 }
 
 // ---------- The editor ----------
-/** "Send email to Jamaat Coordinators with the form link" and, once sent, how it went. */
-function AnnounceBox({ d, setD, saved, status }) {
-  const a = saved && saved.announce;
-  const sentAlready = !!(a && a.at);
+const RULE_STATE = {
+  sent: { tone: "good", text: (st) => (st.total ? `Sent to ${plural(st.total, "person", "people")}` : "Nobody needed it") },
+  sending: { tone: "info", text: () => "Sending…" },
+  skipped: { tone: "warn", text: () => "Not sent" },
+  failed: { tone: "bad", text: () => "Failed" },
+};
+/**
+ * Emails & reminders: each one is an email template sent automatically at its time (only once the form is
+ * Published), only to the Jamaats that haven't filled the form. {{Time remaining}} is worked out when it is sent.
+ */
+function RemindersBox({ d, setD, status, fail }) {
+  const [tpls, setTpls] = useState(null);
+  const failRef = useRef(fail); // `fail` is a new function on every render: load the list once, not every render
+  failRef.current = fail;
+  const load = useCallback(() => templateList().then((r) => setTpls(r.templates)).catch((e) => failRef.current(e)), []);
+  useEffect(() => { load(); }, [load]);
+  const set = (i, patch) => setD((s) => ({ ...s, reminders: s.reminders.map((r, j) => (j === i ? { ...r, ...patch } : r)) }));
+  const remove = (i) => setD((s) => ({ ...s, reminders: s.reminders.filter((_, j) => j !== i) }));
+  const add = () => setD((s) => ({ ...s, reminders: [...s.reminders, blankRule(!s.reminders.length)] }));
+  const known = new Set((tpls || []).map((t) => t.id));
+  const hoursOf = (r) => (Number(r.days) || 0) * 24 + (Number(r.hrs) || 0);
   return (
     <>
-      <label className="check"><input type="checkbox" checked={d.announceEmail} disabled={sentAlready}
-        onChange={(e) => setD({ ...d, announceEmail: e.target.checked })} /> Send email to Jamaat Coordinators with the form link</label>
-      {!sentAlready && (
-        <p className="field-hint">
-          {d.announceEmail
-            ? status === "published"
-              ? "Saving sends it now: every active Jamaat Coordinator gets an email with their own link."
-              : "When you publish the form, every active Jamaat Coordinator gets an email with their own link (sent once)."
-            : "Off: nobody is emailed. You can share the links yourself (above)."}
-          {d.announceEmail && " The same message appears in their portal under Notifications."}
-        </p>
-      )}
-      {d.announceEmail && !sentAlready && saved && saved.emailReady === false && (
-        <p className="ann-warn">Email isn't set up on the server yet, so only the portal notifications would be sent. (Settings: EMAIL_PROVIDER, SMTP_USER, SMTP_PASS.)</p>
-      )}
-      {sentAlready && (
-        <div className={`ann-status ${a.status}`}>
-          {a.status === "sending" && <><span className="ann-dot" /> Sending… {a.sent + a.failed} of {plural(a.total, "Jamaat Coordinator")}</>}
-          {a.status === "done" && <>✓ Emailed to <b>{a.sent}</b> of {plural(a.total, "Jamaat Coordinator")} · {fmtWhen(a.finishedAt || a.at)}{a.failed ? <> · <b>{a.failed}</b> couldn't be sent</> : null}</>}
-          {a.status === "failed" && <>The emails couldn't be sent ({a.failed} failed). Portal notifications were sent.</>}
-          {a.status === "not_set_up" && <>Email isn't set up on the server: {a.total === 1 ? "the Jamaat Coordinator" : `all ${a.total} Jamaat Coordinators`} got the portal notification only.</>}
-          {a.error && a.status !== "not_set_up" && <small>Last problem: {a.error}</small>}
-          <small>It is sent once per form.</small>
-        </div>
-      )}
+      <p className="field-hint">Choose email templates to send automatically. Nothing is sent until the form is <b>Published</b>. Each is sent once, only to the Jamaats that haven't filled the form yet (filled by the JC counts as filled). Jamaat Coordinators also see it in their portal under Notifications. Put <code>{"{{Time remaining}}"}</code> in a template and one template works for every reminder.</p>
+      {tpls && !tpls.length && <p className="ann-warn">There are no email templates yet. Make one under <b>Send email → Templates</b>, then <button type="button" className="linklike" onClick={load}>reload the list</button>.</p>}
+      <div className="rm-list">
+        {d.reminders.map((r, i) => {
+          const st = r.state && RULE_STATE[r.state.status];
+          return (
+            <div key={r.uid} className="rm-row">
+              <div className="rm-head">
+                <b>Email {i + 1}</b>
+                {st && <span className={`pill ${st.tone}`}>{st.text(r.state)}{r.state.at ? ` · ${fmtWhen(r.state.at)}` : ""}</span>}
+                {!st && status === "published" && r.dueAt && <span className="pill na">Due {fmtWhen(r.dueAt)}</span>}
+                <button type="button" className="icon-btn rm-del" aria-label={`Remove email ${i + 1}`} onClick={() => remove(i)}><CloseIcon /></button>
+              </div>
+              {r.state && r.state.note && <p className="field-hint rm-note">{r.state.note}</p>}
+              <div className="rm-grid">
+                <label className="field"><span className="field-label">Template</span>
+                  <select className="input" value={r.template} onChange={(e) => set(i, { template: e.target.value })}>
+                    <option value="">Choose a template…</option>
+                    {r.template && tpls && !known.has(r.template) && <option value={r.template}>(deleted template)</option>}
+                    {(tpls || []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select></label>
+                <label className="field"><span className="field-label">Send to</span>
+                  <select className="input" value={r.audience} onChange={(e) => set(i, { audience: e.target.value })}>
+                    <option value="coordinators">Jamaat Coordinators only</option>
+                    <option value="with_jc">Jamaat Coordinators + their JCs</option>
+                  </select></label>
+                <label className="field"><span className="field-label">When</span>
+                  <select className="input" value={r.when} onChange={(e) => set(i, { when: e.target.value, ...(e.target.value === "before_close" && !r.days && !r.hrs ? { days: "1", hrs: "0" } : {}) })}>
+                    <option value="publish">When the form is published</option>
+                    <option value="before_close">Before the form closes</option>
+                    <option value="at">On a date and time</option>
+                  </select></label>
+                {r.when === "before_close" && (
+                  <div className="rm-before">
+                    <label className="field"><span className="field-label">Days</span><input className="input" type="number" min="0" step="1" value={r.days} onChange={(e) => set(i, { days: e.target.value.replace(/[^\d]/g, "") })} /></label>
+                    <label className="field"><span className="field-label">Hours</span><input className="input" type="number" min="0" max="23" step="1" value={r.hrs} onChange={(e) => set(i, { hrs: e.target.value.replace(/[^\d]/g, "") })} /></label>
+                  </div>
+                )}
+                {r.when === "at" && (
+                  <label className="field"><span className="field-label">Date and time ({myZone()})</span>
+                    <input className="input" type="datetime-local" value={r.at} onChange={(e) => set(i, { at: e.target.value })} /></label>
+                )}
+              </div>
+              {r.when === "before_close" && d.endAt && hoursOf(r) > 0 && (
+                <p className="field-hint">Sent on {fmtWhen(new Date(fromLocal(d.endAt)).getTime() - hoursOf(r) * 3600000)} (your time).</p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <button type="button" className="btn btn-ghost" onClick={add} disabled={d.reminders.length >= 10}>+ Add email / reminder</button>
+      {d.reminders.some((r) => r.state) && <p className="field-hint">Changing an email that was already sent makes it a new one: it is sent again at its time.</p>}
     </>
   );
 }
@@ -229,7 +277,6 @@ function FormEditor({ start, meta, onClose, onAuthExpired }) {
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(false);
-  const [hourText, setHourText] = useState("");
   const [linkEmail, setLinkEmail] = useState("");
   const [personal, setPersonal] = useState("");
   const [pendingTop, setPendingTop] = useState(null); // { file, url }: chosen before the form exists, uploaded on Create
@@ -238,13 +285,24 @@ function FormEditor({ start, meta, onClose, onAuthExpired }) {
   const answered = useMemo(() => new Set((saved && saved.answered) || []), [saved]);
   const zone = myZone();
 
-  // While the emails to Jamaat Coordinators are going out, show the progress.
-  const sending = !!(saved && saved.announce && saved.announce.status === "sending");
+  // Just published / saved: show how the automatic emails went (they go out within a minute).
+  const waiting = !!(saved && saved.status === "published" && (saved.reminders || []).some((r) => (!r.state || r.state.status === "sending") && r.dueAt && new Date(r.dueAt) <= new Date()));
   useEffect(() => {
-    if (!sending) return undefined;
-    const t = setInterval(() => { formGet(saved.id).then((r) => setSaved((x) => (x ? { ...x, announce: r.form.announce } : x))).catch(() => {}); }, 4000);
+    if (!waiting) return undefined;
+    let n = 0;
+    const t = setInterval(() => {
+      n += 1;
+      if (n > 30) { clearInterval(t); return; }
+      formGet(saved.id).then((r) => setSaved((x) => (x ? { ...x, reminders: r.form.reminders } : x))).catch(() => {});
+    }, 4000);
     return () => clearInterval(t);
-  }, [sending, saved && saved.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [waiting, saved && saved.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Keep the shown state of each email in step with the server (without touching what is being edited).
+  useEffect(() => {
+    if (!saved) return;
+    const by = new Map((saved.reminders || []).map((r) => [r.key, r]));
+    setD((s) => ({ ...s, reminders: s.reminders.map((r) => (r.key && by.has(r.key) ? { ...r, state: by.get(r.key).state, dueAt: by.get(r.key).dueAt } : r)) }));
+  }, [saved && saved.reminders]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fail = (err) => { if (err instanceof AuthError) return onAuthExpired(); setMsg({ type: "error", text: err.message }); window.scrollTo({ top: 0, behavior: "smooth" }); };
   const took = (f) => { setSaved(f); const nd = toDraft(f); setD(nd); setBase(JSON.stringify(toBody(nd))); };
@@ -277,8 +335,8 @@ function FormEditor({ start, meta, onClose, onAuthExpired }) {
     try {
       const r = await formStatus(f.id, status);
       took({ ...r.form, answered: f.answered });
-      const emailing = status === "published" && r.form.announce && r.form.announce.status === "sending" && !(f.announce && f.announce.at);
-      setMsg({ type: "ok", text: `The form is now ${STATUS[status].label}.${emailing ? " The form link is being emailed to every Jamaat Coordinator (see “Emails” below)." : ""}` });
+      const now = status === "published" ? (r.form.reminders || []).filter((x) => x.when === "publish" && !x.state).length : 0;
+      setMsg({ type: "ok", text: `The form is now ${STATUS[status].label}.${now ? ` ${now === 1 ? "The “When published” email is" : `${now} “When published” emails are`} being sent (see “Emails & reminders” below).` : ""}` });
     }
     catch (err) { fail(err); } finally { setBusy(false); }
   };
@@ -302,14 +360,6 @@ function FormEditor({ start, meta, onClose, onAuthExpired }) {
   };
   const addF = (type) => { if (!type) return; setD((s) => ({ ...s, fields: [...s.fields, blankField(type)] })); };
   const dupF = (i) => setD((s) => { const f = s.fields[i]; const c = { ...f, uid: uid(), key: undefined, options: [], label: f.label ? `${f.label} (copy)` : "" }; const fields = [...s.fields]; fields.splice(i + 1, 0, c); return { ...s, fields }; });
-
-  const addHour = () => {
-    const h = Number(hourText);
-    if (!Number.isInteger(h) || h < 1) return setMsg({ type: "error", text: "Reminder: type a whole number of hours (1 or more)." });
-    if (d.startAt && d.endAt && h >= (new Date(d.endAt) - new Date(d.startAt)) / 3600000) return setMsg({ type: "error", text: `A reminder after ${h} hours would be after the form closes.` });
-    setD((s) => ({ ...s, reminderHours: [...new Set([...s.reminderHours, h])].sort((a, b) => a - b) }));
-    setHourText("");
-  };
 
   const upTop = async (file) => {
     if (!saved) return;
@@ -374,11 +424,11 @@ function FormEditor({ start, meta, onClose, onAuthExpired }) {
           <div className="status-btns">
             {status === "draft" && <>
               <button type="button" className="btn btn-warn" disabled={busy} onClick={() => move("testing")}>Move to Testing</button>
-              <button type="button" className="btn btn-primary" disabled={busy} onClick={() => move("published", { tone: "warn", title: "Publish without testing?", confirmText: "Publish", message: `Everyone with a link can fill it from the start time. You can test it first with “Move to Testing”.${d.announceEmail ? "\n\nThe form link will be emailed to every Jamaat Coordinator." : ""}` })}>Publish</button>
+              <button type="button" className="btn btn-primary" disabled={busy} onClick={() => move("published", { tone: "warn", title: "Publish without testing?", confirmText: "Publish", message: `Everyone with a link can fill it from the start time. You can test it first with “Move to Testing”.${d.reminders.some((x) => x.when === "publish" && !x.state) ? "\n\nThe “When published” emails will be sent now." : ""}` })}>Publish</button>
             </>}
             {status === "testing" && <>
               <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => move("draft")}>Back to Draft</button>
-              <button type="button" className="btn btn-primary" disabled={busy} onClick={() => move("published", { tone: "info", title: "Publish this form?", confirmText: "Publish", message: `Jamaat Coordinators can fill it from ${fmtWhen(fromLocal(d.startAt))} (your time).${saved.testResponses ? `\n\nThere ${saved.testResponses === 1 ? "is 1 test response" : `are ${saved.testResponses} test responses`}; you can remove ${saved.testResponses === 1 ? "it" : "them"} with “Remove test responses”.` : ""}${d.announceEmail && !(saved.announce && saved.announce.at) ? "\n\nThe form link will be emailed to every Jamaat Coordinator." : ""}` })}>Publish</button>
+              <button type="button" className="btn btn-primary" disabled={busy} onClick={() => move("published", { tone: "info", title: "Publish this form?", confirmText: "Publish", message: `Jamaat Coordinators can fill it from ${fmtWhen(fromLocal(d.startAt))} (your time).${saved.testResponses ? `\n\nThere ${saved.testResponses === 1 ? "is 1 test response" : `are ${saved.testResponses} test responses`}; you can remove ${saved.testResponses === 1 ? "it" : "them"} with “Remove test responses”.` : ""}${d.reminders.some((x) => x.when === "publish" && !x.state) ? "\n\nThe “When published” emails will be sent now." : ""}` })}>Publish</button>
             </>}
             {status === "published" && <>
               {!saved.responses && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => move("testing")}>Back to Testing</button>}
@@ -483,29 +533,12 @@ function FormEditor({ start, meta, onClose, onAuthExpired }) {
               <span className="field-hint">Empty = no limit. 0 is not allowed.</span></label>
             <label className="check"><input type="checkbox" checked={d.allowEdit} onChange={(e) => setD({ ...d, allowEdit: e.target.checked })} /> They can change their response until the end time</label>
             <label className="check"><input type="checkbox" checked={d.sendCopy} onChange={(e) => setD({ ...d, sendCopy: e.target.checked })} /> Send them a copy of their response by email</label>
-            {d.sendCopy && <p className="field-hint">Copies start working with the next email step.</p>}
+            {d.sendCopy && <p className="field-hint">Sent to the Gmail they filled with, after every response (and after a change). Listed in Send email → Sent &amp; scheduled.</p>}
           </div>
 
           <div className="panel ed-section" id="ed-emails">
-            <h2>Emails</h2>
-            <AnnounceBox d={d} setD={setD} saved={saved} status={status} />
-          </div>
-
-          <div className="panel ed-section">
-            <h2>Reminders</h2>
-            <p className="field-hint">Hours after the start time. Sent only to people who haven't filled it, never after the end.</p>
-            <div className="hours">
-              {d.reminderHours.map((h) => (
-                <span key={h} className="hour-chip">after {h} h
-                  <button type="button" aria-label={`Remove ${h} hours`} onClick={() => setD({ ...d, reminderHours: d.reminderHours.filter((x) => x !== h) })}><CloseIcon /></button></span>
-              ))}
-            </div>
-            <div className="add-line">
-              <input className="input" type="number" min="1" step="1" value={hourText} placeholder="e.g. 12" onChange={(e) => setHourText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addHour(); } }} />
-              <button type="button" className="btn btn-ghost" onClick={addHour}>Add</button>
-            </div>
-            <label className="field wide"><span className="field-label">Reminder template</span>
-              <select disabled><option>Templates come with the email part</option></select></label>
+            <h2>Emails &amp; reminders</h2>
+            <RemindersBox d={d} setD={setD} status={status} fail={fail} />
           </div>
 
           <div className="panel ed-section">

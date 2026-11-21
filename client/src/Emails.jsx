@@ -329,10 +329,15 @@ function PeoplePicker({ people, picked, setPicked }) {
 }
 
 // ---------------------------------------------------------------- Sent
+// What kind of email (the history has every email the portal sends).
+const KIND = { email: { label: "Email", cls: "na" }, reminder: { label: "Reminder", cls: "info" }, response_copy: { label: "Response copy", cls: "good" } };
+const KIND_TABS = [["", "All"], ["email", "Emails"], ["reminder", "Reminders"], ["response_copy", "Response copies"]];
+
 function Sent({ fail, setMsg }) {
   const [list, setList] = useState(null);
   const [open, setOpen] = useState(null); // id
-  const load = useCallback(() => emailList().then((r) => setList(r.emails)).catch(fail), [fail]);
+  const [kind, setKind] = useState("");
+  const load = useCallback(() => emailList(kind).then((r) => setList(r.emails)).catch(fail), [fail, kind]);
   useEffect(() => { load(); }, [load]);
   // Refresh while something is sending (or due).
   const active = (list || []).some((m) => m.status === "sending" || (m.status === "scheduled" && new Date(m.sendAt) <= new Date(Date.now() + 30000)));
@@ -343,9 +348,15 @@ function Sent({ fail, setMsg }) {
   }, [active, load]);
 
   if (open) return <SentOne id={open} onBack={() => { setOpen(null); load(); }} fail={fail} setMsg={setMsg} />;
-  if (!list) return <div className="panel em-loading">Loading…</div>;
-  if (!list.length) return <div className="panel em-loading">No emails yet. Emails you send or schedule appear here.</div>;
+  const tabs = (
+    <div className="cp-tabs em-kinds" role="tablist" aria-label="Kind of email">
+      {KIND_TABS.map(([k, l]) => <button key={k || "all"} type="button" role="tab" aria-selected={kind === k} className={kind === k ? "is-on" : ""} onClick={() => { setList(null); setKind(k); }}>{l}</button>)}
+    </div>
+  );
+  if (!list) return <>{tabs}<div className="panel em-loading">Loading…</div></>;
+  if (!list.length) return <>{tabs}<div className="panel em-loading">{kind === "reminder" ? "No reminders yet. A form's emails & reminders and “Send reminder” appear here." : kind === "response_copy" ? "No response copies yet (forms with “Send them a copy of their response”)." : "No emails yet. Emails you send or schedule appear here."}</div></>;
   return (
+    <>{tabs}
     <section className="panel">
       <div className="table-wrap em-wrap">
         <table className="master-table card-rows em-table">
@@ -353,18 +364,19 @@ function Sent({ fail, setMsg }) {
           <tbody>
             {list.map((m) => (
               <tr key={m.id} className="em-click" onClick={() => setOpen(m.id)} tabIndex={0} onKeyDown={(e) => { if (e.key === "Enter") setOpen(m.id); }}>
-                <td data-label="Subject"><b>{m.subject}</b>{m.files > 0 && <small className="em-clip"> · {plural(m.files, "attachment")}</small>}</td>
+                <td data-label="Subject"><span className={`pill ${(KIND[m.kind] || KIND.email).cls} em-kind`}>{(KIND[m.kind] || KIND.email).label}</span> <b>{m.subject}</b>{m.files > 0 && <small className="em-clip"> · {plural(m.files, "attachment")}</small>}{m.formTitle && <small className="em-muted em-form-of">Form: {m.formTitle}</small>}</td>
                 <td data-label="To">{m.audience}<small className="em-muted"> ({m.total})</small></td>
                 <td data-label="Status"><span className={`pill ${STATUS[m.status].cls}`}>{STATUS[m.status].label}</span></td>
                 <td data-label="Delivered">{m.status === "scheduled" || m.status === "cancelled" ? "—" : <Bar m={m} />}</td>
                 <td data-label="When">{when(m.status === "scheduled" ? m.sendAt : m.startedAt || m.sendAt)}{m.status === "scheduled" && <small className="em-muted"> (planned)</small>}</td>
-                <td data-label="By">{m.by ? m.by.name || m.by.email : ""}</td>
+                <td data-label="By">{m.automatic ? <span className="em-muted">Automatic</span> : m.by ? m.by.name || m.by.email : ""}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
     </section>
+    </>
   );
 }
 
@@ -465,6 +477,7 @@ function SentOne({ id, onBack, fail, setMsg }) {
                   <td data-label="Role">{ROLE_ONE[r.role] || r.role}</td>
                   <td data-label="Jamaat">{r.place || "—"}</td>
                   <td data-label="Result">
+                    {r.notified && <span className="pill info em-notified" title="Also in their portal under Notifications">Notified</span>}
                     {r.status === "sent" ? <><span className="pill good">Sent</span> <small className="em-muted">{when(r.sentAt)}{r.provider ? ` · ${r.provider === "sendgrid" ? "SendGrid" : "Nodemailer"}` : ""}</small></>
                       : r.status === "failed" ? <><span className="pill bad">Failed</span> <small className="em-fail">{r.error}</small></>
                         : <span className="pill na">Waiting</span>}

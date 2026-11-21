@@ -15,6 +15,23 @@ const fileSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// One automatic email: which template, when, and to whom. `state` is what happened (set by the server).
+const reminderSchema = new mongoose.Schema(
+  {
+    key: { type: String, required: true }, // stays the same when the form is edited
+    template: { type: mongoose.Schema.Types.ObjectId, ref: "EmailTemplate", required: true },
+    when: { type: String, enum: ["publish", "before_close", "at"], required: true },
+    hours: { type: Number, default: 0 }, // before_close: hours before the end time
+    at: { type: Date, default: null },   // at: this moment
+    audience: { type: String, enum: ["coordinators", "with_jc"], default: "coordinators" },
+    state: {
+      type: new mongoose.Schema({ status: String, at: Date, message: mongoose.Schema.Types.ObjectId, total: Number, note: String }, { _id: false }),
+      default: undefined,
+    },
+  },
+  { _id: false }
+);
+
 const optionSchema = new mongoose.Schema({ id: { type: String, required: true }, label: { type: String, required: true, trim: true, maxlength: 200 } }, { _id: false });
 
 // One question (or a heading / information text). `key` never changes, so answers stay linked after renames.
@@ -56,15 +73,9 @@ const formSchema = new mongoose.Schema(
     maxPerPerson: { type: Number, default: null, min: 1 },
     allowEdit: { type: Boolean, default: false }, // edit a sent response until the end time
     sendCopy: { type: Boolean, default: false },  // email a copy of the response to the person (email part)
-    // Email every Jamaat Coordinator the form link when it is published (once; progress in `announce`).
-    announceEmail: { type: Boolean, default: false },
-    announce: {
-      type: new mongoose.Schema({ at: Date, finishedAt: Date, status: String, total: Number, sent: Number, failed: Number, error: String }, { _id: false }),
-      default: undefined,
-    },
-    // Reminders: hours after the start time (never after the end) + the email template (email part).
-    reminderHours: { type: [Number], default: [] },
-    reminderTemplate: { type: mongoose.Schema.Types.ObjectId, default: null },
+    // Emails & reminders: email templates sent automatically (services/reminders), only after the form is Published,
+    // each rule once, only to the Jamaats that haven't filled it.
+    reminders: { type: [reminderSchema], default: [] },
     // Defaults for image questions (each image question can set its own).
     imageExt: { type: [String], default: undefined },
     imageMaxMb: { type: Number, default: null },

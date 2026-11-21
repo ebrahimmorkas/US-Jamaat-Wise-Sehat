@@ -100,7 +100,7 @@ router.post("/render", async (req, res, next) => {
     const person = { user: user._id, name: user.name, email: user.email, role: user.role };
     const body = framed({ ...msg, createdBy: me(req) }, person, vars.valuesFor(ctx, person));
     const missing = Object.entries(vars.valuesFor(ctx, person)).filter(([k, v]) => !v && new RegExp(`\\{\\{\\s*${k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\}\\}`, "i").test(`${msg.subject} ${msg.html.replace(/%7B%7B(.+?)%7D%7D/gi, (x, n) => `{{${decodeURIComponent(n)}}}`)}`)).map(([k]) => k);
-    const formVar = (k) => k.startsWith("Form ");
+    const formVar = (k) => vars.isFormVar(k);
     res.json({
       subject: body.subject, html: body.html, to: { name: user.name || "", email: user.email },
       missing: msg.form ? missing : missing.filter((k) => !formVar(k)),
@@ -210,12 +210,20 @@ const listOut = (m) => ({
   startedAt: m.startedAt || null, finishedAt: m.finishedAt || null, total: m.total, sent: m.sent, failed: m.failed,
   files: (m.files || []).length, by: m.createdBy ? { name: m.createdBy.name, email: m.createdBy.email, role: m.createdBy.role } : null,
   copy: m.copy && m.copy.status !== "none" ? m.copy.status : null, templateName: m.templateName || "",
+  kind: m.kind || "email", automatic: !!(m.createdBy && !m.createdBy.email && !m.createdBy.role),
 });
 
 router.get("/", async (req, res, next) => {
   try {
-    const list = await EmailMessage.find({}).select("-recipients -html -text").sort({ sendAt: -1 }).limit(300).lean();
-    res.json({ emails: list.map(listOut) });
+    const kinds = ["email", "reminder", "response_copy"];
+    const q = kinds.includes(req.query.kind) ? (req.query.kind === "email" ? { kind: { $in: ["email", null] } } : { kind: req.query.kind }) : {};
+    const list = await EmailMessage.find(q).select("-recipients -html -text").sort({ sendAt: -1 }).limit(300).lean();
+    const forms = new Map((await Form.find({ _id: { $in: [...new Set(list.map((m) => m.form).filter(Boolean).map(String))] } }).select("title").lean()).map((f) => [String(f._id), f.title]));
+    res.json({ emails: list.map((m) => {
+      const formTitle = m.form ? forms.get(String(m.form)) || "" : "";
+      // {{Form title}} is the same for everyone, so the list shows it filled in.
+      return { ...listOut(m), subject: formTitle ? vars.fillText(m.subject, { "Form title": formTitle }) : m.subject, formTitle };
+    }) });
   } catch (err) { sendError(err, res, next); }
 });
 
@@ -231,7 +239,7 @@ router.get("/:id", async (req, res, next) => {
         templateName: m.templateName || "",
         form: m.form ? await Form.findById(m.form).select("title code").lean().then((f) => (f ? { title: f.title, code: f.code } : null)) : null,
         attachments: (m.files || []).map((f) => ({ name: f.name, size: f.size, type: f.type, url: storage.signedUrl(f) })),
-        recipients: m.recipients.map((r) => ({ name: r.name, email: r.email, role: r.role, place: r.place || "", status: r.status, provider: r.provider || "", error: r.error || "", sentAt: r.sentAt || null })),
+        recipients: m.recipients.map((r) => ({ name: r.name, email: r.email, role: r.role, place: r.place || "", status: r.status, provider: r.provider || "", error: r.error || "", sentAt: r.sentAt || null, notified: !!r.notified })),
         cancelledBy: m.cancelledBy ? { name: m.cancelledBy.name, email: m.cancelledBy.email } : null,
       },
     });

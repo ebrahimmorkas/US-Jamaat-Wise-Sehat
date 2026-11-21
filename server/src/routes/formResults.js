@@ -7,6 +7,7 @@
 //   GET /:code/status          every Jamaat in scope: filled or not, by whom, when
 //                              (?status=filled|not_filled&jamiat=&jamaat=&from=&to= ISO times)
 //   GET /:code/status/excel    the same as an Excel file
+//   GET/POST /:code/remind     "Send reminder": templates + who would get it / send it (Jamaats not filled)
 // A JC also gets, for each of their Jamaats, a sealed `fillFor` to fill the form on behalf of it.
 // Forms are addressed by their public code (never the database id).
 const express = require("express");
@@ -179,6 +180,63 @@ router.get("/:code/status", async (req, res, next) => {
     const form = await findForm(req, req.params.code);
     const out = await statusRows(req, form, req.query);
     res.json({ form: { id: form.code, title: form.title, state: F.stateOf(form), startAt: form.startAt, endAt: form.endAt }, ...out });
+  } catch (err) { sendError(err, res, next); }
+});
+
+// ---------- "Send reminder" (Super Admin, Saheb; a JC for their own Jamaats) ----------
+// Goes to the Jamaat Coordinators of the Jamaats that haven't filled (within the page's Jamiat / Jamaat filter);
+// Super Admin / Saheb may add the JCs of those Jamaats. Template ids are sealed (no database ids on the website).
+const EmailTemplate = require("../models/EmailTemplate");
+const reminders = require("../services/reminders");
+
+async function remindScope(req, q) {
+  let jms = await jamaatsInScope(req);
+  if (q.jamiat) jms = jms.filter((j) => j.jamiat === String(q.jamiat));
+  if (q.jamiat && q.jamaat) jms = jms.filter((j) => j.name === String(q.jamaat));
+  return jms.map((j) => j._id);
+}
+function canRemind(form) {
+  if (form.stage !== "published") return "Reminders can be sent only while the form is Published.";
+  if (form.endAt && new Date(form.endAt) <= new Date()) return "The form has closed, so there is nothing to remind about.";
+  return "";
+}
+const audienceOf = (req, v) => (req.user.role !== "jc" && v === "with_jc" ? "with_jc" : "coordinators");
+
+router.get("/:code/remind", async (req, res, next) => {
+  try {
+    const form = await findForm(req, req.params.code);
+    const [tpls, a] = await Promise.all([
+      EmailTemplate.find({ ...notDeleted() }).select("name subject").sort({ name: 1 }).lean(),
+      reminders.audience(form, { withJc: audienceOf(req, req.query.audience) === "with_jc", scope: await remindScope(req, req.query) }),
+    ]);
+    res.json({
+      templates: tpls.map((t) => ({ id: F.seal(t._id), name: t.name, subject: t.subject })),
+      blocked: canRemind(form),
+      canAddJc: req.user.role !== "jc",
+      preview: { notFilled: a.notFilled, coordinators: a.coordinators, jcs: a.jcs, withoutCoordinator: a.withoutCoordinator, total: a.recipients.length },
+    });
+  } catch (err) { sendError(err, res, next); }
+});
+
+router.post("/:code/remind", async (req, res, next) => {
+  try {
+    const form = await findForm(req, req.params.code);
+    const blocked = canRemind(form);
+    if (blocked) throw new InputError(blocked, 409);
+    const b = req.body || {};
+    const id = F.unseal(String(b.template || ""));
+    if (!id) throw new InputError("Choose the email template.");
+    const me = await User.findById(req.user.id).select("name email role").lean();
+    const audience = audienceOf(req, b.audience);
+    const out = await reminders.createReminder({
+      form, templateId: id, withJc: audience === "with_jc", scope: await remindScope(req, b),
+      by: { user: req.user.id, name: (me && me.name) || "", email: req.user.email, role: req.user.role }, what: "Reminder (sent by hand)",
+    });
+    if (!out.message) {
+      throw new InputError(out.notFilled ? "Nobody to send to: the Jamaats that haven't filled it have no active Jamaat Coordinator." : "Every Jamaat here has filled the form — nobody to remind.", 409);
+    }
+    audit(req, "reminder_sent", { target: { type: "form", id: String(form._id), label: form.title }, details: { template: out.message.templateName, recipients: out.total, notFilled: out.notFilled, audience, jamiat: b.jamiat || "", jamaat: b.jamaat || "" } });
+    res.status(201).json({ total: out.total, notFilled: out.notFilled });
   } catch (err) { sendError(err, res, next); }
 });
 

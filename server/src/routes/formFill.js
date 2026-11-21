@@ -29,6 +29,7 @@ const { clientIp } = require("../lib/clientIp");
 const storage = require("../services/imagekit");
 const config = require("../config");
 const F = require("../services/forms");
+const reminders = require("../services/reminders");
 
 const router = express.Router();
 router.use((req, res, next) => {
@@ -336,6 +337,9 @@ router.post("/:code/submit", submitLimiter, async (req, res, next) => {
       details: { response: String(r._id), via: who.via, test: who.isTest, verified: who.verified, jamaat: where.jamaatName, jamiat: where.jamiatName,
         ...(who.onBehalf ? { onBehalfOf: who.onBehalf.coordinatorEmail || "(no Coordinator yet)" } : {}) },
     });
+    // "Send them a copy of their response" (goes out through the email history).
+    reminders.sendResponseCopy(form, r.toObject ? r.toObject() : r, { edited: !!existing, jamaatName: where.jamaatName, byJc: who.onBehalf || null })
+      .catch((e) => console.error("[forms] response copy", e && e.message));
     res.status(existing ? 200 : 201).json({ id: F.seal(r._id), ...(editKey ? { editKey } : {}), edited: !!existing });
   } catch (err) {
     if (err instanceof Stop) return stop(res, err);

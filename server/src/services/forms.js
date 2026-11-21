@@ -127,6 +127,44 @@ function parseField(f, i, old) {
 }
 
 /**
+ * Emails & reminders: [{ key?, template, when: publish|before_close|at, hours?, at?, audience }].
+ * A rule that is unchanged keeps what already happened (sent / skipped); a changed rule is sent again when due.
+ * (That the templates exist is checked by the route.)
+ */
+function parseReminders(list, existing, form) {
+  const arr = Array.isArray(list) ? list : [];
+  if (arr.length > LIMITS.reminders) throw new InputError(`At most ${LIMITS.reminders} emails / reminders.`);
+  const old = new Map(((existing && existing.reminders) || []).map((r) => [r.key, r]));
+  const seen = new Set();
+  return arr.map((r, i) => {
+    const n = `Email / reminder ${i + 1}`;
+    const template = String((r && r.template) || "");
+    if (!/^[a-f0-9]{24}$/i.test(template)) throw new InputError(`${n}: choose the email template.`);
+    const when = ["publish", "before_close", "at"].includes(r.when) ? r.when : null;
+    if (!when) throw new InputError(`${n}: choose when it is sent.`);
+    const out = { key: /^r_[a-z0-9]{6,16}$/.test(r.key || "") && !seen.has(r.key) ? r.key : `r_${crypto.randomBytes(5).toString("hex")}`, template, when, hours: 0, at: null, audience: r.audience === "with_jc" ? "with_jc" : "coordinators" };
+    seen.add(out.key);
+    if (when === "before_close") {
+      const h = Number(r.hours);
+      if (!Number.isInteger(h) || h < 1 || h > LIMITS.hours) throw new InputError(`${n}: type how many hours before closing (a whole number, 1 or more).`);
+      if (form.startAt && form.endAt && h >= (form.endAt - form.startAt) / 3600000) throw new InputError(`${n}: ${h} hours before closing is before the form opens.`);
+      out.hours = h;
+    }
+    if (when === "at") {
+      const d = r.at ? new Date(r.at) : null;
+      if (!d || Number.isNaN(d.getTime())) throw new InputError(`${n}: choose the date and time.`);
+      if (form.endAt && d >= form.endAt) throw new InputError(`${n}: the time is after the form closes.`);
+      out.at = d;
+    }
+    const was = old.get(out.key);
+    const same = was && String(was.template) === template && was.when === when && (was.hours || 0) === out.hours
+      && String(was.at ? new Date(was.at).getTime() : "") === String(out.at ? out.at.getTime() : "") && (was.audience || "coordinators") === out.audience;
+    if (same && was.state) out.state = was.state;
+    return out;
+  });
+}
+
+/**
  * The form's settings and fields from the builder. `existing` = the saved form; `answered` = keys of
  * fields that have answers (those are hidden instead of removed and can't change type).
  */
@@ -155,16 +193,7 @@ function parseForm(body, existing, answered = new Set()) {
   }
   out.allowEdit = !!b.allowEdit;
   out.sendCopy = !!b.sendCopy;
-  out.announceEmail = !!b.announceEmail;
-  const hours = [...new Set((Array.isArray(b.reminderHours) ? b.reminderHours : []).map((h) => Number(h)))].sort((x, y) => x - y);
-  if (hours.some((h) => !Number.isInteger(h) || h < 1 || h > LIMITS.hours)) throw new InputError("Reminder hours must be whole numbers of hours (1 or more).");
-  if (hours.length > LIMITS.reminders) throw new InputError(`At most ${LIMITS.reminders} reminders.`);
-  if (out.startAt && out.endAt) {
-    const open = (out.endAt - out.startAt) / 3600000;
-    const late = hours.filter((h) => h >= open);
-    if (late.length) throw new InputError(`Reminder${late.length > 1 ? "s" : ""} after ${late.join(", ")} hours would be sent after the form closes (it is open ${Math.round(open * 10) / 10} hours).`);
-  }
-  out.reminderHours = hours;
+  out.reminders = parseReminders(b.reminders, existing, out);
   out.imageExt = parseExtList(b.imageExt, "image", "Allowed image types");
   out.imageMaxMb = parseSize(b.imageMaxMb, "image", "Image size limit");
 

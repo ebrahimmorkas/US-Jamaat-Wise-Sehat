@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import AppBar from "./components/AppBar";
 import Notice from "./components/Notice";
 import { fmtWhen, fmtSize, myZone } from "./components/FormView";
-import { CheckIcon, ChevronLeft, ChevronRight, ClockIcon, CloseIcon, DownloadIcon, EyeIcon, LockIcon, PencilIcon, UsersIcon } from "./components/Icons";
-import { AuthError, isServerStarting, resultsExcel, resultsGet, resultsList, resultsStatus, resultsStatusExcel } from "./lib/api";
+import { BellIcon, CheckIcon, ChevronLeft, ChevronRight, ClockIcon, CloseIcon, DownloadIcon, EyeIcon, LockIcon, PencilIcon, SendIcon, UsersIcon } from "./components/Icons";
+import { AuthError, isServerStarting, remindInfo, remindSend, resultsExcel, resultsGet, resultsList, resultsStatus, resultsStatusExcel } from "./lib/api";
 import { lower, plural } from "./lib/helpers";
 
 // Responses of forms: Super Admin (inside its portal: `embedded`), Saheb and JC (own page with their nav).
@@ -186,12 +186,96 @@ function rangeOf(when) {
 }
 const PRESETS = [["any", "Any time"], ["today", "Today"], ["7", "Last 7 days"], ["30", "Last 30 days"], ["date", "On a date"], ["range", "Date range"]];
 
+/**
+ * "Send reminder": choose an email template; it goes to the Jamaat Coordinators of the Jamaats that haven't filled
+ * the form (in the Jamiat / Jamaat chosen in the filters). Super Admin / Saheb may add the JCs of those Jamaats.
+ * Every variable ({{Time remaining}}, {{Form link}} …) is filled for each person when it is sent.
+ */
+function RemindButton({ code, place, isJc, fail, onSent }) {
+  const [open, setOpen] = useState(false);
+  const [info, setInfo] = useState(null);
+  const [tpl, setTpl] = useState("");
+  const [audience, setAudience] = useState("coordinators");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const p = useMemo(() => ({ jamiat: place.jamiat || "", jamaat: place.jamiat ? place.jamaat || "" : "" }), [place.jamiat, place.jamaat]);
+  useEffect(() => {
+    if (!open) return undefined;
+    let alive = true;
+    remindInfo(code, { ...p, audience }).then((r) => alive && setInfo(r)).catch((e) => { if (alive) { setOpen(false); fail(e); } });
+    return () => { alive = false; };
+  }, [open, code, p, audience, fail]);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => { if (e.key === "Escape" && !busy) setOpen(false); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, busy]);
+  const send = async () => {
+    setBusy(true); setErr("");
+    try {
+      const r = await remindSend(code, { ...p, audience, template: tpl });
+      setOpen(false);
+      onSent(`Reminder sent to ${plural(r.total, "person", "people")} (${plural(r.notFilled, "Jamaat")} not filled). Jamaat Coordinators also see it in their portal.`);
+    } catch (e) { if (e instanceof AuthError) { setOpen(false); fail(e); } else setErr(e.message); } finally { setBusy(false); }
+  };
+  const pv = info && info.preview;
+  const where = p.jamaat ? p.jamaat : p.jamiat ? `Jamiat ${p.jamiat}` : isJc ? "your Jamaats" : "all Jamaats";
+  return (
+    <>
+      <button type="button" className="btn btn-primary st-remind" onClick={() => { setInfo(null); setErr(""); setTpl(""); setOpen(true); }}><BellIcon /> <span>Send reminder</span></button>
+      {open && (
+        <div className="em-prev-back" onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) setOpen(false); }}>
+          <div className="em-prev rm-dlg" role="dialog" aria-modal="true" aria-label="Send reminder">
+            <div className="em-prev-head">
+              <div><div className="em-prev-sub">Send reminder</div><div className="em-muted">To the Jamaats that haven't filled the form · {where}</div></div>
+              <button type="button" className="em-x" onClick={() => setOpen(false)} disabled={busy} aria-label="Close"><CloseIcon /></button>
+            </div>
+            <div className="rm-dlg-body">
+              {!info ? <div className="em-loading">Loading…</div> : info.blocked ? <div className="alert">{info.blocked}</div> : (
+                <>
+                  <label className="field"><span className="field-label">Email template</span>
+                    <select className="input" value={tpl} onChange={(e) => setTpl(e.target.value)}>
+                      <option value="">Choose a template…</option>
+                      {info.templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </select>
+                    {!info.templates.length && <span className="field-hint">There are no email templates yet{isJc ? "." : " (Send email → Templates)."}</span>}
+                    {tpl && info.templates.some((t) => t.id === tpl) && <span className="field-hint">Subject: {(info.templates.find((t) => t.id === tpl) || {}).subject}</span>}
+                  </label>
+                  {info.canAddJc && (
+                    <label className="field"><span className="field-label">Send to</span>
+                      <select className="input" value={audience} onChange={(e) => setAudience(e.target.value)}>
+                        <option value="coordinators">Jamaat Coordinators only</option>
+                        <option value="with_jc">Jamaat Coordinators + their Jamiat Coordinators (JCs)</option>
+                      </select></label>
+                  )}
+                  <div className="rm-sum">
+                    <span><b>{plural(pv.notFilled, "Jamaat")}</b> not filled → <b>{plural(pv.coordinators, "Jamaat Coordinator")}</b>{audience === "with_jc" ? <> + <b>{plural(pv.jcs, "JC")}</b></> : null}</span>
+                    {pv.withoutCoordinator > 0 && <small>{plural(pv.withoutCoordinator, "Jamaat")} not filled {pv.withoutCoordinator === 1 ? "has" : "have"} no active Jamaat Coordinator, so nobody there gets it.</small>}
+                    <small>Each person gets their own details: {"{{Time remaining}}"}, {"{{Form link}}"} and the other variables are filled in when it is sent.</small>
+                  </div>
+                  {err && <div className="alert">{err}</div>}
+                </>
+              )}
+            </div>
+            <div className="rm-dlg-foot">
+              <button type="button" className="btn btn-ghost" onClick={() => setOpen(false)} disabled={busy}>Cancel</button>
+              {info && !info.blocked && <button type="button" className="btn btn-primary" disabled={busy || !info.templates.some((t) => t.id === tpl) || !pv.total} onClick={send}><SendIcon /> <span className="rm-send-label">{busy ? "Sending…" : `Send to ${plural(pv.total, "person", "people")}`}</span></button>}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function StatusView({ code, isJc, fail, onShowResponses }) {
   const [f, setF] = useState({ status: "", jamiat: "", jamaat: "" });
   const [when, setWhen] = useState({ preset: "any", from: "", to: "" });
   const [query, setQuery] = useState("");
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
   const range = useMemo(() => rangeOf(when), [when]);
   const params = useMemo(() => ({ ...f, ...range }), [f, range]);
   useEffect(() => {
@@ -268,7 +352,9 @@ function StatusView({ code, isJc, fail, onShowResponses }) {
           <span className="muted">{busy ? "Loading…" : `${plural(rows.length, "Jamaat")}${dated ? " · “Filled” means a response sent in the chosen dates" : ""}`}</span>
           {(f.status || f.jamiat || dated || query) && <button type="button" className="link-btn" onClick={() => { setF({ status: "", jamiat: "", jamaat: "" }); setWhen({ preset: "any", from: "", to: "" }); setQuery(""); }}>Clear filters</button>}
           <button type="button" className="btn btn-ghost st-xl" disabled={!rows.length} onClick={() => resultsStatusExcel(code, params).catch(fail)}><DownloadIcon /> <span>Download Excel</span></button>
+          {data.form && ["open", "not_started"].includes(data.form.state) && sm.notFilled > 0 && <RemindButton code={code} place={f} isJc={isJc} fail={fail} onSent={setNote} />}
         </div>
+        {note && <div className="alert ok st-note" role="status">{note} <button type="button" className="link-btn" onClick={() => setNote("")}>OK</button></div>}
         {isJc && data.canFill && (
           <p className="st-hint"><UsersIcon /> <span>You can fill this form for any of your Jamaats. It will be marked <b>filled by JC</b>, not by the Jamaat Coordinator.</span></p>
         )}

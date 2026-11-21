@@ -282,6 +282,8 @@ export async function resultsExcel(code, p) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 export const resultsStatus = (code, p) => request(`/api/form-results/${encodeURIComponent(code)}/status?${rq(p)}`);
+export const remindInfo = (code, p) => request(`/api/form-results/${encodeURIComponent(code)}/remind?${rq(p)}`);
+export const remindSend = (code, body) => request(`/api/form-results/${encodeURIComponent(code)}/remind`, { method: "POST", body });
 export async function resultsStatusExcel(code, p) {
   let tz = "UTC";
   try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { /* old browser */ }
@@ -315,7 +317,7 @@ export const emailAttach = (file, onProgress) =>
   raw("/api/emails/files", { method: "POST", file, onProgress, headers: { "X-File-Type": file.type || "application/octet-stream" } });
 export const emailDropFile = (id) => raw(`/api/emails/files/${id}`, { method: "DELETE" });
 export const emailSend = (body) => raw("/api/emails", { method: "POST", body });
-export const emailList = () => raw("/api/emails");
+export const emailList = (kind) => raw(`/api/emails${kind ? `?kind=${encodeURIComponent(kind)}` : ""}`);
 export const emailGet = (id) => raw(`/api/emails/${id}`);
 export const emailCancel = (id) => raw(`/api/emails/${id}/cancel`, { method: "POST" });
 export const emailRetry = (id) => raw(`/api/emails/${id}/retry`, { method: "POST" });

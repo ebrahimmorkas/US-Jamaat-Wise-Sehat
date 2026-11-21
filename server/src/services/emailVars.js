@@ -27,6 +27,7 @@ const FIXED = [
   { key: "Form link", group: "Form", hint: "Each person's own link to fill it" },
   { key: "Form opens", group: "Form", hint: "Date and time, in their own time zone" },
   { key: "Form closes", group: "Form", hint: "Date and time, in their own time zone" },
+  { key: "Time remaining", group: "Form", hint: "Time left until the form closes, worked out when sent (e.g. 2 days 5 hours)" },
   { key: "Today", group: "Time", hint: "The date it is sent" },
   { key: "Send time", group: "Time", hint: "Date and time it is sent, in their own time zone" },
   { key: "Sender name", group: "Contact", hint: "Who sends the email" },
@@ -58,6 +59,16 @@ async function list() {
 }
 
 // ---------- times ----------
+/** "2 days 5 hours", "3 hours 20 minutes", "45 minutes"; "closed" once the end has passed. */
+function remaining(end, now) {
+  if (!end) return "";
+  let m = Math.floor((new Date(end).getTime() - new Date(now).getTime()) / 60000);
+  if (m <= 0) return "closed";
+  const d = Math.floor(m / 1440); m -= d * 1440;
+  const h = Math.floor(m / 60); m -= h * 60;
+  const p = (n, w) => (n ? `${n} ${w}${n === 1 ? "" : "s"}` : "");
+  return (d ? [p(d, "day"), p(h, "hour")] : h ? [p(h, "hour"), p(m, "minute")] : [p(m, "minute")]).filter(Boolean).join(" ");
+}
 const TZ_LABEL = { "Asia/Kolkata": "India time" };
 const tzLabel = (tz) => TZ_LABEL[tz] || `${String(tz).split("/").pop().replace(/_/g, " ")} time`;
 function timeIn(d, tz, { date = false } = {}) {
@@ -128,6 +139,7 @@ function valuesFor(ctx, recipient) {
     "Form title": f ? f.title : "",
     "Form link": f ? (f.access === "personal_link" && (u.email || recipient.email) ? F.personalLink(f.code, u.email || recipient.email) : F.formLink(f.code)) : "",
     "Form opens": f ? timeIn(f.startAt, tz) : "", "Form closes": f ? timeIn(f.endAt, tz) : "",
+    "Time remaining": f ? remaining(f.endAt, ctx.now) : "",
     Today: timeIn(ctx.now, tz, { date: true }), "Send time": timeIn(ctx.now, tz),
     "Sender name": (ctx.sender && (ctx.sender.name || ctx.sender.email)) || "",
     "Contact name": c.name, "Contact email": c.email, "Contact phone": c.phone, "Contact WhatsApp": c.whatsapp, "Contact address": c.address, "Contact website": c.website,
@@ -191,6 +203,9 @@ async function unknownIn(...texts) {
   return [...out];
 }
 /** Does the text use any Form variable? */
-const usesForm = (...texts) => texts.some((t) => /\{\{\s*form (title|link|opens|closes)\s*\}\}|%7B%7Bform/i.test(String(t || "")));
+const usesForm = (...texts) => texts.some((t) => /\{\{\s*(form (title|link|opens|closes)|time\s*remaining)\s*\}\}|%7B%7B(form|time%20remaining)/i.test(String(t || "")));
 
-module.exports = { FIXED, list, prepare, valuesFor, copyValues, fillText, fillHtml, unknownIn, usesForm, timeIn, placeFor };
+const FORM_VARS = new Set(["form title", "form link", "form opens", "form closes", "time remaining"]);
+const isFormVar = (k) => FORM_VARS.has(norm(k));
+
+module.exports = { isFormVar, remaining, FIXED, list, prepare, valuesFor, copyValues, fillText, fillHtml, unknownIn, usesForm, timeIn, placeFor };
