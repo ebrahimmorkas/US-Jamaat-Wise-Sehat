@@ -66,6 +66,11 @@ router.get("/", async (req, res, next) => {
 
 /** Questions shown as columns: every non-layout question, plus hidden ones (they keep their answers). */
 const columnsOf = (form) => form.fields.filter((x) => !F.TYPES[x.type].layout).map((x) => ({ key: x.key, label: x.label, type: x.type, hidden: !!x.hidden, max: x.max }));
+/** The whole form as people saw it (headings, help, choices), to show one response like the filled form. */
+const layoutOf = (form) => form.fields.map((x) => ({
+  key: x.key, type: x.type, label: x.label, help: x.help || "", required: !!x.required, hidden: !!x.hidden,
+  options: x.options ? x.options.map((o) => o.label) : undefined, max: x.max,
+}));
 
 /** The responses this person may see, with names and file links. */
 async function loadRows(req, form, q) {
@@ -113,7 +118,8 @@ router.get("/:code", async (req, res, next) => {
     const places = {};
     for (const r of all) if (r.jamiat) (places[r.jamiat] = places[r.jamiat] || new Set()).add(r.jamaat);
     res.json({
-      form: { id: form.code, title: form.title, description: form.description || "", status: form.stage, state: F.stateOf(form), startAt: form.startAt, endAt: form.endAt, columns: columnsOf(form) },
+      form: { id: form.code, title: form.title, description: form.description || "", status: form.stage, state: F.stateOf(form), startAt: form.startAt, endAt: form.endAt, columns: columnsOf(form),
+        fields: layoutOf(form), topImage: form.topImage && form.topImage.url ? storage.signedUrl(form.topImage) : "" },
       rows,
       total: all.length,
       places: Object.keys(places).sort().map((j) => ({ jamiat: j, jamaats: [...places[j]].sort() })),
