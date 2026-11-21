@@ -20,6 +20,16 @@ const { notDeleted, isDeleted, markDeleted, markRestored, deletedInfo } = requir
 const storage = require("../services/imagekit");
 const config = require("../config");
 const F = require("../services/forms");
+const mail = require("../services/email");
+const { announceInBackground } = require("../services/formAnnounce");
+
+/** Published with "send email to Jamaat Coordinators" ticked and not sent yet -> send now (in the background). */
+function announceIfDue(req, f) {
+  if (f.stage !== "published" || !f.announceEmail || (f.announce && f.announce.at)) return false;
+  announceInBackground(f._id);
+  audit(req, "form_announced", { target: target(f), details: { emailReady: mail.isReady() } });
+  return true;
+}
 
 const router = express.Router();
 router.use(requireAuth, (req, res, next) => {
@@ -43,7 +53,9 @@ function formOut(f, counts = {}) {
     status: f.stage, state: F.stateOf(f),
     access: f.access,
     maxPerPerson: f.maxPerPerson,
-    allowEdit: !!f.allowEdit, sendCopy: !!f.sendCopy,
+    allowEdit: !!f.allowEdit, sendCopy: !!f.sendCopy, announceEmail: !!f.announceEmail,
+    announce: f.announce && f.announce.at ? { at: f.announce.at, finishedAt: f.announce.finishedAt || null, status: f.announce.status, total: f.announce.total || 0, sent: f.announce.sent || 0, failed: f.announce.failed || 0, error: f.announce.error || "" } : null,
+    emailReady: mail.isReady(),
     reminderHours: f.reminderHours || [],
     imageExt: f.imageExt || [], imageMaxMb: f.imageMaxMb,
     fields: (f.fields || []).map((x) => ({ ...(x.toObject ? x.toObject() : x), options: x.options || undefined })),
@@ -184,6 +196,8 @@ router.put("/:id", admin, async (req, res, next) => {
         .map(([k, label]) => ({ field: k, label, from: before[k] instanceof Date ? before[k].toISOString() : before[k], to: k === "fields" ? f.fields.length : f[k] instanceof Date ? f[k].toISOString() : f[k] }))
         .filter((c) => JSON.stringify(c.from) !== JSON.stringify(c.to)),
     });
+    // Ticked "send email to Jamaat Coordinators" on a form that is already published: send now.
+    if (announceIfDue(req, f)) f.announce = { at: new Date(), status: "sending", total: 0, sent: 0, failed: 0 };
     const counts = (await countsFor([f._id])).get(String(f._id)) || {};
     res.json({ form: formOut(f, { ...counts, answered: [...answered] }) });
   } catch (err) { sendError(err, res, next); }
@@ -210,6 +224,7 @@ router.post("/:id/status", admin, async (req, res, next) => {
     f.updatedBy = req.user.email;
     await f.save();
     audit(req, "form_status_changed", { target: target(f), changes: [{ field: "status", label: "Status", from: STATUS_LABEL[from], to: STATUS_LABEL[to] }] });
+    if (announceIfDue(req, f)) f.announce = { at: new Date(), status: "sending", total: 0, sent: 0, failed: 0 };
     const counts = (await countsFor([f._id])).get(String(f._id)) || {};
     res.json({ form: formOut(f, counts) });
   } catch (err) { sendError(err, res, next); }

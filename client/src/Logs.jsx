@@ -48,6 +48,7 @@ const ACTION_LABELS = {
   form_test_cleared: "Removed test responses",
   form_submitted: "Filled a form",
   form_responses_exported: "Downloaded form responses",
+  form_announced: "Emailed the form to Jamaat Coordinators",
   form_response_edited: "Changed a form response",
   logs_deleted: "Deleted logs permanently",
   user_created: "Added a user",

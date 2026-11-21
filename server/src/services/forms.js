@@ -155,6 +155,7 @@ function parseForm(body, existing, answered = new Set()) {
   }
   out.allowEdit = !!b.allowEdit;
   out.sendCopy = !!b.sendCopy;
+  out.announceEmail = !!b.announceEmail;
   const hours = [...new Set((Array.isArray(b.reminderHours) ? b.reminderHours : []).map((h) => Number(h)))].sort((x, y) => x - y);
   if (hours.some((h) => !Number.isInteger(h) || h < 1 || h > LIMITS.hours)) throw new InputError("Reminder hours must be whole numbers of hours (1 or more).");
   if (hours.length > LIMITS.reminders) throw new InputError(`At most ${LIMITS.reminders} reminders.`);

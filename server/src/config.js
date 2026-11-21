@@ -86,6 +86,25 @@ const config = {
     folder: (process.env.IMAGEKIT_FOLDER || "/umoor-sehhat/stats").trim(),
   },
 
+  // ---- Email (pluggable): EMAIL_PROVIDER = smtp (e.g. Gmail with an app password) | log (prints instead of
+  // sending, for testing) | empty (off: nothing is sent; portal notifications still work). More providers later.
+  email: {
+    provider: (process.env.EMAIL_PROVIDER || "").trim().toLowerCase(),
+    from: (process.env.EMAIL_FROM || "").trim(), // e.g. "Umoor Sehhat <umoor.sehhat@gmail.com>"
+    replyTo: (process.env.EMAIL_REPLY_TO || "").trim(),
+    smtp: {
+      host: (process.env.SMTP_HOST || "smtp.gmail.com").trim(),
+      port: num(process.env.SMTP_PORT, 465) || 465,
+      user: (process.env.SMTP_USER || "").trim(),
+      pass: (process.env.SMTP_PASS || "").trim(),
+    },
+    // At most this many emails a minute (Gmail allows about 500 a day on a normal account, 2000 on Workspace).
+    perMinute: num(process.env.EMAIL_PER_MINUTE, 30) || 30,
+    // Times written inside emails (the website shows each person's own time).
+    timeZone: (process.env.EMAIL_TIME_ZONE || "Asia/Kolkata").trim(),
+    timeZoneLabel: (process.env.EMAIL_TIME_ZONE_LABEL || "India time").trim(),
+  },
+
   // ---- Forms (built by the Super Admin, filled by Jamaat Coordinators) ----
   forms: {
     // Signs the personal links (the Gmail inside a link can't be changed). Empty = derived from

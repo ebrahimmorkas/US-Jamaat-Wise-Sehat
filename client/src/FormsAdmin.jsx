@@ -55,7 +55,7 @@ const blankField = (type) => ({
 function toDraft(f) {
   return {
     id: f.id, title: f.title, description: f.description, startAt: toLocal(f.startAt), endAt: toLocal(f.endAt), access: f.access,
-    maxPerPerson: f.maxPerPerson == null ? "" : String(f.maxPerPerson), allowEdit: f.allowEdit, sendCopy: f.sendCopy,
+    maxPerPerson: f.maxPerPerson == null ? "" : String(f.maxPerPerson), allowEdit: f.allowEdit, sendCopy: f.sendCopy, announceEmail: !!f.announceEmail,
     reminderHours: f.reminderHours || [], imageExt: f.imageExt || [], imageSize: sizeIn(f.imageMaxMb),
     fields: f.fields.filter((x) => !x.hidden).map((x) => ({
       uid: uid(), key: x.key, type: x.type, label: x.label || "", help: x.help || "", placeholder: x.placeholder || "", required: !!x.required,
@@ -65,12 +65,12 @@ function toDraft(f) {
     })),
   };
 }
-const newDraft = () => ({ id: "", title: "", description: "", startAt: "", endAt: "", access: "personal_link", maxPerPerson: "", allowEdit: false, sendCopy: false, reminderHours: [], imageExt: [], imageSize: { n: "", unit: "MB" }, fields: [blankField("short_text")] });
+const newDraft = () => ({ id: "", title: "", description: "", startAt: "", endAt: "", access: "personal_link", maxPerPerson: "", allowEdit: false, sendCopy: false, announceEmail: false, reminderHours: [], imageExt: [], imageSize: { n: "", unit: "MB" }, fields: [blankField("short_text")] });
 // Choices keep their ids when the text is the same, so saved answers stay linked.
 function toBody(d) {
   return {
     title: d.title, description: d.description, startAt: fromLocal(d.startAt), endAt: fromLocal(d.endAt), access: d.access,
-    maxPerPerson: d.maxPerPerson === "" ? null : Number(d.maxPerPerson), allowEdit: d.allowEdit, sendCopy: d.sendCopy,
+    maxPerPerson: d.maxPerPerson === "" ? null : Number(d.maxPerPerson), allowEdit: d.allowEdit, sendCopy: d.sendCopy, announceEmail: d.announceEmail,
     reminderHours: d.reminderHours, imageExt: d.imageExt, imageMaxMb: sizeOut(d.imageSize),
     fields: d.fields.map((f) => ({
       key: f.key, type: f.type, label: f.label, help: f.help, placeholder: f.placeholder, required: f.required,
@@ -187,6 +187,41 @@ export default function FormsAdmin({ onAuthExpired }) {
 }
 
 // ---------- The editor ----------
+/** "Send email to Jamaat Coordinators with the form link" and, once sent, how it went. */
+function AnnounceBox({ d, setD, saved, status }) {
+  const a = saved && saved.announce;
+  const sentAlready = !!(a && a.at);
+  return (
+    <>
+      <label className="check"><input type="checkbox" checked={d.announceEmail} disabled={sentAlready}
+        onChange={(e) => setD({ ...d, announceEmail: e.target.checked })} /> Send email to Jamaat Coordinators with the form link</label>
+      {!sentAlready && (
+        <p className="field-hint">
+          {d.announceEmail
+            ? status === "published"
+              ? "Saving sends it now: every active Jamaat Coordinator gets an email with their own link."
+              : "When you publish the form, every active Jamaat Coordinator gets an email with their own link (sent once)."
+            : "Off: nobody is emailed. You can share the links yourself (above)."}
+          {d.announceEmail && " The same message appears in their portal under Notifications."}
+        </p>
+      )}
+      {d.announceEmail && !sentAlready && saved && saved.emailReady === false && (
+        <p className="ann-warn">Email isn't set up on the server yet, so only the portal notifications would be sent. (Settings: EMAIL_PROVIDER, SMTP_USER, SMTP_PASS.)</p>
+      )}
+      {sentAlready && (
+        <div className={`ann-status ${a.status}`}>
+          {a.status === "sending" && <><span className="ann-dot" /> Sending… {a.sent + a.failed} of {plural(a.total, "Jamaat Coordinator")}</>}
+          {a.status === "done" && <>✓ Emailed to <b>{a.sent}</b> of {plural(a.total, "Jamaat Coordinator")} · {fmtWhen(a.finishedAt || a.at)}{a.failed ? <> · <b>{a.failed}</b> couldn't be sent</> : null}</>}
+          {a.status === "failed" && <>The emails couldn't be sent ({a.failed} failed). Portal notifications were sent.</>}
+          {a.status === "not_set_up" && <>Email isn't set up on the server: {a.total === 1 ? "the Jamaat Coordinator" : `all ${a.total} Jamaat Coordinators`} got the portal notification only.</>}
+          {a.error && a.status !== "not_set_up" && <small>Last problem: {a.error}</small>}
+          <small>It is sent once per form.</small>
+        </div>
+      )}
+    </>
+  );
+}
+
 function FormEditor({ start, meta, onClose, onAuthExpired }) {
   const [saved, setSaved] = useState(start); // server copy (null = not created yet)
   const [d, setD] = useState(() => (start ? toDraft(start) : newDraft()));
@@ -202,6 +237,14 @@ function FormEditor({ start, meta, onClose, onAuthExpired }) {
   const dirty = JSON.stringify(toBody(d)) !== base;
   const answered = useMemo(() => new Set((saved && saved.answered) || []), [saved]);
   const zone = myZone();
+
+  // While the emails to Jamaat Coordinators are going out, show the progress.
+  const sending = !!(saved && saved.announce && saved.announce.status === "sending");
+  useEffect(() => {
+    if (!sending) return undefined;
+    const t = setInterval(() => { formGet(saved.id).then((r) => setSaved((x) => (x ? { ...x, announce: r.form.announce } : x))).catch(() => {}); }, 4000);
+    return () => clearInterval(t);
+  }, [sending, saved && saved.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fail = (err) => { if (err instanceof AuthError) return onAuthExpired(); setMsg({ type: "error", text: err.message }); window.scrollTo({ top: 0, behavior: "smooth" }); };
   const took = (f) => { setSaved(f); const nd = toDraft(f); setD(nd); setBase(JSON.stringify(toBody(nd))); };
@@ -231,7 +274,12 @@ function FormEditor({ start, meta, onClose, onAuthExpired }) {
     let f = saved;
     if (dirty) { f = await save(); if (!f) return; }
     setBusy(true); setMsg(null);
-    try { const r = await formStatus(f.id, status); took({ ...r.form, answered: f.answered }); setMsg({ type: "ok", text: `The form is now ${STATUS[status].label}.` }); }
+    try {
+      const r = await formStatus(f.id, status);
+      took({ ...r.form, answered: f.answered });
+      const emailing = status === "published" && r.form.announce && r.form.announce.status === "sending" && !(f.announce && f.announce.at);
+      setMsg({ type: "ok", text: `The form is now ${STATUS[status].label}.${emailing ? " The form link is being emailed to every Jamaat Coordinator (see “Emails” below)." : ""}` });
+    }
     catch (err) { fail(err); } finally { setBusy(false); }
   };
   const close = async () => {
@@ -326,11 +374,11 @@ function FormEditor({ start, meta, onClose, onAuthExpired }) {
           <div className="status-btns">
             {status === "draft" && <>
               <button type="button" className="btn btn-warn" disabled={busy} onClick={() => move("testing")}>Move to Testing</button>
-              <button type="button" className="btn btn-primary" disabled={busy} onClick={() => move("published", { tone: "warn", title: "Publish without testing?", confirmText: "Publish", message: "Everyone with a link can fill it from the start time. You can test it first with “Move to Testing”." })}>Publish</button>
+              <button type="button" className="btn btn-primary" disabled={busy} onClick={() => move("published", { tone: "warn", title: "Publish without testing?", confirmText: "Publish", message: `Everyone with a link can fill it from the start time. You can test it first with “Move to Testing”.${d.announceEmail ? "\n\nThe form link will be emailed to every Jamaat Coordinator." : ""}` })}>Publish</button>
             </>}
             {status === "testing" && <>
               <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => move("draft")}>Back to Draft</button>
-              <button type="button" className="btn btn-primary" disabled={busy} onClick={() => move("published", { tone: "info", title: "Publish this form?", confirmText: "Publish", message: `Jamaat Coordinators can fill it from ${fmtWhen(fromLocal(d.startAt))} (your time).${saved.testResponses ? `\n\nThere ${saved.testResponses === 1 ? "is 1 test response" : `are ${saved.testResponses} test responses`}; you can remove ${saved.testResponses === 1 ? "it" : "them"} with “Remove test responses”.` : ""}` })}>Publish</button>
+              <button type="button" className="btn btn-primary" disabled={busy} onClick={() => move("published", { tone: "info", title: "Publish this form?", confirmText: "Publish", message: `Jamaat Coordinators can fill it from ${fmtWhen(fromLocal(d.startAt))} (your time).${saved.testResponses ? `\n\nThere ${saved.testResponses === 1 ? "is 1 test response" : `are ${saved.testResponses} test responses`}; you can remove ${saved.testResponses === 1 ? "it" : "them"} with “Remove test responses”.` : ""}${d.announceEmail && !(saved.announce && saved.announce.at) ? "\n\nThe form link will be emailed to every Jamaat Coordinator." : ""}` })}>Publish</button>
             </>}
             {status === "published" && <>
               {!saved.responses && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => move("testing")}>Back to Testing</button>}
@@ -435,7 +483,12 @@ function FormEditor({ start, meta, onClose, onAuthExpired }) {
               <span className="field-hint">Empty = no limit. 0 is not allowed.</span></label>
             <label className="check"><input type="checkbox" checked={d.allowEdit} onChange={(e) => setD({ ...d, allowEdit: e.target.checked })} /> They can change their response until the end time</label>
             <label className="check"><input type="checkbox" checked={d.sendCopy} onChange={(e) => setD({ ...d, sendCopy: e.target.checked })} /> Send them a copy of their response by email</label>
-            {d.sendCopy && <p className="field-hint">Emails start working with the email part (coming next).</p>}
+            {d.sendCopy && <p className="field-hint">Copies start working with the next email step.</p>}
+          </div>
+
+          <div className="panel ed-section" id="ed-emails">
+            <h2>Emails</h2>
+            <AnnounceBox d={d} setD={setD} saved={saved} status={status} />
           </div>
 
           <div className="panel ed-section">

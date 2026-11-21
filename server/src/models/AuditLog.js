@@ -45,6 +45,7 @@ const ACTIONS = [
   "form_test_cleared",    // responses filled while testing were removed
   "form_submitted",       // someone filled a form
   "form_responses_exported", // downloaded a form's responses (Excel)
+  "form_announced", // emailed the form link to every Jamaat Coordinator
   "form_response_edited", // ... and changed their response
   // data changes (audit trail)
   "user_created",

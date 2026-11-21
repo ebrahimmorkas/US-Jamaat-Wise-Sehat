@@ -56,6 +56,12 @@ const formSchema = new mongoose.Schema(
     maxPerPerson: { type: Number, default: null, min: 1 },
     allowEdit: { type: Boolean, default: false }, // edit a sent response until the end time
     sendCopy: { type: Boolean, default: false },  // email a copy of the response to the person (email part)
+    // Email every Jamaat Coordinator the form link when it is published (once; progress in `announce`).
+    announceEmail: { type: Boolean, default: false },
+    announce: {
+      type: new mongoose.Schema({ at: Date, finishedAt: Date, status: String, total: Number, sent: Number, failed: Number, error: String }, { _id: false }),
+      default: undefined,
+    },
     // Reminders: hours after the start time (never after the end) + the email template (email part).
     reminderHours: { type: [Number], default: [] },
     reminderTemplate: { type: mongoose.Schema.Types.ObjectId, default: null },
