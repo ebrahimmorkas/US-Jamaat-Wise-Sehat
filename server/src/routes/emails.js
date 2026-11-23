@@ -22,7 +22,7 @@ const EmailFile = require("../models/EmailFile");
 const { audit } = require("../services/audit");
 const { InputError, isId, sendError } = require("../lib/validate");
 const { clientIp } = require("../lib/clientIp");
-const storage = require("../services/imagekit");
+const storage = require("../services/storage");
 const mail = require("../services/email");
 const audience = require("../services/emailAudience");
 const { kick, framed } = require("../services/outbox");
@@ -79,7 +79,7 @@ router.post("/public", express.raw({ type: "application/octet-stream", limit: ma
     const type = String(req.get("x-file-type") || "").slice(0, 100) || "application/octet-stream";
     const kept = await storage.uploadImage(req.body, { fileName: name, type, folder: config.email.imageFolder, isPublic: true });
     audit(req, "email_file_published", { target: { type: "email_file", id: kept.fileId, label: name }, details: { kind, size: req.body.length } });
-    res.status(201).json({ kind, name, url: kept.url, width: kept.width || 0, size: req.body.length });
+    res.status(201).json({ kind, name, url: storage.publicUrl(kept), width: kept.width || 0, size: req.body.length });
   } catch (err) {
     if (err && err.type === "entity.too.large") return res.status(413).json({ error: `The file is too large (${config.email.maxAttachMb} MB at most).` });
     if (err instanceof storage.StorageError) return res.status(err.status).json({ error: err.message });

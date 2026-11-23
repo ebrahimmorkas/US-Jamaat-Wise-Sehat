@@ -16,7 +16,7 @@ const usersRoutes = require("./routes/users");
 const settingsRoutes = require("./routes/settings");
 const fieldsRoutes = require("./routes/fields");
 const { requireSameOrigin } = require("./middleware/auth");
-const { imageOrigins } = require("./services/imagekit");
+const { imageOrigins } = require("./services/storage");
 const { clientIp } = require("./lib/clientIp");
 const { logError } = require("./services/audit");
 const { ACCESS_COOKIE, verifyAccess } = require("./services/auth");
@@ -78,6 +78,8 @@ app.use(
   })
 );
 app.use("/api", requireSameOrigin); // CSRF protection for POST requests
+app.use("/api/files", require("./routes/files")); // files kept on this server (image storage "Local"): signed links
+app.use("/api/storage", require("./routes/storage")); // image storage provider (Super Admin)
 app.use("/api/auth", authRoutes);
 app.use("/api/audit", auditRoutes);
 app.use("/api/logs", logsRoutes);

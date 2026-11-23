@@ -31,7 +31,7 @@ const { audit } = require("../services/audit");
 const { InputError, sendError } = require("../lib/validate");
 const { notDeleted } = require("../lib/softDelete");
 const F = require("../services/forms");
-const storage = require("../services/imagekit");
+const storage = require("../services/storage");
 const R = require("../services/reportPdf");
 
 const MAX_FORMAT_MB = 12;
@@ -231,7 +231,7 @@ async function photosOf(req, form) {
 }
 
 const ROLE_NAME = { media: "Media", superadmin: "Super Admin" };
-const thumb = (u) => storage.signedUrl({ url: `${u.url}${u.url.includes("?") ? "&" : "?"}tr=w-360,h-360,c-at_max`, endpoint: u.endpoint });
+const thumb = (u) => storage.variantUrl(u, { w: 360, h: 360 });
 
 router.get("/forms", async (req, res, next) => {
   try {
@@ -319,15 +319,9 @@ router.get("/photos/:id/file", chooser, async (req, res, next) => {
   } catch (err) { sendFail(err, res, next); }
 });
 
-/** A photo from the image storage. px > 0: made smaller (as a JPEG) for the report. */
+/** A photo from wherever it was saved. px > 0: made smaller (as a JPEG) for the report. */
 async function fetchPhoto(u, px) {
-  const url = px ? `${u.url}${u.url.includes("?") ? "&" : "?"}tr=w-${px},h-${px},c-at_max,f-jpg,q-82` : u.url;
-  const link = storage.signedUrl({ url, endpoint: u.endpoint });
-  if (!link) throw new InputError("Image storage is not set up yet (ImageKit keys missing on the server).", 503);
-  let res;
-  try { res = await fetch(link, { signal: AbortSignal.timeout(30000) }); } catch { throw new InputError("Couldn't reach the image storage. Try again.", 502); }
-  if (!res.ok) throw new InputError("The image storage didn't send the photo. Try again.", 502);
-  return { bytes: Buffer.from(await res.arrayBuffer()), type: res.headers.get("content-type") || "" };
+  return storage.readFile(u, px ? { w: px, h: px, jpg: true, quality: 82 } : null);
 }
 
 // ---------- generating ----------

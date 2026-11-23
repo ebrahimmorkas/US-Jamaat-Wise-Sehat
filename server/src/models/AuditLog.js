@@ -49,6 +49,8 @@ const ACTIONS = [
   "email_sent",           // "Send email": an email sent / scheduled (or sent again to those it failed for)
   "email_cancelled",      // ... a scheduled email cancelled
   "email_settings_changed", // the email provider switched (Nodemailer / SendGrid)
+  "storage_settings_changed", // the image storage switched (ImageKit / Local / S3 / Cloudinary)
+  "storage_tested", // the Super Admin tested an image storage (a small test file saved, read back, removed)
   "email_template_saved",   // an email template added / changed
   "email_template_deleted",
   "email_template_restored",

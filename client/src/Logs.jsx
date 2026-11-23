@@ -52,6 +52,8 @@ const ACTION_LABELS = {
   email_sent: "Sent an email",
   email_cancelled: "Cancelled a scheduled email",
   email_settings_changed: "Changed the email provider",
+  storage_settings_changed: "Changed the image storage",
+  storage_tested: "Tested an image storage",
   email_template_saved: "Saved an email template",
   email_template_deleted: "Deleted an email template",
   email_template_restored: "Restored an email template",

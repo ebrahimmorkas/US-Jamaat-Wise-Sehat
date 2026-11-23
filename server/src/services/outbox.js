@@ -4,7 +4,7 @@
 const sanitizeHtml = require("sanitize-html");
 const { isDbReady } = require("../db");
 const EmailMessage = require("../models/EmailMessage");
-const storage = require("./imagekit");
+const storage = require("./storage");
 const mail = require("./email");
 const vars = require("./emailVars");
 const { notify } = require("./notify");
@@ -89,11 +89,9 @@ ${body}
 async function loadFiles(files) {
   const out = [];
   for (const f of files || []) {
-    const url = storage.signedUrl(f, 1);
-    if (!url) throw new Error("The attachments can't be read (file storage isn't set up).");
-    const res = await fetch(url, { signal: AbortSignal.timeout(60000) });
-    if (!res.ok) throw new Error(`An attachment (${f.name}) couldn't be read (${res.status}).`);
-    out.push({ name: f.name || "file", type: f.type || "application/octet-stream", content: Buffer.from(await res.arrayBuffer()) });
+    let got;
+    try { got = await storage.readFile(f); } catch (e) { throw new Error(`An attachment (${f.name}) couldn't be read: ${e.message}`); }
+    out.push({ name: f.name || "file", type: f.type || "application/octet-stream", content: got.bytes });
   }
   return out;
 }

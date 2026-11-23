@@ -323,6 +323,10 @@ export const emailCancel = (id) => raw(`/api/emails/${id}/cancel`, { method: "PO
 export const emailRetry = (id) => raw(`/api/emails/${id}/retry`, { method: "POST" });
 export const emailProviders = () => raw("/api/emails/settings/providers");
 export const emailSetProvider = (provider) => raw("/api/emails/settings/providers", { method: "PUT", body: { provider } });
+// Image storage (Super Admin): where new uploads are saved.
+export const storageSettings = () => raw("/api/storage/settings");
+export const storageSet = (provider) => raw("/api/storage/settings", { method: "PUT", body: { provider } });
+export const storageTest = (provider) => raw("/api/storage/test", { method: "POST", body: { provider } });
 export const emailTest = (provider) => raw("/api/emails/settings/test", { method: "POST", body: { provider } });
 
 // Email templates, variables, images / documents inside emails, preview

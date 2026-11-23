@@ -3,7 +3,7 @@
 const FormUpload = require("../models/FormUpload");
 const Jamaat = require("../models/Jamaat");
 const Jamiat = require("../models/Jamiat");
-const storage = require("./imagekit");
+const storage = require("./storage");
 
 /** The whole form as people saw it (headings, help, choices), to show a response like the filled form. */
 const layoutOf = (form) => form.fields.map((x) => ({

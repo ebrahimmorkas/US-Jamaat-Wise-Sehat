@@ -12,7 +12,7 @@ const { audit } = require("../services/audit");
 const { InputError, isId, sendError } = require("../lib/validate");
 const { notDeleted, isDeleted, markDeleted, markRestored } = require("../lib/softDelete");
 const { readMessage } = require("../services/emailCompose");
-const storage = require("../services/imagekit");
+const storage = require("../services/storage");
 const config = require("../config");
 
 const router = express.Router();

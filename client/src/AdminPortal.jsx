@@ -9,9 +9,10 @@ import FormResponses from "./FormResponses";
 import Emails from "./Emails";
 import Reports from "./Reports";
 import DataAdmin from "./DataAdmin";
+import StorageSettings from "./StorageSettings";
 import JcMetricsPanel from "./components/JcMetricsPanel";
 import StatsView from "./components/StatsView";
-import { BriefcaseIcon, ImageIcon, ReportIcon, SendIcon, FormIcon, HistoryIcon, ListIcon, PencilIcon, TableIcon, UsersIcon } from "./components/Icons";
+import { BriefcaseIcon, GearIcon, ImageIcon, ReportIcon, SendIcon, FormIcon, HistoryIcon, ListIcon, PencilIcon, TableIcon, UsersIcon } from "./components/Icons";
 
 const NAV = [
   { to: "/admin/users", label: "Users", icon: <UsersIcon /> },
@@ -25,6 +26,7 @@ const NAV = [
   { to: "/admin/metrics", label: "Metrics & Ratings", icon: <BriefcaseIcon /> },
   { to: "/admin/stats", label: "Stats", icon: <ImageIcon /> },
   { to: "/admin/logs", label: "Logs", icon: <HistoryIcon /> },
+  { to: "/admin/settings", label: "Settings", icon: <GearIcon /> },
 ];
 
 // Super Admin portal: users, Jamiat/Jamaat masters, portal fields (JC form questions).
@@ -65,6 +67,7 @@ export default function AdminPortal({ path, user, onSignOut, onAuthExpired, them
           </>
         )}
         {page === "/admin/logs" && <Logs onAuthExpired={onAuthExpired} />}
+        {page === "/admin/settings" && <StorageSettings onAuthExpired={onAuthExpired} />}
       </main>
     </>
   );

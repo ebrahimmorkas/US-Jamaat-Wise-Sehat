@@ -86,6 +86,39 @@ const config = {
     folder: (process.env.IMAGEKIT_FOLDER || "/umoor-sehhat/stats").trim(),
   },
 
+  // ---- Where uploaded images / files are kept (switchable, see services/storage) ----
+  // STORAGE_PROVIDER = imagekit (default) | local | s3 | cloudinary. The Super Admin switches in the portal
+  // (Settings → Image storage); ImageKit is always the backup. Each file remembers where it was saved,
+  // so switching never breaks older files. Keys only here (Render), never in the database.
+  storage: {
+    provider: (process.env.STORAGE_PROVIDER || "").trim().toLowerCase(),
+    // Signs the links of files kept on this server (empty = derived from JWT_ACCESS_SECRET).
+    linkSecret: (process.env.STORAGE_LINK_SECRET || "").trim(),
+    local: {
+      dir: (process.env.LOCAL_UPLOAD_DIR || "").trim(), // empty = server/uploads
+      // Must be switched on in production (LOCAL_UPLOADS=true): on Render, files on the server are lost at every
+      // restart / deploy unless a Render Disk is attached (LOCAL_UPLOAD_DIR = its mount path). On by default when testing.
+      on: process.env.LOCAL_UPLOADS != null ? /^(1|true|yes)$/i.test(String(process.env.LOCAL_UPLOADS).trim()) : process.env.NODE_ENV !== "production",
+    },
+    s3: {
+      bucket: (process.env.S3_BUCKET || "").trim(),
+      region: (process.env.S3_REGION || "").trim(),
+      accessKeyId: (process.env.S3_ACCESS_KEY_ID || "").trim(),
+      secretAccessKey: (process.env.S3_SECRET_ACCESS_KEY || "").trim(),
+      endpoint: (process.env.S3_ENDPOINT || "").trim().replace(/\/+$/, ""), // empty = AWS; or R2 / Wasabi / MinIO …
+      publicUrl: (process.env.S3_PUBLIC_URL || "").trim().replace(/\/+$/, ""), // where public files open (email images)
+    },
+    cloudinary: (() => {
+      // CLOUDINARY_URL=cloudinary://<key>:<secret>@<cloud name>, or the three values separately.
+      const m = /^cloudinary:\/\/([^:]+):([^@]+)@(.+)$/.exec((process.env.CLOUDINARY_URL || "").trim());
+      return {
+        cloudName: (process.env.CLOUDINARY_CLOUD_NAME || (m && m[3]) || "").trim(),
+        apiKey: (process.env.CLOUDINARY_API_KEY || (m && m[1]) || "").trim(),
+        apiSecret: (process.env.CLOUDINARY_API_SECRET || (m && m[2]) || "").trim(),
+      };
+    })(),
+  },
+
   // ---- Contact details used in email templates ({{Contact …}} variables). Change them on Render any time. ----
   contact: {
     name: (process.env.CONTACT_NAME || "Umoor Sehhat").trim(),
