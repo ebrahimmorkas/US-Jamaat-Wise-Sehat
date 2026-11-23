@@ -29,6 +29,7 @@ const jamaatOut = (jm, entryCount = 0) => ({
   id: String(jm._id),
   jamiatId: String(jm.jamiat),
   name: jm.name,
+  nameAr: jm.nameAr || "",
   mauzeType: jm.mauzeType || "",
   houseCount: jm.houseCount == null ? null : jm.houseCount,
   children: jm.children == null ? null : jm.children,
@@ -36,7 +37,7 @@ const jamaatOut = (jm, entryCount = 0) => ({
   entryCount,
   ...deletedInfo(jm),
 });
-const jamiatOut = (j) => ({ id: String(j._id), name: j.name, isActive: j.isActive, ...deletedInfo(j) });
+const jamiatOut = (j) => ({ id: String(j._id), name: j.name, nameAr: j.nameAr || "", isActive: j.isActive, ...deletedInfo(j) });
 
 // A name already used — by a deleted record too (the unique name can't be reused: restore it instead).
 async function checkJamiatName(name, exceptId) {
@@ -54,14 +55,21 @@ function notDeletedOrThrow(doc) {
   return doc;
 }
 
+/** Arabic name (shown in reports): single spaces, at most 200 characters; "" = none. */
+function parseArabic(v) {
+  const s = String(v == null ? "" : v).replace(/\s+/g, " ").trim();
+  if (s.length > 200) throw new InputError("The Arabic name is too long (max 200 characters).");
+  return s;
+}
+
 function parseActive(v) {
   if (typeof v !== "boolean") throw new InputError("isActive must be true or false.");
   return v;
 }
 
 // Audit trail: which fields are compared, with readable labels.
-const JAMIAT_FIELDS = [["name", "Name"], ["isActive", "Active"]];
-const JAMAAT_FIELDS = [["jamiatName", "Jamiat"], ["name", "Name"], ["mauzeType", "Mauze Type"], ["houseCount", "House Count"], ["children", "Children"], ["isActive", "Active"]];
+const JAMIAT_FIELDS = [["name", "Name"], ["nameAr", "Arabic name"], ["isActive", "Active"]];
+const JAMAAT_FIELDS = [["jamiatName", "Jamiat"], ["name", "Name"], ["nameAr", "Arabic name"], ["mauzeType", "Mauze Type"], ["houseCount", "House Count"], ["children", "Children"], ["isActive", "Active"]];
 const jamiatTarget = (j) => ({ type: "jamiat", id: String(j._id), label: j.name });
 const jamaatTarget = (jm, jamiatName) => ({ type: "jamaat", id: String(jm._id), label: `${jm.name} (${jamiatName})` });
 // Plain copy of a Jamaat with its Jamiat's name (so the trail shows names, not ids).
@@ -94,7 +102,7 @@ router.post("/jamiats", async (req, res, next) => {
   try {
     const name = parseName((req.body || {}).name, "Jamiat", 80);
     await checkJamiatName(name);
-    const j = await Jamiat.create({ name });
+    const j = await Jamiat.create({ name, nameAr: parseArabic((req.body || {}).nameAr) });
     audit(req, "master_created", { target: jamiatTarget(j), changes: diff(null, j, JAMIAT_FIELDS) });
     res.status(201).json({ jamiat: jamiatOut(j) });
   } catch (err) {
@@ -113,6 +121,7 @@ router.patch("/jamiats/:id", async (req, res, next) => {
       j.name = parseName(body.name, "Jamiat", 80);
       if (j.name !== before.name) await checkJamiatName(j.name, j._id);
     }
+    if ("nameAr" in body) j.nameAr = parseArabic(body.nameAr);
     if ("isActive" in body) j.isActive = parseActive(body.isActive);
     await j.save();
     const changes = diff(before, j, JAMIAT_FIELDS);
@@ -170,7 +179,7 @@ router.post("/jamaats", async (req, res, next) => {
     const jamiat = await findJamiat(body.jamiatId);
     const name = parseName(body.name, "Jamaat", 120);
     await checkJamaatName(jamiat._id, name);
-    const jm = await Jamaat.create({ jamiat: jamiat._id, name, ...parseJamaatDetails(body, (await getValueSets()).mauzeType) });
+    const jm = await Jamaat.create({ jamiat: jamiat._id, name, nameAr: parseArabic(body.nameAr), ...parseJamaatDetails(body, (await getValueSets()).mauzeType) });
     audit(req, "master_created", { target: jamaatTarget(jm, jamiat.name), changes: diff(null, { ...jm.toObject(), jamiatName: jamiat.name }, JAMAAT_FIELDS) });
     res.status(201).json({ jamaat: jamaatOut(jm) });
   } catch (err) {
@@ -188,6 +197,7 @@ router.patch("/jamaats/:id", async (req, res, next) => {
     if ("jamiatId" in body) jm.jamiat = (await findJamiat(body.jamiatId))._id;
     if ("name" in body) jm.name = parseName(body.name, "Jamaat", 120);
     if (jm.name !== before.name || String(jm.jamiat) !== String(before.jamiat)) await checkJamaatName(jm.jamiat, jm.name, jm._id);
+    if ("nameAr" in body) jm.nameAr = parseArabic(body.nameAr);
     if ("isActive" in body) jm.isActive = parseActive(body.isActive);
     Object.assign(jm, parseJamaatDetails(body, (await getValueSets()).mauzeType));
     await jm.save();

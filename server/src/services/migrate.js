@@ -171,9 +171,68 @@ async function migrate() {
     await Form.updateOne({ _id: f._id, code: { $exists: false } }, { $set: { code: newCode() } });
   }
 
-  // 7) Country of each Jamaat: every Jamaat not tagged yet is India, except the overseas Jamiats (tagged later).
+  // 7) Nov 2026: Jamiats / Jamaats from master_check.xlsx that the portal didn't have, and Arabic names.
+  await once("masters-2026-11", mastersNov2026);
+
+  // 8) Country of each Jamaat: every Jamaat not tagged yet is India, except the overseas Jamiats (tagged later).
   //    Runs every start, so Jamaats added later are tagged too; a country set by hand is never changed.
   await tagIndia();
+}
+
+/**
+ * One-time (seed/masters-2026-11.json, made from master_check.xlsx + Arabic Names.xlsx):
+ *  - adds the Jamiats and Jamaats of master_check that the portal doesn't have (active, no JC assigned yet);
+ *    a Jamaat already in the portal under another spelling (the `alias` list, e.g. VIRAMGAM (ALIGRAH)) is not added again;
+ *    a deleted one is left deleted (not restored, not added twice);
+ *  - fills the Arabic name of every Jamiat / Jamaat that matches by name (only where it is empty, so a name
+ *    typed by the Super Admin is never overwritten).
+ * Nothing is renamed or removed. One summary line goes to the audit log.
+ */
+async function mastersNov2026() {
+  const Jamiat = require("../models/Jamiat");
+  const Jamaat = require("../models/Jamaat");
+  const data = require("../seed/masters-2026-11.json");
+  const jtBy = new Map((await Jamiat.find({}).lean()).map((j) => [j.name, j]));
+  const findJt = (name) => jtBy.get(name) || (data.jamiatAlias[name] || []).map((a) => jtBy.get(a)).find(Boolean);
+  const needed = new Set(data.jamaats.filter((r) => r.add).map((r) => r.jamiat));
+  const out = { jamiats: [], jamaats: [], arabicJamiats: 0, arabicJamaats: 0 };
+  for (const r of data.jamiats) {
+    const doc = findJt(r.name);
+    if (!doc) {
+      if (!needed.has(r.name)) continue;
+      const j = (await Jamiat.create({ name: r.name, nameAr: r.nameAr })).toObject();
+      jtBy.set(j.name, j);
+      out.jamiats.push(r.name);
+    } else if (r.nameAr && !doc.nameAr) {
+      await Jamiat.updateOne({ _id: doc._id }, { $set: { nameAr: r.nameAr } });
+      out.arabicJamiats += 1;
+    }
+  }
+  const key = (jt, n) => `${jt}|${n}`;
+  const jmBy = new Map((await Jamaat.find({}).select("jamiat name nameAr").lean()).map((m) => [key(m.jamiat, m.name), m]));
+  const sets = [];
+  const adds = [];
+  for (const r of data.jamaats) {
+    const jt = findJt(r.jamiat);
+    if (!jt || isDeleted(jt)) continue;
+    const have = [r.name, ...(r.alias || [])].map((n) => jmBy.get(key(jt._id, n))).find(Boolean);
+    if (have) {
+      if (r.nameAr && !have.nameAr) sets.push({ updateOne: { filter: { _id: have._id }, update: { $set: { nameAr: r.nameAr } } } });
+    } else if (r.add) {
+      adds.push({ jamiat: jt._id, name: r.name, nameAr: r.nameAr, mauzeType: r.mauzeType, isActive: true });
+      out.jamaats.push(`${r.name} (${jt.name})`);
+    }
+  }
+  if (sets.length) await Jamaat.bulkWrite(sets);
+  if (adds.length) await Jamaat.insertMany(adds);
+  out.arabicJamaats = sets.length;
+  console.log(`[migrate] master_check: ${out.jamiats.length} Jamiat(s) and ${adds.length} Jamaat(s) added; Arabic names set on ${out.arabicJamiats} Jamiat(s) and ${out.arabicJamaats} Jamaat(s)`);
+  await AuditLog.create({
+    action: "master_created", username: "system", role: "system",
+    target: { type: "masters", id: "masters-2026-11", label: "Jamiats / Jamaats from master_check + Arabic names (automatic)" },
+    details: { jamiatsAdded: out.jamiats, jamaatsAdded: out.jamaats.length, jamaats: out.jamaats, arabicJamiats: out.arabicJamiats, arabicJamaats: out.arabicJamaats + adds.filter((a) => a.nameAr).length },
+  });
+  return [];
 }
 
 const OVERSEAS = ["EAST AFRICA", "FAR EAST", "INDIAN OCEAN", "KHALEEJ", "KUWAIT", "PAKISTAN", "UK", "USA", "YEMEN"];

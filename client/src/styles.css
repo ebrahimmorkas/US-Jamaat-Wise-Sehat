@@ -753,7 +753,8 @@ select:disabled { opacity: .6; cursor: not-allowed; }
 .master-head { flex-wrap: wrap; align-items: flex-start; padding-bottom: 8px; }
 .master-head h2 { display: flex; align-items: center; gap: 8px; font-size: 18px; }
 .head-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.rename-form { display: flex; gap: 6px; align-items: center; flex: 1; max-width: 420px; }
+.rename-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; flex: 1; max-width: 560px; }
+.rename-form .input { flex: 1 1 180px; min-width: 0; }
 .jamaat-tools { padding: 4px 20px 12px; }
 .mini-btn {
   display: inline-flex; align-items: center; gap: 4px;
@@ -814,6 +815,14 @@ select:disabled { opacity: .6; cursor: not-allowed; }
   .users-tools .role-filter { width: auto; flex: 1 1 110px; }
 }
 .move-select { margin-top: 6px; font-size: 12px !important; color: var(--ink-2); }
+/* Arabic names (Masters): right-to-left text under the English name */
+.ar-name { display: block; font-family: "Noto Naskh Arabic", "Segoe UI", Tahoma, sans-serif; font-size: 14px; font-weight: 500; color: var(--ink-2); text-align: left; unicode-bidi: isolate; margin-top: 2px; }
+.ar-head { display: inline-block; margin: 0 6px; font-size: 17px; }
+.master-row .ar-name { font-size: 12.5px; }
+.ar-missing { display: block; font-size: 11.5px; font-weight: 500; color: var(--t-warn); margin-top: 2px; }
+.ar-input { margin-top: 6px; font-family: "Noto Naskh Arabic", "Segoe UI", Tahoma, sans-serif; }
+.rename-form .ar-input { margin-top: 0; }
+.ar-filter { margin: 0 0 10px; font-size: 13px; }
 
 /* ---------- Super Admin: users & dropdowns ---------- */
 .users-add { padding-top: 14px; max-width: 560px; }

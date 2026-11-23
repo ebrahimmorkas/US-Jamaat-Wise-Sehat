@@ -9,6 +9,8 @@ const jamaatSchema = new mongoose.Schema(
     jamiat: { type: mongoose.Schema.Types.ObjectId, ref: "Jamiat", required: true, index: true },
     // Stored in capitals (see lib/names.js); unique inside its Jamiat.
     name: { type: String, required: true, trim: true, minlength: 2, maxlength: 120 },
+    // Arabic name (shown in reports; Jamaat Coordinators still choose the English name); "" = not set.
+    nameAr: { type: String, trim: true, maxlength: 200, default: "" },
     // One of the Mauze Type dropdown values (checked by the API), or "".
     mauzeType: { type: String, trim: true, maxlength: 40, default: "" },
     houseCount: { ...count, default: null },
