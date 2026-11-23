@@ -2,9 +2,11 @@
 //   Super Admin, Saheb: every Jamiat and Jamaat.  JC: only the Jamaats assigned to them (inside their Jamiats).
 //   Test responses (filled while "Testing") are only for the Super Admin, and only when asked (?test=1).
 //   GET /                      forms that have been published (Super Admin: also those in Testing)
-//   GET /:code                 one form: questions + responses (?jamiat=&jamaat= names, ?test=1)
+//   GET /:code                 one form: questions + responses (?jamiat=&jamaat= names, ?test=1, ?from=&to= ISO times)
+//                              + the form's reminders, in the order they are sent, with the time each was sent
+//                              (the page turns "after / before / between reminders" into from / to)
 //   GET /:code/excel           the same as an Excel file (?tz= the viewer's time zone)
-//   GET /:code/status          every Jamaat in scope: filled or not, by whom, when
+//   GET /:code/status          every Jamaat in scope: filled or not, by whom, when (+ the reminders, as above)
 //                              (?status=filled|not_filled&jamiat=&jamaat=&from=&to= ISO times)
 //   GET /:code/status/excel    the same as an Excel file
 //   GET/POST /:code/remind     "Send reminder": templates + who would get it / send it (Jamaats not filled)
@@ -24,6 +26,8 @@ const { InputError, sendError } = require("../lib/validate");
 const { notDeleted } = require("../lib/softDelete");
 const F = require("../services/forms");
 const { layoutOf, topImageOf, responsesOut } = require("../services/formOut");
+const EmailTemplate = require("../models/EmailTemplate");
+const reminders = require("../services/reminders");
 
 const router = express.Router();
 router.use(requireAuth, requireRole("superadmin", "saheb", "jc"), (req, res, next) => {
@@ -92,6 +96,37 @@ router.get("/", async (req, res, next) => {
   } catch (err) { sendError(err, res, next); }
 });
 
+/** A time from the query (ISO), or null. */
+const timeOf = (v) => { const d = v ? new Date(String(v).slice(0, 40)) : null; return d && !Number.isNaN(d.getTime()) ? d : null; };
+/** { createdAt: { $gte, $lte } } for ?from= / ?to= (when the response was first sent), or {}. */
+function sentBetween(q) {
+  const from = timeOf(q.from);
+  const to = timeOf(q.to);
+  return from || to ? { createdAt: { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) } } : {};
+}
+
+/**
+ * The form's automatic reminders (set when the form was made), numbered in the order they are sent:
+ * sent ones by the time they went out, then the ones still waiting by when they are due.
+ * `at` = when it was sent (null = not sent: waiting, skipped or failed) — only sent ones can be used as a filter.
+ * Keys are the rule keys (random, not database ids).
+ */
+async function reminderList(form) {
+  const rules = form.reminders || [];
+  if (!rules.length) return [];
+  const tpls = await EmailTemplate.find({ _id: { $in: rules.map((r) => r.template) } }).select("name").lean();
+  const tName = new Map(tpls.map((t) => [String(t._id), t.name]));
+  const list = rules.map((r, i) => {
+    const st = (r.state && r.state.status) || "waiting";
+    const at = st === "sent" && r.state.at ? new Date(r.state.at) : null;
+    const due = at ? null : reminders.dueAt(form, r);
+    return { i, key: r.key, kind: r.when, when: reminders.RULE_TEXT(r), template: tName.get(String(r.template)) || "Deleted template", status: st, at, due: due || null };
+  });
+  const t = (r) => (r.at || (r.status === "waiting" || r.status === "sending" ? r.due : null) || new Date(8.64e15)).getTime();
+  list.sort((a, b) => t(a) - t(b) || a.i - b.i);
+  return list.map(({ i, ...r }, n) => ({ n: n + 1, ...r }));
+}
+
 /** Questions shown as columns: every non-layout question, plus hidden ones (they keep their answers). */
 const columnsOf = (form) => form.fields.filter((x) => !F.TYPES[x.type].layout).map((x) => ({ key: x.key, label: x.label, type: x.type, hidden: !!x.hidden, max: x.max }));
 /** The responses this person may see, with names and file links. */
@@ -107,6 +142,7 @@ async function loadRows(req, form, q) {
       match.jamaat = match.jamaat ? { $in: match.jamaat.$in.filter((id) => jm && String(id) === String(jm._id)) } : (jm ? jm._id : { $in: [] });
     }
   }
+  Object.assign(match, sentBetween(q));
   const list = await FormResponse.find(match).sort({ createdAt: -1 }).limit(20000).lean();
   return responsesOut(list, { hours: q.excel ? 24 * 7 : undefined }); // links in an Excel file work for 7 days
 }
@@ -116,7 +152,7 @@ router.get("/:code", async (req, res, next) => {
     const form = await findForm(req, req.params.code);
     const rows = await loadRows(req, form, req.query);
     // Jamiat -> Jamaats for the filters: only places that have responses this person can see.
-    const all = await loadRows(req, form, { test: req.query.test });
+    const [all, rems] = await Promise.all([loadRows(req, form, { test: req.query.test }), reminderList(form)]);
     const places = {};
     for (const r of all) if (r.jamiat) (places[r.jamiat] = places[r.jamiat] || new Set()).add(r.jamaat);
     res.json({
@@ -126,6 +162,7 @@ router.get("/:code", async (req, res, next) => {
       total: all.length,
       places: Object.keys(places).sort().map((j) => ({ jamiat: j, jamaats: [...places[j]].sort() })),
       canSeeTests: isAdmin(req),
+      reminders: rems,
     });
   } catch (err) { sendError(err, res, next); }
 });
@@ -136,10 +173,7 @@ async function statusRows(req, form, q) {
   const all = jms;
   if (q.jamiat) jms = jms.filter((j) => j.jamiat === String(q.jamiat));
   if (q.jamiat && q.jamaat) jms = jms.filter((j) => j.name === String(q.jamaat));
-  const date = (v) => { const d = v ? new Date(String(v)) : null; return d && !Number.isNaN(d.getTime()) ? d : null; };
-  const from = date(q.from);
-  const to = date(q.to);
-  const when = from || to ? { createdAt: { ...(from ? { $gte: from } : {}), ...(to ? { $lte: to } : {}) } } : {};
+  const when = sentBetween(q);
   const [list, coords] = await Promise.all([
     FormResponse.find({ form: form._id, isTest: false, jamaat: { $in: jms.map((j) => j._id) }, ...when })
       .select("jamaat createdAt editedAt email name onBehalf filledBy").sort({ createdAt: -1 }).lean(),
@@ -178,17 +212,14 @@ async function statusRows(req, form, q) {
 router.get("/:code/status", async (req, res, next) => {
   try {
     const form = await findForm(req, req.params.code);
-    const out = await statusRows(req, form, req.query);
-    res.json({ form: { id: form.code, title: form.title, state: F.stateOf(form), startAt: form.startAt, endAt: form.endAt }, ...out });
+    const [out, rems] = await Promise.all([statusRows(req, form, req.query), reminderList(form)]);
+    res.json({ form: { id: form.code, title: form.title, state: F.stateOf(form), startAt: form.startAt, endAt: form.endAt }, ...out, reminders: rems });
   } catch (err) { sendError(err, res, next); }
 });
 
 // ---------- "Send reminder" (Super Admin, Saheb; a JC for their own Jamaats) ----------
 // Goes to the Jamaat Coordinators of the Jamaats that haven't filled (within the page's Jamiat / Jamaat filter);
 // Super Admin / Saheb may add the JCs of those Jamaats. Template ids are sealed (no database ids on the website).
-const EmailTemplate = require("../models/EmailTemplate");
-const reminders = require("../services/reminders");
-
 async function remindScope(req, q) {
   let jms = await jamaatsInScope(req);
   if (q.jamiat) jms = jms.filter((j) => j.jamiat === String(q.jamiat));
@@ -285,7 +316,7 @@ router.get("/:code/status/excel", async (req, res, next) => {
       });
       row.getCell("status").font = { bold: true, color: { argb: r.filled ? "FF15803D" : "FFB42323" } };
     });
-    audit(req, "form_responses_exported", { target: { type: "form", id: String(form._id), label: form.title }, details: { what: "Jamaat status", rows: rows.length, status: req.query.status || "", jamiat: req.query.jamiat || "", jamaat: req.query.jamaat || "" } });
+    audit(req, "form_responses_exported", { target: { type: "form", id: String(form._id), label: form.title }, details: { what: "Jamaat status", rows: rows.length, status: req.query.status || "", jamiat: req.query.jamiat || "", jamaat: req.query.jamaat || "", from: req.query.from || "", to: req.query.to || "", filter: String(req.query.when || "").slice(0, 200) } });
     await sendBook(res, wb, fileName(form, "Jamaat status"));
   } catch (err) { sendError(err, res, next); }
 });
@@ -330,7 +361,7 @@ router.get("/:code/excel", async (req, res, next) => {
         cell.font = { color: { argb: "FF1D4ED8" }, underline: v.length === 1 };
       }
     });
-    audit(req, "form_responses_exported", { target: { type: "form", id: String(form._id), label: form.title }, details: { rows: rows.length, jamiat: req.query.jamiat || "", jamaat: req.query.jamaat || "", test: req.query.test === "1" } });
+    audit(req, "form_responses_exported", { target: { type: "form", id: String(form._id), label: form.title }, details: { rows: rows.length, jamiat: req.query.jamiat || "", jamaat: req.query.jamaat || "", test: req.query.test === "1", from: req.query.from || "", to: req.query.to || "", filter: String(req.query.when || "").slice(0, 200) } });
     const name = `${form.title.replace(/[^\w\- ]+/g, "").trim().slice(0, 60) || "form"} - responses.xlsx`;
     res.set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.set("Content-Disposition", `attachment; filename="${name}"`);

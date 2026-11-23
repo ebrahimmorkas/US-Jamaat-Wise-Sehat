@@ -173,18 +173,109 @@ export function ResponseView({ form, row, n, total, onPrev, onNext, onClose }) {
 const DAY = 24 * 3600 * 1000;
 const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
 const endOfDay = (d) => { const x = new Date(d); x.setHours(23, 59, 59, 999); return x; };
-/** The date filter -> { from, to } as ISO times (in the viewer's time zone). */
-function rangeOf(when) {
+const NO_WHEN = { preset: "any", from: "", to: "", ra: "", rb: "" };
+const iso = (d) => new Date(d).toISOString();
+const before = (d) => iso(new Date(d).getTime() - 1); // just before that moment
+const dayOf = (v) => `${v}T00:00`; // a date input value, in the viewer's time zone
+
+/**
+ * The "Filled" filter -> { from, to } as ISO times (dates in the viewer's time zone; reminders = the moment each
+ * was sent), plus a sentence saying what it means. Responses count by when they were first sent.
+ */
+function rangeOf(when, rems) {
   const today = new Date();
-  if (when.preset === "today") return { from: startOfDay(today).toISOString(), to: endOfDay(today).toISOString() };
-  if (when.preset === "7" || when.preset === "30") return { from: startOfDay(new Date(Date.now() - (Number(when.preset) - 1) * DAY)).toISOString(), to: endOfDay(today).toISOString() };
-  if (when.preset === "date" && when.from) return { from: startOfDay(`${when.from}T00:00`).toISOString(), to: endOfDay(`${when.from}T00:00`).toISOString() };
-  if (when.preset === "range" && (when.from || when.to)) {
-    return { from: when.from ? startOfDay(`${when.from}T00:00`).toISOString() : "", to: when.to ? endOfDay(`${when.to}T00:00`).toISOString() : "" };
+  const rem = (k) => (rems || []).find((r) => r.key === k && r.at);
+  const name = (r) => `reminder ${r.n} (sent ${fmtWhen(r.at)})`;
+  const out = (from, to, text) => ({ from: from || "", to: to || "", text: text || "" });
+  switch (when.preset) {
+    case "today": return out(iso(startOfDay(today)), iso(endOfDay(today)));
+    case "7": case "30": return out(iso(startOfDay(new Date(Date.now() - (Number(when.preset) - 1) * DAY))), iso(endOfDay(today)));
+    case "date": return when.from ? out(iso(startOfDay(dayOf(when.from))), iso(endOfDay(dayOf(when.from)))) : out();
+    case "after": return when.from ? out(iso(endOfDay(dayOf(when.from)).getTime() + 1), "", "From the next day on (that day not included).") : out();
+    case "before": return when.from ? out("", before(startOfDay(dayOf(when.from))), "Up to the day before (that day not included).") : out();
+    case "range":
+      return when.from || when.to ? out(when.from ? iso(startOfDay(dayOf(when.from))) : "", when.to ? iso(endOfDay(dayOf(when.to))) : "", "Both days included.") : out();
+    case "r_after": { const a = rem(when.ra); return a ? out(iso(a.at), "", `Sent after ${name(a)}.`) : out(); }
+    case "r_before": { const b = rem(when.rb); return b ? out("", before(b.at), `Sent before ${name(b)}.`) : out(); }
+    case "r_range": {
+      const a = rem(when.ra);
+      const b = rem(when.rb);
+      if (!a || !b) return out();
+      return out(iso(a.at), before(b.at), `Sent after ${name(a)} and before ${name(b)}.`);
+    }
+    default: return out();
   }
-  return { from: "", to: "" };
 }
-const PRESETS = [["any", "Any time"], ["today", "Today"], ["7", "Last 7 days"], ["30", "Last 30 days"], ["date", "On a date"], ["range", "Date range"]];
+const DATE_PRESETS = [["any", "Any time"], ["today", "Today"], ["7", "Last 7 days"], ["30", "Last 30 days"], ["date", "On a date"], ["after", "After a date"], ["before", "Before a date"], ["range", "Between two dates"]];
+const REMINDER_PRESETS = [["r_after", "After a reminder"], ["r_before", "Before a reminder"], ["r_range", "Between two reminders"]];
+const REM_STATE = { waiting: "not sent yet", sending: "sending now", skipped: "not sent (skipped)", failed: "not sent (failed)" };
+
+/** One reminder in a list: "Reminder 2 · 2 days before closing · Template — sent 21 Nov 2026, 10:00". */
+function remLabel(r) {
+  const tail = r.at ? `sent ${fmtWhen(r.at)}` : `${REM_STATE[r.status] || "not sent"}${r.status === "waiting" && r.due ? `, due ${fmtWhen(r.due)}` : ""}`;
+  // A reminder set "on a date" that went out: its sent time already says when.
+  return `Reminder ${r.n} · ${r.at && r.kind === "at" ? "" : `${r.when} · `}${r.template} — ${tail}`;
+}
+
+/**
+ * "Filled" filter: dates (on / after / before / between) or the form's own reminders (after / before / between).
+ * The reminders are the ones set on the form, in the order they are sent; only sent ones can be chosen.
+ */
+function WhenFilter({ when, setWhen, reminders }) {
+  const rems = reminders || [];
+  const sent = rems.filter((r) => r.at);
+  const pick = (preset) => {
+    if (preset === "r_after") return setWhen({ ...NO_WHEN, preset, ra: sent.length ? sent[0].key : "" });
+    if (preset === "r_before") return setWhen({ ...NO_WHEN, preset, rb: sent.length ? sent[0].key : "" });
+    if (preset === "r_range") return setWhen({ ...NO_WHEN, preset, ra: sent.length ? sent[0].key : "", rb: sent.length > 1 ? sent[sent.length - 1].key : "" });
+    return setWhen({ ...NO_WHEN, preset });
+  };
+  const at = (k) => { const r = rems.find((x) => x.key === k); return r && r.at ? new Date(r.at).getTime() : null; };
+  const remSelect = (label, k, value, ok) => (
+    <label className="field rs-rem"><span className="field-label">{label}</span>
+      <select value={value} onChange={(e) => setWhen({ ...when, [k]: e.target.value })}>
+        <option value="">Choose a reminder…</option>
+        {rems.map((r) => <option key={r.key} value={r.key} disabled={!r.at || !ok(r)}>{remLabel(r)}</option>)}
+      </select></label>
+  );
+  return (
+    <>
+      <label className="field"><span className="field-label">Filled</span>
+        <select value={when.preset} onChange={(e) => pick(e.target.value)}>
+          <optgroup label="Date">{DATE_PRESETS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}</optgroup>
+          <optgroup label="Reminders of this form">
+            {rems.length ? REMINDER_PRESETS.map(([v, label]) => <option key={v} value={v} disabled={!sent.length || (v === "r_range" && sent.length < 2)}>{label}</option>)
+              : <option disabled value="">No reminders set on this form</option>}
+          </optgroup>
+        </select></label>
+      {["date", "after", "before"].includes(when.preset) && (
+        <label className="field"><span className="field-label">Date</span>
+          <input className="input" type="date" value={when.from} onChange={(e) => setWhen({ ...when, from: e.target.value })} /></label>
+      )}
+      {when.preset === "range" && (
+        <>
+          <label className="field"><span className="field-label">From</span>
+            <input className="input" type="date" value={when.from} max={when.to || undefined} onChange={(e) => setWhen({ ...when, from: e.target.value })} /></label>
+          <label className="field"><span className="field-label">To</span>
+            <input className="input" type="date" value={when.to} min={when.from || undefined} onChange={(e) => setWhen({ ...when, to: e.target.value })} /></label>
+        </>
+      )}
+      {when.preset === "r_after" && remSelect("After", "ra", when.ra, () => true)}
+      {when.preset === "r_before" && remSelect("Before", "rb", when.rb, () => true)}
+      {when.preset === "r_range" && (
+        <>
+          {remSelect("After", "ra", when.ra, (r) => at(when.rb) == null || new Date(r.at).getTime() < at(when.rb))}
+          {remSelect("And before", "rb", when.rb, (r) => at(when.ra) == null || new Date(r.at).getTime() > at(when.ra))}
+        </>
+      )}
+    </>
+  );
+}
+/** The line under the filters: what the "Filled" filter means. */
+function whenNote(when, range) {
+  if (when.preset.startsWith("r_") && !range.from && !range.to) return "Choose the reminder.";
+  return range.text;
+}
 
 /**
  * "Send reminder": choose an email template; it goes to the Jamaat Coordinators of the Jamaats that haven't filled
@@ -271,17 +362,18 @@ function RemindButton({ code, place, isJc, fail, onSent }) {
 
 function StatusView({ code, isJc, fail, onShowResponses }) {
   const [f, setF] = useState({ status: "", jamiat: "", jamaat: "" });
-  const [when, setWhen] = useState({ preset: "any", from: "", to: "" });
+  const [when, setWhen] = useState(NO_WHEN);
   const [query, setQuery] = useState("");
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
-  const range = useMemo(() => rangeOf(when), [when]);
-  const params = useMemo(() => ({ ...f, ...range }), [f, range]);
+  const [rems, setRems] = useState(null); // the form's reminders (from the first load)
+  const range = useMemo(() => rangeOf(when, rems), [when, rems]);
+  const params = useMemo(() => ({ ...f, from: range.from, to: range.to, when: range.text }), [f, range.from, range.to, range.text]);
   useEffect(() => {
     let alive = true;
     setBusy(true);
-    resultsStatus(code, params).then((r) => alive && setData(r)).catch((e) => alive && fail(e)).finally(() => alive && setBusy(false));
+    resultsStatus(code, params).then((r) => { if (alive) { setData(r); setRems(r.reminders || []); } }).catch((e) => alive && fail(e)).finally(() => alive && setBusy(false));
     return () => { alive = false; };
   }, [code, params, fail]);
 
@@ -291,7 +383,7 @@ function StatusView({ code, isJc, fail, onShowResponses }) {
   const sm = data.summary;
   const pct = sm.jamaats ? Math.round((sm.filled / sm.jamaats) * 100) : 0;
   const jamaatsOf = f.jamiat ? ((data.places.find((p) => p.jamiat === f.jamiat) || {}).jamaats || []) : [];
-  const dated = when.preset !== "any";
+  const dated = !!(range.from || range.to);
   const setStatus = (v) => setF({ ...f, status: v });
 
   return (
@@ -301,11 +393,11 @@ function StatusView({ code, isJc, fail, onShowResponses }) {
           <span className="st-icon brand"><UsersIcon /></span><span className="st-num">{sm.jamaats}</span><span className="st-label">{isJc ? "Your Jamaats" : "Jamaats"}</span>
         </button>
         <button type="button" className={`st-card${f.status === "filled" ? " is-on" : ""}`} onClick={() => setStatus("filled")}>
-          <span className="st-icon good"><CheckIcon /></span><span className="st-num">{sm.filled}</span><span className="st-label">Filled{dated ? " (in the dates)" : ""}</span>
+          <span className="st-icon good"><CheckIcon /></span><span className="st-num">{sm.filled}</span><span className="st-label">Filled{dated ? " (in the filter)" : ""}</span>
           <span className="st-bar"><span style={{ width: `${pct}%` }} /></span><span className="st-pct">{pct}%</span>
         </button>
         <button type="button" className={`st-card${f.status === "not_filled" ? " is-on" : ""}`} onClick={() => setStatus("not_filled")}>
-          <span className="st-icon bad"><ClockIcon /></span><span className="st-num">{sm.notFilled}</span><span className="st-label">Not filled{dated ? " (in the dates)" : ""}</span>
+          <span className="st-icon bad"><ClockIcon /></span><span className="st-num">{sm.notFilled}</span><span className="st-label">Not filled{dated ? " (in the filter)" : ""}</span>
         </button>
         <div className="st-card is-static">
           <span className="st-icon info"><PencilIcon /></span><span className="st-num">{sm.byJc}</span><span className="st-label">Filled by a JC</span>
@@ -329,31 +421,17 @@ function StatusView({ code, isJc, fail, onShowResponses }) {
             <select value={f.jamaat} disabled={!f.jamiat} onChange={(e) => setF({ ...f, jamaat: e.target.value })}>
               <option value="">{f.jamiat ? "All Jamaats" : "Choose a Jamiat first"}</option>{jamaatsOf.map((j) => <option key={j}>{j}</option>)}
             </select></label>
-          <label className="field"><span className="field-label">Filled</span>
-            <select value={when.preset} onChange={(e) => setWhen({ preset: e.target.value, from: "", to: "" })}>
-              {PRESETS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-            </select></label>
-          {when.preset === "date" && (
-            <label className="field"><span className="field-label">Date</span>
-              <input className="input" type="date" value={when.from} onChange={(e) => setWhen({ ...when, from: e.target.value })} /></label>
-          )}
-          {when.preset === "range" && (
-            <>
-              <label className="field"><span className="field-label">From</span>
-                <input className="input" type="date" value={when.from} max={when.to || undefined} onChange={(e) => setWhen({ ...when, from: e.target.value })} /></label>
-              <label className="field"><span className="field-label">To</span>
-                <input className="input" type="date" value={when.to} min={when.from || undefined} onChange={(e) => setWhen({ ...when, to: e.target.value })} /></label>
-            </>
-          )}
+          <WhenFilter when={when} setWhen={setWhen} reminders={rems} />
           <label className="field rs-search"><span className="field-label">Search</span>
             <input className="input" type="search" value={query} placeholder="Jamaat or Coordinator…" onChange={(e) => setQuery(e.target.value)} /></label>
         </div>
         <div className="st-tools">
-          <span className="muted">{busy ? "Loading…" : `${plural(rows.length, "Jamaat")}${dated ? " · “Filled” means a response sent in the chosen dates" : ""}`}</span>
-          {(f.status || f.jamiat || dated || query) && <button type="button" className="link-btn" onClick={() => { setF({ status: "", jamiat: "", jamaat: "" }); setWhen({ preset: "any", from: "", to: "" }); setQuery(""); }}>Clear filters</button>}
+          <span className="muted">{busy ? "Loading…" : `${plural(rows.length, "Jamaat")}${dated ? " · “Filled” means a response sent in the chosen time" : ""}`}</span>
+          {(f.status || f.jamiat || when.preset !== "any" || query) && <button type="button" className="link-btn" onClick={() => { setF({ status: "", jamiat: "", jamaat: "" }); setWhen(NO_WHEN); setQuery(""); }}>Clear filters</button>}
           <button type="button" className="btn btn-ghost st-xl" disabled={!rows.length} onClick={() => resultsStatusExcel(code, params).catch(fail)}><DownloadIcon /> <span>Download Excel</span></button>
           {data.form && ["open", "not_started"].includes(data.form.state) && sm.notFilled > 0 && <RemindButton code={code} place={f} isJc={isJc} fail={fail} onSent={setNote} />}
         </div>
+        {whenNote(when, range) && <p className="rs-when-note"><ClockIcon /> <span>{whenNote(when, range)}</span></p>}
         {note && <div className="alert ok st-note" role="status">{note} <button type="button" className="link-btn" onClick={() => setNote("")}>OK</button></div>}
         {isJc && data.canFill && (
           <p className="st-hint"><UsersIcon /> <span>You can fill this form for any of your Jamaats. It will be marked <b>filled by JC</b>, not by the Jamaat Coordinator.</span></p>
@@ -398,12 +476,19 @@ export default function FormResponses({ embedded, nav, page, user, onSignOut, on
   const [code, setCode] = useState("");
   const [data, setData] = useState(null);
   const [filter, setFilter] = useState({ jamiat: "", jamaat: "", test: "" });
+  const [when, setWhen] = useState(NO_WHEN);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(null); // index (in `rows`) of the response shown in full
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState("status"); // "status" (every Jamaat) | "responses"
   const isJc = !!user && user.role === "jc";
+  const [rems, setRems] = useState(null); // the form's reminders (kept while the date filter reloads the list)
+  useEffect(() => { if (data && data.reminders) setRems(data.reminders); }, [data]);
+  useEffect(() => { setRems(null); }, [code]);
+  const range = useMemo(() => rangeOf(when, rems), [when, rems]);
+  const params = useMemo(() => ({ ...filter, from: range.from, to: range.to, when: range.text }), [filter, range.from, range.to, range.text]);
+  const dated = !!(range.from || range.to);
 
   const fail = useCallback((err) => { if (err instanceof AuthError) return onAuthExpired(); setMsg({ type: "error", text: err.message }); }, [onAuthExpired]);
   const loadList = useCallback(async (tries = 0) => {
@@ -419,13 +504,13 @@ export default function FormResponses({ embedded, nav, page, user, onSignOut, on
     if (!code) return undefined;
     let alive = true;
     setBusy(true);
-    resultsGet(code, filter).then((r) => alive && setData(r)).catch((e) => alive && fail(e)).finally(() => alive && setBusy(false));
+    resultsGet(code, params).then((r) => alive && setData(r)).catch((e) => alive && fail(e)).finally(() => alive && setBusy(false));
     return () => { alive = false; };
-  }, [code, filter, fail]);
+  }, [code, params, fail]);
 
-  useEffect(() => { setOpen(null); }, [code, filter, query]);
-  const openForm = (c) => { setCode(c); setData(null); setTab("status"); setFilter({ jamiat: "", jamaat: "", test: "" }); setQuery(""); setMsg(null); window.scrollTo({ top: 0 }); };
-  const showResponses = (jamiat, jamaat) => { setFilter({ jamiat, jamaat, test: "" }); setQuery(""); setTab("responses"); };
+  useEffect(() => { setOpen(null); }, [code, params, query]);
+  const openForm = (c) => { setCode(c); setData(null); setTab("status"); setFilter({ jamiat: "", jamaat: "", test: "" }); setWhen(NO_WHEN); setQuery(""); setMsg(null); window.scrollTo({ top: 0 }); };
+  const showResponses = (jamiat, jamaat) => { setFilter({ jamiat, jamaat, test: "" }); setWhen(NO_WHEN); setQuery(""); setTab("responses"); };
   const back = () => { setCode(""); setData(null); loadList(); };
 
   const rows = useMemo(() => {
@@ -482,7 +567,7 @@ export default function FormResponses({ embedded, nav, page, user, onSignOut, on
         <section className="page-head">
           <div className="page-title"><h1>{data ? data.form.title : "Loading…"}</h1>
             {data && <p className="page-sub">{plural(data.total, "response")}{filter.test ? " (test)" : ""} · times in your time{myZone() ? ` (${myZone()})` : ""}</p>}</div>
-          {data && tab === "responses" && <button type="button" className="btn btn-primary" disabled={!data.total} onClick={() => resultsExcel(code, filter).catch(fail)}><DownloadIcon /> <span>Download Excel</span></button>}
+          {data && tab === "responses" && <button type="button" className="btn btn-primary" disabled={!data.total} onClick={() => resultsExcel(code, params).catch(fail)}><DownloadIcon /> <span>Download Excel</span></button>}
         </section>
         {msg && <Notice type={msg.type} text={msg.text} onClose={() => setMsg(null)} />}
         <div className="cp-tabs rs-tabs" role="tablist">
@@ -501,12 +586,17 @@ export default function FormResponses({ embedded, nav, page, user, onSignOut, on
                 <select value={filter.jamaat} disabled={!filter.jamiat} onChange={(e) => setFilter({ ...filter, jamaat: e.target.value })}>
                   <option value="">{filter.jamiat ? "All Jamaats" : "Choose a Jamiat first"}</option>{jamaatsOf.map((j) => <option key={j}>{j}</option>)}
                 </select></label>
+              <WhenFilter when={when} setWhen={setWhen} reminders={rems} />
               <label className="field rs-search"><span className="field-label">Search</span>
                 <input className="input" type="search" value={query} placeholder="Gmail, name, Jamaat or answer…" onChange={(e) => setQuery(e.target.value)} /></label>
               {data.canSeeTests && <label className="check rs-test"><input type="checkbox" checked={!!filter.test} onChange={(e) => setFilter({ jamiat: "", jamaat: "", test: e.target.checked ? "1" : "" })} /> Show test responses instead</label>}
             </div>
-            {busy && <p className="muted">Loading…</p>}
-            {!rows.length ? <div className="empty-state">{data.total ? "No response matches." : filter.test ? "No test responses." : "No responses yet."}</div> : (
+            <div className="rs-count">
+              <span className="muted">{busy ? "Loading…" : rows.length === data.total ? plural(data.total, "response") : `${plural(rows.length, "response")} of ${data.total}`}</span>
+              {whenNote(when, range) && <span className="rs-when-note"><ClockIcon /> <span>{whenNote(when, range)}</span></span>}
+              {(filter.jamiat || when.preset !== "any" || query) && <button type="button" className="link-btn" onClick={() => { setFilter({ jamiat: "", jamaat: "", test: filter.test }); setWhen(NO_WHEN); setQuery(""); }}>Clear filters</button>}
+            </div>
+            {!rows.length ? <div className="empty-state">{data.total ? (dated ? "No response was sent in the chosen time." : "No response matches.") : filter.test ? "No test responses." : "No responses yet."}</div> : (
               <div className="table-wrap rs-wrap">
                 <table className="master-table rs-table">
                   <thead><tr><th className="rs-view-col">View</th><th>#</th><th>Submitted</th><th>Jamiat</th><th>Jamaat</th><th>Filled by</th>

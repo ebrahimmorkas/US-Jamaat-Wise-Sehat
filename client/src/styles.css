@@ -1941,6 +1941,13 @@ textarea.input { font-family: inherit; line-height: 1.45; }
 .rs-filters .field { min-width: 180px; }
 .rs-filters select { min-height: 40px; }
 .rs-search { flex: 1; min-width: 200px; }
+/* "Filled" filter: long reminder names get room; the line saying what the filter means */
+.rs-rem { flex: 1 1 280px; min-width: 0; max-width: 460px; }
+.rs-rem select { width: 100%; text-overflow: ellipsis; }
+.rs-count { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: -4px 0 12px; font-size: 0.9rem; }
+.rs-when-note { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 0.9rem; margin: 0 0 10px; }
+.rs-count .rs-when-note { margin: 0; }
+.rs-when-note svg { width: 15px; height: 15px; flex-shrink: 0; }
 .rs-test { margin-bottom: 10px; }
 .rs-wrap { overflow-x: auto; }
 .rs-table th { white-space: nowrap; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
