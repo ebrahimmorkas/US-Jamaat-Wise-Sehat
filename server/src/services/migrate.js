@@ -8,7 +8,7 @@ const Activity = require("../models/Activity");
 const AuditLog = require("../models/AuditLog");
 const { seedLists } = require("./lists");
 const { seedFields, invalidate } = require("./fields");
-const { markDeleted, isDeleted } = require("../lib/softDelete");
+const { markDeleted, isDeleted, notDeleted: notDeletedQ } = require("../lib/softDelete");
 
 // One-time changes: each id runs once and is recorded in the "migrations" collection,
 // so later edits by the Super Admin are never overwritten.
@@ -173,6 +173,7 @@ async function migrate() {
 
   // 7) Nov 2026: Jamiats / Jamaats from master_check.xlsx that the portal didn't have, and Arabic names.
   await once("masters-2026-11", mastersNov2026);
+  await once("masters-2026-11-kuwait", mastersKuwaitAmmar);
 
   // 8) Country of each Jamaat: every Jamaat not tagged yet is India, except the overseas Jamiats (tagged later).
   //    Runs every start, so Jamaats added later are tagged too; a country set by hand is never changed.
@@ -232,6 +233,66 @@ async function mastersNov2026() {
     target: { type: "masters", id: "masters-2026-11", label: "Jamiats / Jamaats from master_check + Arabic names (automatic)" },
     details: { jamiatsAdded: out.jamiats, jamaatsAdded: out.jamaats.length, jamaats: out.jamaats, arabicJamiats: out.arabicJamiats, arabicJamaats: out.arabicJamaats + adds.filter((a) => a.nameAr).length },
   });
+  return [];
+}
+
+/**
+ * One-time, after masters-2026-11 (the user: "master_check is the right one" for Kuwait, AMMAR NAGAR (INDORE) separate):
+ * - KUWAIT: our 9 area names are RENAMED to master_check's Mohalla names (same records, so users / entries / responses
+ *   stay linked) and the 10th Mohalla (BADRI) is added.
+ * - AMMAR NAGAR (INDORE) is added to INDORE as its own Jamaat (not the same as AMMAR NAGAR (NOORANI NAGAR)).
+ * Arabic names from the seed file are set where empty. Skips anything already renamed / added by hand.
+ */
+const KUWAIT_RENAME = {
+  "ABBASIYA (KUWAIT)": "EZZY MOHALLA (ABBASIYA - KUWAIT)",
+  "ABRAQ KHAITAIN (KUWAIT)": "SAIFEE MOHALLA (ABRAQ KHAITAN-KUWAIT)",
+  "FAHAHIL (KUWAIT)": "BURHANI MOHALLA (FAHAHIL-KUWAIT)",
+  "HAWALLI (KUWAIT)": "HAKIMI MOHALLA (HAWALLI-KUWAIT)",
+  "JAHRA (KUWAIT)": "HATEMI MOHALLA (JAHRA-KUWAIT)",
+  "KHAITAN (KUWAIT)": "TAHERI MOHALLA (KHAITAN-KUWAIT)",
+  KUWAIT: "KUWAIT (MUFADDAL MOHALLA - SALMIYAH)",
+  "MIRQAB - KUWAIT": "JAMALI MOHALLA (MIRQAB-KUWAIT)",
+  "MOHAMMEDI MOHALLA (KUWAIT)": "MOHAMMEDI MOHALLA (ISTIQLAL-KUWAIT)",
+};
+async function mastersKuwaitAmmar() {
+  const Jamiat = require("../models/Jamiat");
+  const Jamaat = require("../models/Jamaat");
+  const data = require("../seed/masters-2026-11.json");
+  const seed = (jt, name) => data.jamaats.find((r) => r.jamiat === jt && r.name === name) || {};
+  const renamed = [];
+  const added = [];
+  const kw = await Jamiat.findOne({ name: "KUWAIT", ...notDeletedQ() }).lean();
+  if (kw) {
+    const have = new Map((await Jamaat.find({ jamiat: kw._id }).select("name nameAr").lean()).map((m) => [m.name, m]));
+    for (const [from, to] of Object.entries(KUWAIT_RENAME)) {
+      const m = have.get(from);
+      if (!m || have.has(to)) continue;
+      const set = { name: to };
+      if (!m.nameAr && seed("KUWAIT", to).nameAr) set.nameAr = seed("KUWAIT", to).nameAr;
+      await Jamaat.updateOne({ _id: m._id }, { $set: set });
+      have.set(to, m);
+      renamed.push({ from, to });
+    }
+    for (const r of data.jamaats.filter((x) => x.jamiat === "KUWAIT")) {
+      if (have.has(r.name) || Object.values(KUWAIT_RENAME).includes(r.name)) continue;
+      await Jamaat.create({ jamiat: kw._id, name: r.name, nameAr: r.nameAr, mauzeType: r.mauzeType, isActive: true });
+      added.push(`${r.name} (KUWAIT)`);
+    }
+  }
+  const indore = await Jamiat.findOne({ name: "INDORE", ...notDeletedQ() }).lean();
+  const ammar = seed("INDORE", "AMMAR NAGAR (INDORE)");
+  if (indore && ammar.name && !(await Jamaat.exists({ jamiat: indore._id, name: ammar.name }))) {
+    await Jamaat.create({ jamiat: indore._id, name: ammar.name, nameAr: ammar.nameAr, mauzeType: ammar.mauzeType, isActive: true, country: "India", timeZone: "Asia/Kolkata" });
+    added.push(`${ammar.name} (INDORE)`);
+  }
+  console.log(`[migrate] Kuwait / Ammar Nagar: ${renamed.length} renamed, ${added.length} added`);
+  if (renamed.length || added.length) {
+    await AuditLog.create({
+      action: "master_created", username: "system", role: "system",
+      target: { type: "masters", id: "masters-2026-11-kuwait", label: "Kuwait Mohallas renamed as in master_check, AMMAR NAGAR (INDORE) added (automatic)" },
+      details: { renamed, added },
+    });
+  }
   return [];
 }
 

@@ -159,12 +159,20 @@ router.get("/formats/:id/sample", admin, async (req, res, next) => {
   try {
     const f = await findFormat(req.params.id, true);
     const w = mmOf(req.query.w, "Photo width") || f.photoW, h = mmOf(req.query.h, "Photo height") || f.photoH;
-    const out = await R.buildReport({ bytes: Buffer.from(f.file.buffer || f.file), layout: f.layout, photoSize: { w, h }, groups: R.sampleGroups(f.layout), loadPhoto: async () => null, title: `${f.name} - sample` });
+    const out = await R.buildReport({ bytes: Buffer.from(f.file.buffer || f.file), layout: f.layout, photoSize: { w, h }, groups: R.sampleGroups(f.layout, await sampleNames(f.layout)), loadPhoto: async () => null, title: `${f.name} - sample` });
     res.set("Content-Type", "application/pdf");
     res.set("Content-Disposition", disposition("attachment", `${fileSafe(f.name)} - sample.pdf`));
     res.send(Buffer.from(out.bytes));
   } catch (err) { sendFail(err, res, next); }
 });
+
+/** Real Jamaats with Arabic names for the sample (so the Arabic font and sizes can be checked). */
+async function sampleNames(layout) {
+  const need = layout.slots.length * 2;
+  const jms = await Jamaat.find({ isActive: true, ...notDeleted(), nameAr: { $nin: ["", null] } }).select("name nameAr jamiat").sort({ name: 1 }).limit(need).lean();
+  const jts = new Map((await Jamiat.find({ _id: { $in: jms.map((j) => j.jamiat) } }).select("name nameAr").lean()).map((j) => [String(j._id), j]));
+  return jms.map((j) => { const jt = jts.get(String(j.jamiat)) || {}; return { jamiat: jt.name || "", jamiatAr: jt.nameAr || "", jamaat: j.name, jamaatAr: j.nameAr }; });
+}
 
 // ---------- forms and their photos ----------
 const stagesFor = (req) => (req.user.role === "superadmin" ? ["testing", "published", "closed"] : ["published", "closed"]);
@@ -179,7 +187,7 @@ async function findForm(req, code) {
 
 /** Active Jamaats this person may see (JC: theirs inside their Jamiats), with the Jamiat name, Jamiat then Jamaat A-Z. */
 async function jamaatsInScope(req) {
-  const jts = await Jamiat.find({ isActive: true, ...notDeleted() }).select("name").lean();
+  const jts = await Jamiat.find({ isActive: true, ...notDeleted() }).select("name nameAr").lean();
   const q = { isActive: true, ...notDeleted(), jamiat: { $in: jts.map((j) => j._id) } };
   if (req.user.role === "jc") {
     const u = await User.findById(req.user.id).select("jamiats jamaats").lean();
@@ -187,9 +195,9 @@ async function jamaatsInScope(req) {
     q._id = { $in: (u && u.jamaats) || [] };
     q.jamiat = { $in: jts.filter((j) => allowed.has(String(j._id))).map((j) => j._id) };
   }
-  const jms = await Jamaat.find(q).select("name jamiat").lean();
-  const jtName = new Map(jts.map((j) => [String(j._id), j.name]));
-  return jms.map((j) => ({ _id: j._id, name: j.name, jamiat: jtName.get(String(j.jamiat)) || "" }))
+  const jms = await Jamaat.find(q).select("name nameAr jamiat").lean();
+  const jtOf = new Map(jts.map((j) => [String(j._id), j]));
+  return jms.map((j) => { const jt = jtOf.get(String(j.jamiat)) || {}; return { _id: j._id, name: j.name, nameAr: j.nameAr || "", jamiat: jt.name || "", jamiatAr: jt.nameAr || "" }; })
     .sort((a, b) => a.jamiat.localeCompare(b.jamiat) || a.name.localeCompare(b.name));
 }
 
@@ -347,7 +355,7 @@ const jobOut = (j) => ({
   failed: j.failed || 0, jamaats: j.jamaats || 0, photos: j.photos || 0, notFilled: j.notFilled || 0, noPhoto: j.noPhoto || 0,
 });
 
-async function runJob(job, { req, form, format }) {
+async function runJob(job, { req, form, format, fileName }) {
   job.status = "running";
   job.step = "Reading the responses";
   const list = await photosOf(req, form);
@@ -355,7 +363,7 @@ async function runJob(job, { req, form, format }) {
   const slots = format.layout.slots;
   const maxPer = Math.max(...slots.map((s) => s.images.length));
   const upOf = new Map(filled.flatMap((x) => x.photos.map((p) => [String(p._id), p])));
-  const groups = filled.map((x) => ({ jamiat: x.jamaat.jamiat, jamaat: x.jamaat.name, photos: x.chosen.slice(0, maxPer).map((id) => upOf.get(id)) }))
+  const groups = filled.map((x) => ({ jamiat: x.jamaat.jamiat, jamiatAr: x.jamaat.jamiatAr, jamaat: x.jamaat.name, jamaatAr: x.jamaat.nameAr, photos: x.chosen.slice(0, maxPer).map((id) => upOf.get(id)) }))
     .filter((g) => g.photos.length);
   const noPhoto = filled.filter((x) => !x.chosen.length);
   const notFilled = list.filter((x) => !x.filled);
@@ -386,7 +394,7 @@ async function runJob(job, { req, form, format }) {
   };
 
   await fs.promises.mkdir(DIR, { recursive: true });
-  const base = fileSafe(form.title);
+  const base = fileName || fileSafe(form.title);
   const made = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
   job.files = {};
   if (groups.length) {
@@ -394,7 +402,7 @@ async function runJob(job, { req, form, format }) {
     const out = await R.buildReport({ bytes: Buffer.from(format.file.buffer || format.file), layout: format.layout, photoSize: { w: format.photoW, h: format.photoH }, groups, loadPhoto, title: form.title });
     const p = path.join(DIR, `${job.id}-photos.pdf`);
     await fs.promises.writeFile(p, out.bytes);
-    job.files.photos = { path: p, name: `${base} - report.pdf`, pages: out.pages, size: out.bytes.length };
+    job.files.photos = { path: p, name: fileName ? `${base}.pdf` : `${base} - report.pdf`, pages: out.pages, size: out.bytes.length };
     job.failed = out.failed;
     job.photos = job.total - out.failed;
   }
@@ -423,6 +431,9 @@ router.post("/generate", async (req, res, next) => {
     const b = req.body || {};
     const form = await findForm(req, b.form);
     const format = await findFormat(b.format, true);
+    // the name the report is downloaded as (typed on the Generate page; empty = "<form title> - report")
+    const typed = clean(String(b.name || "").replace(/\.pdf\s*$/i, ""), 120);
+    const fileName = typed ? fileSafe(typed) : "";
     sweep();
     const running = [...jobs.values()].find((j) => j.owner === req.user.id && (j.status === "queued" || j.status === "running"));
     if (running) throw new InputError("Your last report is still being made. Wait for it to finish.", 409);
@@ -430,7 +441,7 @@ router.post("/generate", async (req, res, next) => {
     jobs.set(job.id, job);
     const user = { ...req.user };
     const fakeReq = { user, ip: req.ip, headers: req.headers, get: req.get.bind(req), originalUrl: req.originalUrl, method: req.method, sessionId: req.sessionId, socket: req.socket };
-    queue = queue.then(() => runJob(job, { req: fakeReq, form, format }).catch((err) => {
+    queue = queue.then(() => runJob(job, { req: fakeReq, form, format, fileName }).catch((err) => {
       job.status = "failed";
       job.error = err && err.expose ? err.message : "The report couldn't be made. Try again.";
       if (!(err && err.expose)) console.error("report failed:", err);

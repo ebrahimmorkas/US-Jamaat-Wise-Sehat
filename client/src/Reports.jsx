@@ -96,9 +96,13 @@ function Generate({ forms, formats, role, fail }) {
   const [format, setFormat] = useState(formats.length === 1 ? formats[0].id : "");
   const [job, setJob] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [name, setName] = useState(""); // the report's file name; "" until typed = the default below
+  const [typed, setTyped] = useState(false);
   const running = job && (job.status === "queued" || job.status === "running");
   const fmt = formats.find((f) => f.id === format);
   const fm = forms.find((f) => f.code === form);
+  const defaultName = fm ? `${fm.title} – Report – ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : "";
+  const fileName = typed ? name : defaultName;
 
   useEffect(() => {
     if (!running) return undefined;
@@ -108,7 +112,7 @@ function Generate({ forms, formats, role, fail }) {
 
   const start = async () => {
     setBusy(true);
-    try { setJob((await reportGenerate(form, format)).job); } catch (e) { fail(e); } finally { setBusy(false); }
+    try { setJob((await reportGenerate(form, format, fileName.trim() || defaultName)).job); } catch (e) { fail(e); } finally { setBusy(false); }
   };
   const save = async (which) => { try { await reportJobFile(job.id, which); } catch (e) { fail(e); } };
 
@@ -117,7 +121,7 @@ function Generate({ forms, formats, role, fail }) {
     <section className="panel rp-gen">
       <div className="rp-gen-row">
         <label className="field rp-field"><span className="field-label">Form</span>
-          <select className="input" value={form} onChange={(e) => { setForm(e.target.value); setJob(null); }} disabled={running}>
+          <select className="input" value={form} onChange={(e) => { setForm(e.target.value); setJob(null); setTyped(false); setName(""); }} disabled={running}>
             <option value="">Choose a form…</option>
             {forms.map((f) => <option key={f.code} value={f.code}>{formLabel(f)}</option>)}
           </select>
@@ -132,6 +136,15 @@ function Generate({ forms, formats, role, fail }) {
           {busy || running ? "Generating…" : "Generate"}
         </button>
       </div>
+      {fm && (
+        <label className="field rp-name"><span className="field-label">Report file name</span>
+          <span className="rp-name-row">
+            <input className="input" value={fileName} maxLength={120} disabled={running} onChange={(e) => { setTyped(true); setName(e.target.value); }} />
+            <span className="rp-ext">.pdf</span>
+            {typed && fileName !== defaultName && <button type="button" className="btn btn-ghost btn-sm" disabled={running} onClick={() => { setTyped(false); setName(""); }}>Use default</button>}
+          </span>
+        </label>
+      )}
       {!formats.length && <p className="field-hint">{role === "superadmin" ? "Upload a format first (Formats tab)." : "The Super Admin hasn't uploaded a report format yet."}</p>}
       {fmt && <p className="field-hint rp-fmt-sum">{fmt.summary}{fm ? ` Photos per Jamaat for this form: ${fm.photosPerJamaat}${fm.photosPerJamaat > fmt.photos ? ` (the format has ${fmt.photos} — extra photos are left out)` : ""}.` : ""}</p>}
       {role === "jc" && <p className="field-hint">Only your Jamaats are in the report.</p>}

@@ -2425,3 +2425,9 @@ a.em-file:hover { border-color: var(--brand); }
   .rp-grid { grid-template-columns: repeat(2, 1fr); }
   .rp-jm-foot .field-hint { width: 100%; }
 }
+
+/* Reports: the report's file name on Generate */
+.rp-name { margin-top: 14px; width: 100%; max-width: 640px; }
+.rp-name-row { display: flex; align-items: center; gap: 8px; width: 100%; }
+.rp-name-row .input { flex: 1; min-width: 0; }
+.rp-ext { color: var(--muted); font-size: 0.9rem; }

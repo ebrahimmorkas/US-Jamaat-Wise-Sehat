@@ -14,6 +14,36 @@ const {
   decodePDFRawStream, StandardFonts, rgb, degrees,
   pushGraphicsState, popGraphicsState, rectangle, clip, endPath,
 } = require("pdf-lib");
+const fs = require("fs");
+const path = require("path");
+const fontkit = require("@pdf-lib/fontkit");
+
+// Arabic names are written in the Al-Kanz font (the Arabic names were typed for it: e.g. "ثث" shows as "پ").
+// REPORT_ARABIC_FONT = another .ttf to use instead. No font file = English names only.
+const ARABIC_FONT = process.env.REPORT_ARABIC_FONT || path.join(__dirname, "..", "..", "assets", "fonts", "Al-Kanz.ttf");
+let arabic; // { bytes, kit } | null
+function arabicFont() {
+  if (arabic === undefined) {
+    try { const bytes = fs.readFileSync(ARABIC_FONT); arabic = { bytes, kit: fontkit.create(bytes) }; } catch {
+      arabic = null;
+      console.warn(`[reports] Arabic font not found (${ARABIC_FONT}): reports show English names`);
+    }
+  }
+  return arabic;
+}
+const HAS_ARABIC = /[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]/;
+const AR_SCALE = 1.2; // Al-Kanz letters look smaller than Helvetica at the same size
+const MIRROR = { "(": ")", ")": "(", "[": "]", "]": "[", "{": "}", "}": "{", "<": ">", ">": "<" };
+/** The font lays Arabic out right to left as a whole: brackets must be mirrored and numbers / English kept left to right. */
+const rtlText = (s) => s.replace(/[()[\]{}<>]/g, (c) => MIRROR[c]).replace(/[0-9A-Za-z]{2,}/g, (w) => [...w].reverse().join(""));
+/** The Arabic name ready to draw, or "" when there is none / the font can't show it (then the English name is used). */
+function arabicOf(value) {
+  const a = arabicFont();
+  const t = String(value || "").normalize("NFC").replace(/\s+/g, " ").trim();
+  if (!a || !t || !HAS_ARABIC.test(t)) return "";
+  if ([...t].some((ch) => ch !== " " && !a.kit.hasGlyphForCodePoint(ch.codePointAt(0)))) return "";
+  return rtlText(t);
+}
 
 class FormatError extends Error {
   constructor(message) { super(message); this.status = 400; this.expose = true; }
@@ -658,6 +688,10 @@ async function buildReport({ bytes, layout, photoSize, groups, loadPhoto, title 
   const [A] = await out.embedPdf(withBoxes, [0]);
   const [B] = await out.embedPdf(noBoxes, [0]);
   const fonts = { r: await out.embedFont(StandardFonts.Helvetica), b: await out.embedFont(StandardFonts.HelveticaBold) };
+  if (groups.some((g) => arabicOf(g.jamiatAr) || arabicOf(g.jamaatAr))) {
+    out.registerFontkit(fontkit);
+    fonts.ar = await out.embedFont(arabicFont().bytes, { subset: true });
+  }
   const safe = SAFE(fonts.r);
   const P = layout.page;
   const W = Math.max(5, Number(photoSize && photoSize.w) || 50) * MM;
@@ -724,11 +758,13 @@ async function buildReport({ bytes, layout, photoSize, groups, loadPhoto, title 
         page.drawImage(img, { x: X(cx - w / 2), y: Y(cy - h / 2), width: w, height: h });
       });
       // names
-      const put = (t, value) => {
-        const font = t.bold ? fonts.b : fonts.r;
-        const text = safe(value);
+      // the Arabic name in Al-Kanz; the English name when there is no Arabic one
+      const put = (t, value, valueAr) => {
+        const ar = fonts.ar ? arabicOf(valueAr) : "";
+        const font = ar ? fonts.ar : t.bold ? fonts.b : fonts.r;
+        const text = ar || safe(value);
         if (!text) return;
-        let size = t.size;
+        let size = ar ? t.size * AR_SCALE : t.size;
         const width = () => font.widthOfTextAtSize(text, size);
         while (size > 5 && width() > t.maxW) size -= 0.5;
         const w = width();
@@ -737,19 +773,23 @@ async function buildReport({ bytes, layout, photoSize, groups, loadPhoto, title 
         const base = t.bbox.y0 + 0.22 * t.size; // the placeholder's baseline
         page.drawText(text, { x: X(x), y: Y(base), size, font, color: rgb(...t.fill.map((v) => Math.min(1, Math.max(0, v)))) });
       };
-      slot.jamaat.forEach((t) => put(t, g.jamaat));
-      slot.jamiat.forEach((t) => put(t, g.jamiat));
+      slot.jamaat.forEach((t) => put(t, g.jamaat, g.jamaatAr));
+      slot.jamiat.forEach((t) => put(t, g.jamiat, g.jamiatAr));
     }
   }
   return { bytes: await out.save(), pages, failed };
 }
 
-/** Sample report for the Super Admin: page 1 every place full, page 2 one photo less (if a Jamaat has 2+ boxes). */
-function sampleGroups(layout) {
+/**
+ * Sample report for the Super Admin: page 1 every place full, page 2 one photo less (if a Jamaat has 2+ boxes).
+ * names = real Jamaats ({jamiat, jamiatAr, jamaat, jamaatAr}) so the Arabic names can be checked; else "Jamaat 1"...
+ */
+function sampleGroups(layout, names = []) {
   const S = layout.slots.length;
-  const one = layout.slots.map((s, k) => ({ jamiat: `Jamiat ${k + 1}`, jamaat: `Jamaat ${k + 1}`, photos: s.images.map(() => "sample") }));
+  const nm = (k, extra = "") => (names[k] ? { ...names[k] } : { jamiat: `Jamiat ${k + 1}`, jamaat: `Jamaat ${k + 1}${extra}` });
+  const one = layout.slots.map((s, k) => ({ ...nm(k), photos: s.images.map(() => "sample") }));
   const fewer = layout.slots.some((s) => s.images.length > 1)
-    ? layout.slots.map((s, k) => ({ jamiat: `Jamiat ${S + k + 1}`, jamaat: `Jamaat ${S + k + 1} (fewer photos)`, photos: s.images.slice(1).map(() => "sample") })).slice(0, Math.max(1, S - 1))
+    ? layout.slots.map((s, k) => ({ ...nm(S + k, " (fewer photos)"), photos: s.images.slice(1).map(() => "sample") })).slice(0, Math.max(1, S - 1))
     : [];
   return [...one, ...fewer];
 }
@@ -797,4 +837,4 @@ async function notFilledPdf({ title, sections, note }) {
   return doc.save();
 }
 
-module.exports = { analyze, describe, buildReport, sampleGroups, notFilledPdf, FormatError, MM, _test: { parseOps, readPage, textRuns } };
+module.exports = { analyze, describe, buildReport, sampleGroups, notFilledPdf, FormatError, MM, _test: { parseOps, readPage, textRuns, rtlText, arabicOf } };
