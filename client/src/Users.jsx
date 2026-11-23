@@ -13,6 +13,7 @@ const ROLES = [
   { key: "saheb", label: "Saheb", hint: "Sees the Sahebo dashboard" },
   { key: "superadmin", label: "Super Admin", hint: "Manages users, masters and portal fields" },
   { key: "jamaat_coordinator", label: "Jamaat Coordinator", hint: "Fills the forms built on the Forms page. One Coordinator per Jamaat." },
+  { key: "media", label: "Media", hint: "Sees only the photos Jamaats uploaded in forms, chooses which go in the reports, downloads photos and generates reports." },
 ];
 const roleLabel = (k) => (ROLES.find((r) => r.key === k) || { label: k }).label;
 
@@ -202,7 +203,7 @@ export default function Users({ onAuthExpired }) {
       <section className="page-head">
         <div className="page-title">
           <h1>Users</h1>
-          <p className="page-sub">Everyone signs in with Google. Only the Gmail addresses listed here can sign in. {plural(countOf("jc"), "JC")} · {plural(countOf("saheb"), "Saheb")} · {plural(countOf("superadmin"), "Super Admin")} · {plural(countOf("jamaat_coordinator"), "Jamaat Coordinator")}.</p>
+          <p className="page-sub">Everyone signs in with Google. Only the Gmail addresses listed here can sign in. {plural(countOf("jc"), "JC")} · {plural(countOf("saheb"), "Saheb")} · {plural(countOf("superadmin"), "Super Admin")} · {plural(countOf("jamaat_coordinator"), "Jamaat Coordinator")} · {countOf("media")} Media.</p>
         </div>
       </section>
 

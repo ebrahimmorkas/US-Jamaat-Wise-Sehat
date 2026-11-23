@@ -53,6 +53,11 @@ const ACTIONS = [
   "email_template_deleted",
   "email_template_restored",
   "reminder_sent", // "Send reminder" on a form's Jamaat status page
+  "report_format_saved",    // a report format (PDF) added / changed
+  "report_format_deleted",
+  "report_photos_chosen",   // Media chose a Jamaat's photos / the number of photos per Jamaat
+  "report_generated",       // a report (PDF) was made
+  "report_photo_downloaded",
   "email_file_published",   // an image / document put inside an email (public link)
   "form_response_edited", // ... and changed their response
   // data changes (audit trail)

@@ -38,7 +38,7 @@ const FIXED = [
   { key: "Contact address", group: "Contact", hint: "CONTACT_ADDRESS" },
   { key: "Contact website", group: "Contact", hint: "CONTACT_WEBSITE" },
 ];
-const ROLE_ONE = { jamaat_coordinator: "Jamaat Coordinator", jc: "JC", saheb: "Saheb", superadmin: "Super Admin" };
+const ROLE_ONE = { jamaat_coordinator: "Jamaat Coordinator", jc: "JC", saheb: "Saheb", superadmin: "Super Admin", media: "Media" };
 const norm = (s) => String(s || "").replace(/\s+/g, " ").trim().toLowerCase();
 
 /** Columns of the current Data Excel (not its Jamiat / Jamaat columns). */

@@ -1701,6 +1701,8 @@ dialog.purge-dlg { width: min(560px, calc(100vw - 32px)); }
 .brand-name, .brand-sub { white-space: nowrap; }
 .app-nav a { white-space: nowrap; }
 @media (min-width: 721px) {
+  .brand { min-width: 0; } /* lets the tabs scroll instead of pushing the page wider */
+  .appbar-inner > .sync { flex-shrink: 0; }
   .app-nav { min-width: 0; overflow-x: auto; scrollbar-width: none; }
   .app-nav::-webkit-scrollbar { display: none; }
 }
@@ -1728,6 +1730,7 @@ dialog.purge-dlg { width: min(560px, calc(100vw - 32px)); }
 
 /* ======================= Forms ======================= */
 .pill.role-jamaat_coordinator { background: var(--soft-warn); color: var(--t-warn); }
+.pill.role-media { background: var(--soft-good); color: var(--t-good); }
 .tester-pill { margin-left: 6px; }
 .tester-check { align-self: end; padding-bottom: 10px; }
 .field.wide { width: 100%; }
@@ -2357,3 +2360,52 @@ a.em-file:hover { border-color: var(--brand); }
 .em-notified { margin-right: 4px; }
 .rm-dlg-body .field select, .rm-dlg-body .field .input { width: 100%; }
 .rm-dlg-foot .btn span.rm-send-label { display: inline !important; }
+
+/* ---------- Reports ---------- */
+.rp-page .btn-ghost { margin-left: 0; }
+.rp-field { width: 300px; }
+.rp-gen, .rp-add, .rp-fmt, .rp-help, .rp-choose-head { padding: 18px 20px; margin-bottom: 16px; }
+.rp-gen-row, .rp-add-row, .rp-fmt-edit, .rp-choose-head { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+.rp-go { height: 40px; }
+.rp-fmt-sum { margin-top: 10px; }
+.rp-job { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 14px; }
+.rp-step { font-size: 14px; margin-bottom: 8px; }
+.rp-bar { height: 8px; border-radius: 99px; background: var(--surface-2); overflow: hidden; max-width: 520px; }
+.rp-bar span { display: block; height: 100%; background: var(--brand); transition: width .4s; }
+.rp-done-title { font-weight: 600; font-size: 15px; }
+.rp-facts { margin: 8px 0 12px; padding-left: 18px; font-size: 13.5px; color: var(--ink-2); }
+.rp-warn { color: var(--t-warn); }
+.rp-dl, .rp-fmt-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 6px 0; }
+.rp-help h2, .rp-add h2 { font-size: 16px; margin: 0 0 8px; }
+.rp-help ol { margin: 0 0 8px; padding-left: 20px; font-size: 13.5px; line-height: 1.6; }
+.rp-fmt-name { font-size: 15.5px; }
+.rp-fmt-edit { margin: 14px 0 6px; }
+.rp-mm { width: 150px; }
+.rp-del { color: var(--t-bad); }
+.rp-fmt-actions .is-disabled { opacity: .6; pointer-events: none; }
+.rp-count { display: flex; gap: 10px; align-items: flex-end; }
+.rp-count-field { width: 150px; }
+.rp-meta { font-size: 13px; color: var(--muted); margin: 0 0 10px; }
+.rp-filters { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.rp-filters .input { width: 220px; max-width: 100%; }
+.rp-jm { padding: 14px 16px; margin-bottom: 12px; }
+.rp-jm-head { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.rp-jt { color: var(--muted); font-size: 13px; margin-left: 6px; }
+.rp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; }
+.rp-ph { display: flex; flex-direction: column; gap: 4px; }
+.rp-ph-pick { position: relative; padding: 0; border: 2px solid var(--border); border-radius: 10px; background: var(--surface-2); aspect-ratio: 1; overflow: hidden; cursor: pointer; }
+.rp-ph-pick img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.rp-ph.is-on .rp-ph-pick { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand); }
+.rp-ph-pick:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.rp-ph-n { position: absolute; top: 6px; left: 6px; min-width: 24px; height: 24px; border-radius: 99px; background: var(--brand); color: var(--brand-ink); font-weight: 700; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+.rp-ph-links { display: flex; justify-content: space-between; font-size: 12px; }
+.rp-note { color: var(--t-warn); font-size: 13px; margin: 8px 0 0; }
+.rp-jm-foot { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 12px; }
+.rp-jm-foot .field-hint { margin-right: auto; }
+.rp-more { display: block; margin: 4px auto 20px; }
+@media (max-width: 640px) {
+  .rp-field, .rp-filters .input { width: 100%; }
+  .rp-gen-row .btn, .rp-add-row .btn { width: 100%; }
+  .rp-grid { grid-template-columns: repeat(2, 1fr); }
+  .rp-jm-foot .field-hint { width: 100%; }
+}

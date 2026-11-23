@@ -59,7 +59,7 @@ function toText(html) {
     .replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-const ROLE_ONE = { jamaat_coordinator: "Jamaat Coordinator", jc: "JC", saheb: "Saheb", superadmin: "Super Admin" };
+const ROLE_ONE = { jamaat_coordinator: "Jamaat Coordinator", jc: "JC", saheb: "Saheb", superadmin: "Super Admin", media: "Media" };
 /** The email as it is sent: the message inside a simple branded frame, signed with who sent it. */
 /**
  * The email as it is sent to one person: variables filled, inside a simple branded frame, signed with who sent it.

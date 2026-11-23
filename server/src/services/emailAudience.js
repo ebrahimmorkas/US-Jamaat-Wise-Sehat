@@ -13,8 +13,8 @@ const { notDeleted } = require("../lib/softDelete");
 const { InputError } = require("../lib/validate");
 const F = require("./forms");
 
-const ROLES = { jamaat_coordinator: "Jamaat Coordinators", jc: "JCs", saheb: "Sahebs", superadmin: "Super Admins" };
-const ROLE_ONE = { jamaat_coordinator: "Jamaat Coordinator", jc: "JC", saheb: "Saheb", superadmin: "Super Admin" };
+const ROLES = { jamaat_coordinator: "Jamaat Coordinators", jc: "JCs", saheb: "Sahebs", superadmin: "Super Admins", media: "Media" };
+const ROLE_ONE = { jamaat_coordinator: "Jamaat Coordinator", jc: "JC", saheb: "Saheb", superadmin: "Super Admin", media: "Media" };
 const MAX = 5000;
 
 const strList = (v, max = 2000) => (Array.isArray(v) ? v : []).map((x) => String(x == null ? "" : x).trim()).filter(Boolean).slice(0, max);

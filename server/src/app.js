@@ -88,6 +88,7 @@ app.use("/api/forms", formsRoutes); // forms the Super Admin builds; JC links; a
 app.use("/api/form-results", require("./routes/formResults")); // responses of forms (Super Admin, Saheb, JC)
 app.use("/api/coordinator", require("./routes/coordinator")); // the Jamaat Coordinator portal (own responses, notifications, profile)
 app.use("/api/emails", require("./routes/emails")); // "Send email" (Super Admin, Saheb) + email provider settings
+app.use("/api/reports", require("./routes/reports")); // report formats (PDF), Media's photo choice, generating reports
 app.use("/api/f", formFillRoutes); // filling a form (sign-in depends on the form) // Stats image (Super Admin uploads; every portal sees it + history)
 app.use("/api/metrics", metricsRoutes); // JC metrics (JC writes their own; Saheb / Super Admin read)
 app.use("/api/data", dataRoutes); // Data tab (Excel upload by Super Admin; JCs see their Jamaats)

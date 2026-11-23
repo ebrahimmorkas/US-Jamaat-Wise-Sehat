@@ -56,6 +56,11 @@ const ACTION_LABELS = {
   email_template_deleted: "Deleted an email template",
   email_template_restored: "Restored an email template",
   reminder_sent: "Sent a form reminder",
+  report_format_saved: "Saved a report format",
+  report_format_deleted: "Deleted a report format",
+  report_photos_chosen: "Chose photos for a report",
+  report_generated: "Generated a report",
+  report_photo_downloaded: "Downloaded a form photo",
   email_file_published: "Added an image / document to an email",
   form_response_edited: "Changed a form response",
   logs_deleted: "Deleted logs permanently",
@@ -74,7 +79,7 @@ const ACTION_LABELS = {
   master_deleted: "Deleted from masters (status D)",
   master_restored: "Restored in masters",
 };
-const ROLE_LABELS = { saheb: "Saheb", superadmin: "Super Admin", jc: "JC" };
+const ROLE_LABELS = { saheb: "Saheb", superadmin: "Super Admin", jc: "JC", jamaat_coordinator: "Jamaat Coordinator", media: "Media" };
 const REASONS = {
   not_registered: "Gmail not registered",
   inactive: "account deactivated",

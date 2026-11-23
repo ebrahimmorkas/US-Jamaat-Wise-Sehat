@@ -337,3 +337,29 @@ export const templateCreate = (body) => raw("/api/emails/templates", { method: "
 export const templateSave = (id, body) => raw(`/api/emails/templates/${id}`, { method: "PUT", body });
 export const templateDelete = (id) => raw(`/api/emails/templates/${id}`, { method: "DELETE" });
 export const templateRestore = (id) => raw(`/api/emails/templates/${id}/restore`, { method: "POST" });
+
+// Reports: formats (Super Admin), Media's photo choice, generating (Super Admin, Saheb, JC, Media).
+async function saveBlob(path) {
+  const { blob, name } = await request(path, { blob: true });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+const enc = encodeURIComponent;
+export const reportFormats = () => request("/api/reports/formats");
+export const reportFormatAdd = (name, file, onProgress) => request(`/api/reports/formats?name=${enc(name)}`, { method: "POST", file, onProgress });
+export const reportFormatSave = (id, body) => request(`/api/reports/formats/${enc(id)}`, { method: "PUT", body });
+export const reportFormatReplace = (id, file, onProgress) => request(`/api/reports/formats/${enc(id)}/file`, { method: "PUT", file, onProgress });
+export const reportFormatDelete = (id) => request(`/api/reports/formats/${enc(id)}`, { method: "DELETE" });
+export const reportFormatFile = (id) => saveBlob(`/api/reports/formats/${enc(id)}/file`);
+export const reportFormatSample = (id, w, h) => saveBlob(`/api/reports/formats/${enc(id)}/sample?w=${enc(w || "")}&h=${enc(h || "")}`);
+export const reportForms = () => request("/api/reports/forms");
+export const reportPhotos = (code) => request(`/api/reports/forms/${enc(code)}/photos`);
+export const reportSetCount = (code, count) => request(`/api/reports/forms/${enc(code)}/count`, { method: "PUT", body: { count } });
+export const reportPick = (code, jamaat, photos) => request(`/api/reports/forms/${enc(code)}/picks`, { method: "PUT", body: { jamaat, photos } });
+export const reportPhotoFile = (id) => saveBlob(`/api/reports/photos/${enc(id)}/file`);
+export const reportGenerate = (form, format) => request("/api/reports/generate", { method: "POST", body: { form, format } });
+export const reportJob = (id) => request(`/api/reports/jobs/${enc(id)}`);
+export const reportJobFile = (id, which) => saveBlob(`/api/reports/jobs/${enc(id)}/${which}`);

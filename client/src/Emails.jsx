@@ -17,7 +17,7 @@ import { useEmailMeta, Attachments, CopyFields, PreviewButton, Templates, Variab
 //   Sent:      every email with each person's result; cancel a scheduled one; send again to those it failed for.
 //   Settings:  (Super Admin) which provider sends — Nodemailer (default and backup) or SendGrid; test email.
 
-const ROLE_ONE = { jamaat_coordinator: "Jamaat Coordinator", jc: "JC", saheb: "Saheb", superadmin: "Super Admin" };
+const ROLE_ONE = { jamaat_coordinator: "Jamaat Coordinator", jc: "JC", saheb: "Saheb", superadmin: "Super Admin", media: "Media" };
 const STATUS = {
   scheduled: { label: "Scheduled", cls: "info" },
   sending: { label: "Sending", cls: "warn" },

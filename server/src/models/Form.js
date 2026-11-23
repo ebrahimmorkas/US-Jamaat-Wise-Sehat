@@ -76,6 +76,8 @@ const formSchema = new mongoose.Schema(
     // Emails & reminders: email templates sent automatically (services/reminders), only after the form is Published,
     // each rule once, only to the Jamaats that haven't filled it.
     reminders: { type: [reminderSchema], default: [] },
+    // Reports: how many photos of each Jamaat go in the report (Media types it, then chooses them).
+    reportPhotos: { type: Number, min: 1, max: 10, default: 2 },
     // Defaults for image questions (each image question can set its own).
     imageExt: { type: [String], default: undefined },
     imageMaxMb: { type: Number, default: null },

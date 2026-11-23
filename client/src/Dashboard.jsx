@@ -6,7 +6,7 @@ import MetricCard from "./components/MetricCard";
 import SidePanel from "./components/SidePanel";
 import ListDialog from "./components/ListDialog";
 import CommentsDialog from "./components/CommentsDialog";
-import { BriefcaseIcon, CommentIcon, GridIcon, ImageIcon, SendIcon, TableIcon } from "./components/Icons";
+import { BriefcaseIcon, CommentIcon, GridIcon, ImageIcon, ReportIcon, SendIcon, TableIcon } from "./components/Icons";
 import Skeleton from "./components/Skeleton";
 import { useDashboardData } from "./hooks/useDashboardData";
 import { useRealtimeStatus } from "./hooks/useRealtime";
@@ -22,6 +22,7 @@ export const SAHEB_NAV = [
   { to: "/stats", label: "Stats", icon: <ImageIcon /> },
   { to: "/responses", label: "Form responses", icon: <TableIcon /> },
   { to: "/emails", label: "Send email", icon: <SendIcon /> },
+  { to: "/reports", label: "Reports", icon: <ReportIcon /> },
 ];
 
 export default function Dashboard({ user, onSignOut, onAuthExpired, theme, onToggleTheme }) {

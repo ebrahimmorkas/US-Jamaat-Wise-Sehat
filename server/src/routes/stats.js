@@ -44,7 +44,7 @@ const changed = () => {
 };
 const clean = (v, n) => String(v == null ? "" : v).replace(/\s+/g, " ").trim().slice(0, n);
 
-router.get("/", async (req, res, next) => {
+router.get("/", requireRole("saheb", "superadmin", "jc"), async (req, res, next) => {
   try {
     res.set("Cache-Control", "no-store");
     let only = null; // JC: their Jamiats

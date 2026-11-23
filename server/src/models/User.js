@@ -6,7 +6,7 @@ const { softDeleteFields } = require("../lib/softDelete");
 //   superadmin -> Super Admin portal (users, masters, portal fields)
 //   jc         -> JC (Jamiat Coordinator) portal, only for the Jamiats / Jamaats assigned to them
 //   jamaat_coordinator -> fills the forms the Super Admin builds ("My forms"); one per Jamaat
-const ROLES = ["saheb", "superadmin", "jc", "jamaat_coordinator"];
+const ROLES = ["saheb", "superadmin", "jc", "jamaat_coordinator", "media"]; // media: chooses the photos for reports
 
 const userSchema = new mongoose.Schema(
   {

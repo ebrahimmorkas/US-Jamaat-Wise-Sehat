@@ -43,7 +43,7 @@ const out = (u) => ({
   ...deletedInfo(u),
 });
 const sameSet = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
-const ROLE_LABELS = { jc: "JC", saheb: "Saheb", superadmin: "Super Admin", jamaat_coordinator: "Jamaat Coordinator" };
+const ROLE_LABELS = { jc: "JC", saheb: "Saheb", superadmin: "Super Admin", jamaat_coordinator: "Jamaat Coordinator", media: "Media" };
 const USER_FIELDS = [["email", "Gmail"], ["role", "Role", (r) => (r ? ROLE_LABELS[r] || r : r)], ["isActive", "Active"], ["isTester", "Form tester"]];
 const userTarget = (u) => ({ type: "user", id: String(u._id), label: u.email || u.username });
 const accessOf = (u) => ({ jamiats: (u.jamiats || []).map(String), jamaats: (u.jamaats || []).map(String) });

@@ -9,6 +9,7 @@ import SahebMetrics from "./SahebMetrics";
 import SahebStats from "./SahebStats";
 import FormResponses from "./FormResponses";
 import Emails from "./Emails";
+import Reports, { MEDIA_NAV } from "./Reports";
 import { SAHEB_NAV } from "./Dashboard";
 import { JC_NAV } from "./JcDashboard";
 import JcStats from "./JcStats";
@@ -28,14 +29,17 @@ import { reportClientError } from "./lib/api";
 // Everyone signs in with Google; each role has its own home:
 //   Saheb -> "/" (dashboard)   Super Admin -> "/admin/..."   JC -> "/jc-portal" (their dashboard) + "/jc-portal/form"
 //   Jamaat Coordinator -> "/coordinator" (Home, My forms, My responses, Notifications, Profile)
-const homeOf = (role) => ({ superadmin: "/admin/users", jc: "/jc-portal/stats", jamaat_coordinator: COORD_HOME }[role] || "/"); // JC: Stats first
+//   Media -> "/media/photos" (choose the photos for reports) + "/media/reports"
+const homeOf = (role) => ({ superadmin: "/admin/users", jc: "/jc-portal/stats", jamaat_coordinator: COORD_HOME, media: "/media/photos" }[role] || "/"); // JC: Stats first
 const isJcPage = (path) => path === "/jc-portal" || path.startsWith("/jc-portal/");
+const isMediaPage = (path) => MEDIA_NAV.some((n) => n.to === path);
 const belongsTo = (role, path) =>
   role === "superadmin" ? path.startsWith("/admin/") : role === "jc" ? isJcPage(path) : role === "jamaat_coordinator" ? isCoordPage(path)
-    : !path.startsWith("/admin") && !isJcPage(path) && !path.startsWith("/coordinator");
+    : role === "media" ? isMediaPage(path)
+    : !path.startsWith("/admin") && !isJcPage(path) && !path.startsWith("/coordinator") && !path.startsWith("/media");
 // Pages that belong to a role. Opening one with another role shows "Access denied" (and is logged);
 // any other address (e.g. "/") just takes the user to their own home.
-const isRestrictedPage = (path) => path.startsWith("/admin") || isJcPage(path) || path.startsWith("/coordinator");
+const isRestrictedPage = (path) => path.startsWith("/admin") || isJcPage(path) || path.startsWith("/coordinator") || path.startsWith("/media");
 
 // Errors we don't control (browser extensions, Google's script) must not take the user to the Error page.
 const ourError = (e) => {
@@ -138,18 +142,24 @@ function Main({ path, theme, onToggleTheme }) {
       : path === "/jc-portal/metrics" ? <JcMetrics key={auth.user.id} {...common} />
       : path === "/jc-portal/stats" ? <JcStats key={auth.user.id} {...common} />
       : path === "/jc-portal/responses" ? <FormResponses key={auth.user.id} {...common} nav={JC_NAV} page="/jc-portal/responses" />
+      : path === "/jc-portal/reports" ? <Reports key={auth.user.id} {...common} nav={JC_NAV} page="/jc-portal/reports" />
       : <JcDashboard key={auth.user.id} {...common} />;
   } else if (role === "jamaat_coordinator") page = <CoordinatorPortal key={auth.user.id} {...common} path={path} />;
+  else if (role === "media") {
+    const at = isMediaPage(path) ? path : homeOf(role);
+    page = <Reports key={`${auth.user.id}${at}`} {...common} nav={MEDIA_NAV} page={at} only={at === "/media/photos" ? "photos" : "generate"} />;
+  }
   else page = path === "/jc-metrics" ? <SahebMetrics key={auth.user.id} {...common} />
     : path === "/stats" ? <SahebStats key={auth.user.id} {...common} />
     : path === "/responses" ? <FormResponses key={auth.user.id} {...common} nav={SAHEB_NAV} page="/responses" />
     : path === "/emails" ? <Emails key={auth.user.id} {...common} nav={SAHEB_NAV} page="/emails" />
+    : path === "/reports" ? <Reports key={auth.user.id} {...common} nav={SAHEB_NAV} page="/reports" />
     : <Dashboard key={auth.user.id} {...common} />;
   return (
     <>
       {page}
-      {/* The assistant, on every portal except the Jamaat Coordinator's (answers limited to what this role may see). */}
-      {role !== "jamaat_coordinator" && <ChatWidget key={`chat-${auth.user.id}`} user={auth.user} onAuthExpired={auth.expire} raised={path === "/jc-portal/form"} />}
+      {/* The assistant, on every portal except the Jamaat Coordinator's and Media's (answers limited to what this role may see). */}
+      {role !== "jamaat_coordinator" && role !== "media" && <ChatWidget key={`chat-${auth.user.id}`} user={auth.user} onAuthExpired={auth.expire} raised={path === "/jc-portal/form"} />}
     </>
   );
 }
