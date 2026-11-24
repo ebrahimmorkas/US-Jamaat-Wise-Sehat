@@ -8,6 +8,8 @@
 //     GET  /forms                   forms with photo questions (every role here)
 //     GET  /forms/:code/photos      each Jamaat's photos + the chosen ones
 //     PUT  /forms/:code/count       photos per Jamaat          PUT /forms/:code/picks  { jamaat, photos | null }
+//     PUT  /forms/:code/heading     { title, date } (Arabic)   PUT /forms/:code/description  { jamaat, text }
+//     GET  /font                    the Arabic font (so what Media types looks as it will in the report)
 //     GET  /photos/:id/file         download one photo
 //   Generate (Super Admin, Saheb, JC = own Jamaats, Media):
 //     POST /generate { form, format, name } -> { job }    GET /jobs/:id    GET /jobs/:id/:which (photos | not-filled)
@@ -26,6 +28,7 @@ const FormResponse = require("../models/FormResponse");
 const FormUpload = require("../models/FormUpload");
 const ReportFormat = require("../models/ReportFormat");
 const ReportPick = require("../models/ReportPick");
+const ReportNote = require("../models/ReportNote");
 const ReportRun = require("../models/ReportRun");
 const User = require("../models/User");
 const Jamaat = require("../models/Jamaat");
@@ -162,7 +165,7 @@ router.get("/formats/:id/sample", admin, async (req, res, next) => {
   try {
     const f = await findFormat(req.params.id, true);
     const w = mmOf(req.query.w, "Photo width") || f.photoW, h = mmOf(req.query.h, "Photo height") || f.photoH;
-    const out = await R.buildReport({ bytes: Buffer.from(f.file.buffer || f.file), layout: f.layout, photoSize: { w, h }, groups: R.sampleGroups(f.layout, await sampleNames(f.layout)), loadPhoto: async () => null, title: `${f.name} - sample` });
+    const out = await R.buildReport({ bytes: Buffer.from(f.file.buffer || f.file), layout: f.layout, photoSize: { w, h }, groups: R.sampleGroups(f.layout, await sampleNames(f.layout)), loadPhoto: async () => null, title: `${f.name} - sample`, heading: R.SAMPLE_HEADING });
     res.set("Content-Type", "application/pdf");
     res.set("Content-Disposition", disposition("attachment", `${fileSafe(f.name)} - sample.pdf`));
     res.send(Buffer.from(out.bytes));
@@ -215,10 +218,12 @@ async function photosOf(req, form) {
   const fields = photoFields(form);
   const ids = [];
   for (const r of responses) for (const fl of fields) for (const a of (r.answers || {})[fl.key] || []) if (a && a.upload) ids.push(a.upload);
-  const [ups, picks] = await Promise.all([
+  const [ups, picks, notes] = await Promise.all([
     FormUpload.find({ _id: { $in: ids }, form: form._id, kind: "image", response: { $ne: null } }).select("url endpoint name type size response createdAt").lean(),
     ReportPick.find({ form: form._id, jamaat: { $in: jms.map((j) => j._id) } }).lean(),
+    ReportNote.find({ form: form._id, jamaat: { $in: jms.map((j) => j._id) } }).select("jamaat text").lean(),
   ]);
+  const noteOf = new Map(notes.map((n) => [String(n.jamaat), n.text || ""]));
   const upOf = new Map(ups.map((u) => [String(u._id), u]));
   const pickOf = new Map(picks.map((p) => [String(p.jamaat), p]));
   const filled = new Set(responses.map((r) => String(r.jamaat)));
@@ -237,7 +242,7 @@ async function photosOf(req, form) {
     const pick = pickOf.get(String(j._id));
     const have = new Set(photos.map((p) => String(p._id)));
     const chosen = pick ? pick.uploads.map(String).filter((id) => have.has(id)).slice(0, count) : photos.slice(0, count).map((p) => String(p._id));
-    return { jamaat: j, filled: filled.has(String(j._id)), photos, chosen, picked: !!pick, pickedBy: pick && pick.by ? pick.by.name || ROLE_NAME[pick.by.role] || "Media" : "" }; // a name, never a Gmail
+    return { jamaat: j, filled: filled.has(String(j._id)), photos, chosen, picked: !!pick, description: noteOf.get(String(j._id)) || "", pickedBy: pick && pick.by ? pick.by.name || ROLE_NAME[pick.by.role] || "Media" : "" }; // a name, never a Gmail
   });
 }
 
@@ -259,10 +264,10 @@ router.get("/forms/:code/photos", chooser, async (req, res, next) => {
     const list = await photosOf(req, form);
     const filled = list.filter((x) => x.filled);
     res.json({
-      form: { code: form.code, title: form.title, status: form.stage, photosPerJamaat: form.reportPhotos || 2 },
+      form: { code: form.code, title: form.title, status: form.stage, photosPerJamaat: form.reportPhotos || 2, reportTitle: form.reportTitle || "", reportDate: form.reportDate || "" },
       ...(req.user.role === "media" ? {} : { notFilled: list.length - filled.length }),
       jamaats: filled.map((x) => ({
-        id: F.seal(x.jamaat._id), jamiat: x.jamaat.jamiat, name: x.jamaat.name, picked: x.picked, pickedBy: x.pickedBy,
+        id: F.seal(x.jamaat._id), jamiat: x.jamaat.jamiat, name: x.jamaat.name, picked: x.picked, pickedBy: x.pickedBy, description: x.description,
         chosen: x.chosen.map((id) => x.photos.findIndex((p) => String(p._id) === id)),
         photos: x.photos.map((p) => ({ id: F.seal(p._id), name: p.name || "photo", field: p.field, at: p.at, thumb: thumb(p), url: storage.signedUrl(p) })),
       })),
@@ -309,6 +314,59 @@ router.put("/forms/:code/picks", chooser, async (req, res, next) => {
     audit(req, "report_photos_chosen", { target: { type: "form", id: String(form._id), label: form.title }, details: { jamaat: entry.jamaat.name, jamiat: entry.jamaat.jamiat, photos: label } });
     res.json({ ok: true });
   } catch (err) { sendFail(err, res, next); }
+});
+
+// Text Media types for the report must be drawable in the report's Arabic font.
+function checkLetters(text, what) {
+  const bad = R.missingLetters(text);
+  if (bad.length) throw new InputError(`${what}: the report's Arabic font (Al-Kanz) can't show ${bad.slice(0, 8).join(" ")}. Type ${bad.length === 1 ? "it" : "them"} as you would in Al-Kanz.`);
+}
+const MAX_DESC = 1000;
+
+// The report's heading (Arabic): printed on every page where the format has "Title" and "Date".
+router.put("/forms/:code/heading", chooser, async (req, res, next) => {
+  try {
+    const form = await findForm(req, req.params.code);
+    const b = req.body || {};
+    const title = clean(b.title, 150);
+    const date = clean(b.date, 80);
+    checkLetters(title, "Title");
+    checkLetters(date, "Date");
+    await Form.updateOne({ _id: form._id }, { $set: { reportTitle: title, reportDate: date } });
+    audit(req, "report_heading_saved", { target: { type: "form", id: String(form._id), label: form.title }, details: { title, date, before: { title: form.reportTitle || "", date: form.reportDate || "" } } });
+    res.json({ reportTitle: title, reportDate: date });
+  } catch (err) { sendFail(err, res, next); }
+});
+
+// A Jamaat's description (Arabic): printed in its "Description" box. Empty = no description.
+router.put("/forms/:code/description", chooser, async (req, res, next) => {
+  try {
+    const form = await findForm(req, req.params.code);
+    const b = req.body || {};
+    const jamaatId = F.unseal(b.jamaat);
+    if (!jamaatId) throw new InputError("Jamaat not found. Reload the page.", 404);
+    const entry = (await photosOf(req, form)).find((x) => String(x.jamaat._id) === jamaatId);
+    if (!entry || !entry.filled) throw new InputError("Jamaat not found. Reload the page.", 404);
+    const text = String(b.text == null ? "" : b.text).replace(/\r\n?/g, "\n").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+    if (text.length > MAX_DESC) throw new InputError(`The description is too long (at most ${MAX_DESC} letters).`);
+    checkLetters(text, "Description");
+    if (text) {
+      await ReportNote.updateOne({ form: form._id, jamaat: jamaatId },
+        { $set: { text, by: { email: req.user.email, name: req.user.name || "", role: req.user.role } } }, { upsert: true });
+    } else await ReportNote.deleteOne({ form: form._id, jamaat: jamaatId });
+    audit(req, "report_description_saved", { target: { type: "form", id: String(form._id), label: form.title }, details: { jamaat: entry.jamaat.name, jamiat: entry.jamaat.jamiat, letters: text.length, before: entry.description.length } });
+    res.json({ description: text });
+  } catch (err) { sendFail(err, res, next); }
+});
+
+// The Arabic font, for the boxes where Media types (Al-Kanz letters look different in other fonts).
+router.get("/font", async (req, res, next) => {
+  try {
+    const file = R.arabicFontFile();
+    if (!file) return res.status(404).end();
+    res.set("Cache-Control", "private, max-age=86400");
+    res.type("font/ttf").sendFile(path.resolve(file));
+  } catch (err) { next(err); }
 });
 
 router.get("/photos/:id/file", chooser, async (req, res, next) => {
@@ -366,7 +424,7 @@ async function runJob(job, { req, form, format, fileName }) {
   const slots = format.layout.slots;
   const maxPer = Math.max(...slots.map((s) => s.images.length));
   const upOf = new Map(filled.flatMap((x) => x.photos.map((p) => [String(p._id), p])));
-  const groups = filled.map((x) => ({ jamiat: x.jamaat.jamiat, jamiatAr: x.jamaat.jamiatAr, jamaat: x.jamaat.name, jamaatAr: x.jamaat.nameAr, photos: x.chosen.slice(0, maxPer).map((id) => upOf.get(id)) }))
+  const groups = filled.map((x) => ({ jamiat: x.jamaat.jamiat, jamiatAr: x.jamaat.jamiatAr, jamaat: x.jamaat.name, jamaatAr: x.jamaat.nameAr, description: x.description, photos: x.chosen.slice(0, maxPer).map((id) => upOf.get(id)) }))
     .filter((g) => g.photos.length);
   const noPhoto = filled.filter((x) => !x.chosen.length);
   const notFilled = list.filter((x) => !x.filled);
@@ -403,7 +461,7 @@ async function runJob(job, { req, form, format, fileName }) {
   job.files = {};
   if (groups.length) {
     job.step = "Adding photos";
-    const out = await R.buildReport({ bytes: Buffer.from(format.file.buffer || format.file), layout: format.layout, photoSize: { w: format.photoW, h: format.photoH }, groups, loadPhoto, title: form.title });
+    const out = await R.buildReport({ bytes: Buffer.from(format.file.buffer || format.file), layout: format.layout, photoSize: { w: format.photoW, h: format.photoH }, groups, loadPhoto, title: form.title, heading: { title: form.reportTitle || "", date: form.reportDate || "" } });
     const p = path.join(DIR, `${job.id}-photos.pdf`);
     await fs.promises.writeFile(p, out.bytes);
     job.files.photos = { path: p, name: fileName ? `${base}.pdf` : `${base} - report.pdf`, pages: out.pages, size: out.bytes.length };

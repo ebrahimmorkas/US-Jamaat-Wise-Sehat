@@ -2458,3 +2458,16 @@ a.em-file:hover { border-color: var(--brand); }
 .q-cond-vals { display: flex; flex-wrap: wrap; gap: 6px 14px; }
 .q-cond-val.is-on { font-weight: 600; }
 .q-cond-problem { color: var(--t-bad, #b42318); font-size: 13px; }
+
+/* Reports: Arabic typed by Media (title, date, descriptions) — shown in the report's font */
+@font-face { font-family: "Al-Kanz"; src: url("/api/reports/font") format("truetype"); font-display: swap; }
+.input.kanz-input { font-family: "Al-Kanz", "Noto Naskh Arabic", "Times New Roman", serif; font-size: 20px; line-height: 1.7; direction: rtl; text-align: right; }
+textarea.input.kanz-input { min-height: 96px; resize: vertical; }
+.rp-heading { padding: 18px 20px; margin-bottom: 16px; }
+.rp-heading h2 { margin: 0 0 4px; font-size: 16px; }
+.rp-heading-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; margin-top: 10px; }
+.rp-heading-row .field { flex: 1 1 240px; min-width: 0; }
+.rp-desc { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.rp-desc .field { width: 100%; }
+.rp-desc-foot { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: flex-end; margin-top: 8px; }
+.rp-desc-foot .field-hint { margin-right: auto; }

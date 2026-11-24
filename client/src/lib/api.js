@@ -353,6 +353,8 @@ export const reportFormatSample = (id, w, h) => saveBlob(`/api/reports/formats/$
 export const reportForms = () => request("/api/reports/forms");
 export const reportPhotos = (code) => request(`/api/reports/forms/${enc(code)}/photos`);
 export const reportSetCount = (code, count) => request(`/api/reports/forms/${enc(code)}/count`, { method: "PUT", body: { count } });
+export const reportHeading = (code, title, date) => request(`/api/reports/forms/${enc(code)}/heading`, { method: "PUT", body: { title, date } });
+export const reportDescription = (code, jamaat, text) => request(`/api/reports/forms/${enc(code)}/description`, { method: "PUT", body: { jamaat, text } });
 export const reportPick = (code, jamaat, photos) => request(`/api/reports/forms/${enc(code)}/picks`, { method: "PUT", body: { jamaat, photos } });
 export const reportPhotoFile = (id) => saveBlob(`/api/reports/photos/${enc(id)}/file`);
 export const reportGenerate = (form, format, name) => request("/api/reports/generate", { method: "POST", body: { form, format, name } });

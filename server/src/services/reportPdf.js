@@ -1,6 +1,8 @@
 // Report PDFs. The Super Admin uploads a one-page PDF (the "format"): borders, background, a box with the word
 // "Image" where a photo goes, and the words "Jamiat" / "Jamaat" where the names go. Each "Jamaat" word is one
 // place for a Jamaat (3 rows = 3 Jamaats a page); the Image boxes and Jamiat words near it belong to it.
+// Optional words: "Title" and "Date" (the report's heading, on every page, typed by Media in Arabic) and
+// "Description" (inside a box: each Jamaat's description, typed by Media, wrapped to fit the box).
 //
 //   analyze(bytes)  -> where the places are (stored with the format)
 //   buildReport()   -> the format repeated as many times as needed: the words are removed from the page and
@@ -35,14 +37,52 @@ const HAS_ARABIC = /[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]/;
 const AR_SCALE = 1.2; // Al-Kanz letters look smaller than Helvetica at the same size
 const MIRROR = { "(": ")", ")": "(", "[": "]", "]": "[", "{": "}", "}": "{", "<": ">", ">": "<" };
 /** The font lays Arabic out right to left as a whole: brackets must be mirrored and numbers / English kept left to right. */
-const rtlText = (s) => s.replace(/[()[\]{}<>]/g, (c) => MIRROR[c]).replace(/[0-9A-Za-z]{2,}/g, (w) => [...w].reverse().join(""));
+// (Arabic digits ٠-٩ / ۰-۹ too: "١٤٤٨" must read left to right.)
+const rtlText = (s) => s.replace(/[()[\]{}<>]/g, (c) => MIRROR[c]).replace(/[0-9A-Za-z٠-٩۰-۹]{2,}/g, (w) => [...w].reverse().join(""));
+/** Letters in this text the Arabic font can't draw (none when there is no font: then nothing is checked). */
+function missingLetters(value) {
+  const a = arabicFont();
+  if (!a) return [];
+  return [...new Set([...String(value || "").normalize("NFC")].filter((ch) => !/\s/.test(ch) && !a.kit.hasGlyphForCodePoint(ch.codePointAt(0))))];
+}
+/** The Arabic text as typed (tidied), or "" when there is none / the font can't show it (then English is used). */
+function arabicPlain(value, keepLines) {
+  const a = arabicFont();
+  const t = String(value || "").normalize("NFC").replace(keepLines ? /[ \t]+/g : /\s+/g, " ").trim();
+  if (!a || !t || !HAS_ARABIC.test(t)) return "";
+  if ([...t].some((ch) => !/\s/.test(ch) && !a.kit.hasGlyphForCodePoint(ch.codePointAt(0)))) return "";
+  return t;
+}
 /** The Arabic name ready to draw, or "" when there is none / the font can't show it (then the English name is used). */
 function arabicOf(value) {
-  const a = arabicFont();
-  const t = String(value || "").normalize("NFC").replace(/\s+/g, " ").trim();
-  if (!a || !t || !HAS_ARABIC.test(t)) return "";
-  if ([...t].some((ch) => ch !== " " && !a.kit.hasGlyphForCodePoint(ch.codePointAt(0)))) return "";
-  return rtlText(t);
+  const t = arabicPlain(value);
+  return t ? rtlText(t) : "";
+}
+/**
+ * A right-to-left line split into runs (in reading order): Arabic words together, and words without Arabic letters
+ * (English, numbers, signs) on their own, drawn left to right. The font lays out a run that starts with English
+ * as English, so English words mixed into Arabic text must be drawn separately.
+ */
+function rtlRuns(line) {
+  const runs = [];
+  for (const word of line.split(" ")) {
+    if (!word) continue;
+    const ar = HAS_ARABIC.test(word);
+    const last = runs[runs.length - 1];
+    if (last && last.ar === ar) last.text += ` ${word}`; else runs.push({ ar, text: word });
+  }
+  return runs.map((r) => ({ ar: r.ar, text: r.ar ? rtlText(r.text) : r.text }));
+}
+const runsWidth = (font, runs, size) => runs.reduce((w, r, i) => w + font.widthOfTextAtSize(r.text, size) + (i ? font.widthOfTextAtSize(" ", size) : 0), 0);
+/** Draws the runs from the right edge leftwards (first run rightmost). */
+function drawRuns(page, font, runs, right, y, size, color) {
+  const space = font.widthOfTextAtSize(" ", size);
+  let x = right;
+  runs.forEach((r, i) => {
+    if (i) x -= space;
+    x -= font.widthOfTextAtSize(r.text, size);
+    page.drawText(r.text, { x, y, size, font, color });
+  });
 }
 
 class FormatError extends Error {
@@ -50,7 +90,8 @@ class FormatError extends Error {
 }
 
 const MM = 72 / 25.4; // points in a millimetre
-const WORDS = { image: "image", jamiat: "jamiat", jamaat: "jamaat" };
+const LINE = 1.45; // line height of descriptions (x the letter size)
+const WORDS = { image: "image", jamiat: "jamiat", jamaat: "jamaat", title: "title", date: "date", description: "description" };
 
 // ---------- small matrix helpers ([a b c d e f], PDF order) ----------
 const mul = (m, n) => [
@@ -489,7 +530,7 @@ async function analyze(bytes) {
     throw new FormatError("No text was found in this PDF (it may be a scanned picture). Type the words Image, Jamiat and Jamaat in your design and save it as a PDF again.");
   }
 
-  const found = { image: [], jamiat: [], jamaat: [] };
+  const found = { image: [], jamiat: [], jamaat: [], title: [], date: [], description: [] };
   for (const r of textRuns(glyphs)) {
     const kind = placeholderOf(r.text);
     if (!kind) continue;
@@ -511,7 +552,7 @@ async function analyze(bytes) {
 
   // Each Image word: its box = the smallest shape around it; everything drawn inside that box (outline, fill,
   // an icon) is part of the empty box and is removed when no photo goes there.
-  const allWords = [...found.image, ...found.jamiat, ...found.jamaat];
+  const allWords = [...found.image, ...found.jamiat, ...found.jamaat, ...found.title, ...found.date, ...found.description];
   const boxRemove = [];
   for (const im of found.image) {
     const s = smallest(im.bbox, false);
@@ -520,8 +561,9 @@ async function analyze(bytes) {
     im.parts = s ? shapes.filter((x) => contains(im.box, x.bbox, 2) && !allWords.some((w) => w !== im && contains(x.bbox, w.bbox))).map((x) => ({ stream: x.stream, op: x.op })) : [];
     boxRemove.push(...im.parts);
   }
-  for (const t of [...found.jamiat, ...found.jamaat]) {
+  for (const t of [...found.jamiat, ...found.jamaat, ...found.title, ...found.date, ...found.description]) {
     const s = smallest(t.bbox, true);
+    t.frame = s ? s.bbox : null;
     const frame = s ? s.bbox : pageBox;
     const [cx] = center(t.bbox);
     const [fx] = center(frame);
@@ -553,6 +595,16 @@ async function analyze(bytes) {
   } else images.forEach((im) => slots[nearest(im.box)].images.push(im));
   if (jamiats.length === jamaats.length) jamiats.forEach((t, k) => slots[k].jamiat.push(t));
   else jamiats.forEach((t) => slots[nearest(t.bbox)].jamiat.push(t));
+  // Description: the box around the word (else from the word, as wide as a name there, about 6 lines down)
+  const descs = readingOrder(found.description, "bbox");
+  for (const d of descs) {
+    d.area = d.frame && !found.image.some((im) => contains(d.frame, im.box, 1))
+      ? d.frame
+      : { x0: d.bbox.x0, x1: d.bbox.x0 + d.maxW, y1: d.bbox.y1, y0: Math.max(pageBox.y0, d.bbox.y1 - d.size * 1.4 * 6) };
+  }
+  slots.forEach((s) => { s.description = []; });
+  if (descs.length === jamaats.length) descs.forEach((t, k) => slots[k].description.push(t));
+  else descs.forEach((t) => slots[nearest(t.bbox)].description.push(t));
 
   // A name with no frame of its own, centred above / below its Jamaat's photos, is centred on them.
   for (const s of slots) {
@@ -574,7 +626,10 @@ async function analyze(bytes) {
       jamaat: s.jamaat.map(text),
       jamiat: s.jamiat.map(text),
       images: s.images.map((im) => ({ word: rbox(im.bbox), box: rbox(im.box), hasShape: im.hasShape })),
+      description: s.description.map((d) => ({ ...text(d), area: rbox(d.area) })),
     })),
+    title: found.title.map(text),
+    date: found.date.map(text),
     remove: {
       words: allWords.flatMap((w) => w.glyphs.map(ref)),
       boxes: boxRemove,
@@ -590,8 +645,12 @@ function describe(layout) {
   const per = layout.slots.map((s) => s.images.length);
   const same = per.every((x) => x === per[0]);
   const jt = layout.slots.filter((s) => s.jamiat.length).length;
+  const ds = layout.slots.filter((s) => (s.description || []).length).length;
+  const head = [(layout.title || []).length && "title", (layout.date || []).length && "date"].filter(Boolean);
   return `${n} Jamaat${n === 1 ? "" : "s"} on each page, ${same ? `${per[0]} photo${per[0] === 1 ? "" : "s"} each` : `photos: ${per.join(", ")}`}`
-    + `${jt ? (jt === n ? ", with the Jamiat name" : `, Jamiat name for ${jt} of them`) : ", no Jamiat name"}.`;
+    + `${jt ? (jt === n ? ", with the Jamiat name" : `, Jamiat name for ${jt} of them`) : ", no Jamiat name"}`
+    + `${ds ? (ds === n ? ", a description box" : `, a description box for ${ds} of them`) : ""}`
+    + `${head.length ? `; ${head.join(" and ")} at the top` : ""}.`;
 }
 
 // ---------- changing the page ----------
@@ -677,9 +736,11 @@ const SAFE = (font) => (text) => {
  * @param {{w:number,h:number}} o.photoSize  mm
  * @param {{jamiat:string, jamaat:string, photos:any[]}[]} o.groups  one per Jamaat, in order
  * @param {(photo:any)=>Promise<{bytes:Buffer}|null>} o.loadPhoto  null = draw a grey sample box
+ * @param {{title?:string, date?:string}} o.heading  printed where the format has "Title" / "Date" (every page)
+ *   (each group may have a description: printed in its "Description" box)
  * @returns {Promise<{ bytes: Uint8Array, pages: number, failed: number }>}
  */
-async function buildReport({ bytes, layout, photoSize, groups, loadPhoto, title = "Report" }) {
+async function buildReport({ bytes, layout, photoSize, groups, loadPhoto, title = "Report", heading = {} }) {
   const out = await PDFDocument.create();
   out.setTitle(title);
   out.setCreator("Umoor Sehhat");
@@ -688,7 +749,7 @@ async function buildReport({ bytes, layout, photoSize, groups, loadPhoto, title 
   const [A] = await out.embedPdf(withBoxes, [0]);
   const [B] = await out.embedPdf(noBoxes, [0]);
   const fonts = { r: await out.embedFont(StandardFonts.Helvetica), b: await out.embedFont(StandardFonts.HelveticaBold) };
-  if (groups.some((g) => arabicOf(g.jamiatAr) || arabicOf(g.jamaatAr))) {
+  if (groups.some((g) => arabicOf(g.jamiatAr) || arabicOf(g.jamaatAr) || arabicOf(g.description)) || arabicOf(heading.title) || arabicOf(heading.date)) {
     out.registerFontkit(fontkit);
     fonts.ar = await out.embedFont(arabicFont().bytes, { subset: true });
   }
@@ -701,12 +762,71 @@ async function buildReport({ bytes, layout, photoSize, groups, loadPhoto, title 
   let failed = 0;
   const sample = rgb(0.85, 0.87, 0.9);
 
+  // one line in a place of the format: Arabic in Al-Kanz (else the English text), made smaller to fit
+  const putLine = (page, t, value, valueAr) => {
+    const ar = fonts.ar ? arabicPlain(valueAr) : "";
+    const font = ar ? fonts.ar : t.bold ? fonts.b : fonts.r;
+    const runs = ar ? rtlRuns(ar) : null;
+    const text = ar ? "" : safe(value);
+    if (!ar && !text) return;
+    let size = ar ? t.size * AR_SCALE : t.size;
+    const width = () => (runs ? runsWidth(font, runs, size) : font.widthOfTextAtSize(text, size));
+    while (size > 5 && width() > t.maxW) size -= 0.5;
+    const w = width();
+    const [cx] = center(t.bbox);
+    const x = t.align === "center" ? cx - w / 2 : t.bbox.x0;
+    const base = t.bbox.y0 + 0.22 * t.size; // the placeholder's baseline
+    const color = rgb(...t.fill.map((v) => Math.min(1, Math.max(0, v))));
+    if (runs) drawRuns(page, font, runs, x + w - P.x, base - P.y, size, color);
+    else page.drawText(text, { x: x - P.x, y: base - P.y, size, font, color });
+  };
+  // a description: lines wrapped to the box (Arabic from the right), made smaller until it all fits
+  const putParagraph = (page, d, value) => {
+    const raw = String(value || "").replace(/\r/g, "").replace(/[ \t]+/g, " ").trim();
+    if (!raw) return;
+    const ar = !!(fonts.ar && arabicPlain(raw, true));
+    const font = ar ? fonts.ar : fonts.r;
+    const lineWidth = (l, size) => (ar ? runsWidth(font, rtlRuns(l), size) : font.widthOfTextAtSize(safe(l), size));
+    const pad = 4;
+    const A = d.area;
+    const w = A.x1 - A.x0 - 2 * pad;
+    const h = A.y1 - A.y0 - 2 * pad;
+    const wrap = (size) => {
+      const lines = [];
+      for (const para of raw.split("\n")) {
+        const words = para.split(" ").filter(Boolean);
+        let cur = "";
+        for (const word of words) {
+          const next = cur ? `${cur} ${word}` : word;
+          if (!cur || lineWidth(next, size) <= w) cur = next;
+          else { lines.push(cur); cur = word; }
+        }
+        lines.push(cur);
+      }
+      return lines;
+    };
+    let size = ar ? d.size * AR_SCALE : d.size;
+    let lines = wrap(size);
+    const fits = () => lines.length * size * LINE <= h && lines.every((l) => lineWidth(l, size) <= w);
+    while (size > 5 && !fits()) { size -= 0.5; lines = wrap(size); }
+    const color = rgb(...d.fill.map((v) => Math.min(1, Math.max(0, v))));
+    let y = A.y1 - pad - size;
+    for (const l of lines) {
+      if (y < A.y0 - size) break;
+      if (ar) drawRuns(page, font, rtlRuns(l), A.x1 - pad - P.x, y - P.y, size, color);
+      else if (l) page.drawText(safe(l), { x: A.x0 + pad - P.x, y: y - P.y, size, font, color });
+      y -= size * LINE;
+    }
+  };
+
   for (let p = 0; p < pages; p++) {
     const page = out.addPage([P.w, P.h]);
     if (P.rotate) page.setRotation(degrees(P.rotate));
     page.drawPage(B, { x: 0, y: 0 });
     const X = (x) => x - P.x;
     const Y = (y) => y - P.y;
+    (layout.title || []).forEach((t) => putLine(page, t, heading.title, heading.title));
+    (layout.date || []).forEach((t) => putLine(page, t, heading.date, heading.date));
     for (let s = 0; s < S; s++) {
       const g = groups[p * S + s];
       if (!g) continue;
@@ -757,29 +877,18 @@ async function buildReport({ bytes, layout, photoSize, groups, loadPhoto, title 
         const w = img.width * r, h = img.height * r;
         page.drawImage(img, { x: X(cx - w / 2), y: Y(cy - h / 2), width: w, height: h });
       });
-      // names
-      // the Arabic name in Al-Kanz; the English name when there is no Arabic one
-      const put = (t, value, valueAr) => {
-        const ar = fonts.ar ? arabicOf(valueAr) : "";
-        const font = ar ? fonts.ar : t.bold ? fonts.b : fonts.r;
-        const text = ar || safe(value);
-        if (!text) return;
-        let size = ar ? t.size * AR_SCALE : t.size;
-        const width = () => font.widthOfTextAtSize(text, size);
-        while (size > 5 && width() > t.maxW) size -= 0.5;
-        const w = width();
-        const [cx] = center(t.bbox);
-        const x = t.align === "center" ? cx - w / 2 : t.bbox.x0;
-        const base = t.bbox.y0 + 0.22 * t.size; // the placeholder's baseline
-        page.drawText(text, { x: X(x), y: Y(base), size, font, color: rgb(...t.fill.map((v) => Math.min(1, Math.max(0, v)))) });
-      };
-      slot.jamaat.forEach((t) => put(t, g.jamaat, g.jamaatAr));
-      slot.jamiat.forEach((t) => put(t, g.jamiat, g.jamiatAr));
+      // names: the Arabic name in Al-Kanz; the English name when there is no Arabic one
+      slot.jamaat.forEach((t) => putLine(page, t, g.jamaat, g.jamaatAr));
+      slot.jamiat.forEach((t) => putLine(page, t, g.jamiat, g.jamiatAr));
+      (slot.description || []).forEach((d) => putParagraph(page, d, g.description));
     }
   }
   return { bytes: await out.save(), pages, failed };
 }
 
+// Sample heading / description (Arabic, so the Super Admin sees how Media's Arabic text sits on the page)
+const SAMPLE_HEADING = { title: "عنوان التقرير", date: "٢٩ ربيع الآخر ١٤٤٨" };
+const SAMPLE_DESC = "هنا يكتب الوصف الذي يكتبه فريق الإعلام لكل جماعة، ويظهر في هذا المكان من التقرير على عدة أسطر حسب طوله.";
 /**
  * Sample report for the Super Admin: page 1 every place full, page 2 one photo less (if a Jamaat has 2+ boxes).
  * names = real Jamaats ({jamiat, jamiatAr, jamaat, jamaatAr}) so the Arabic names can be checked; else "Jamaat 1"...
@@ -787,7 +896,7 @@ async function buildReport({ bytes, layout, photoSize, groups, loadPhoto, title 
 function sampleGroups(layout, names = []) {
   const S = layout.slots.length;
   const nm = (k, extra = "") => (names[k] ? { ...names[k] } : { jamiat: `Jamiat ${k + 1}`, jamaat: `Jamaat ${k + 1}${extra}` });
-  const one = layout.slots.map((s, k) => ({ ...nm(k), photos: s.images.map(() => "sample") }));
+  const one = layout.slots.map((s, k) => ({ ...nm(k), description: SAMPLE_DESC, photos: s.images.map(() => "sample") }));
   const fewer = layout.slots.some((s) => s.images.length > 1)
     ? layout.slots.map((s, k) => ({ ...nm(S + k, " (fewer photos)"), photos: s.images.slice(1).map(() => "sample") })).slice(0, Math.max(1, S - 1))
     : [];
@@ -837,4 +946,4 @@ async function notFilledPdf({ title, sections, note }) {
   return doc.save();
 }
 
-module.exports = { analyze, describe, buildReport, sampleGroups, notFilledPdf, FormatError, MM, _test: { parseOps, readPage, textRuns, rtlText, arabicOf } };
+module.exports = { analyze, describe, buildReport, sampleGroups, notFilledPdf, FormatError, MM, missingLetters, SAMPLE_HEADING, arabicFontFile: () => (arabicFont() ? ARABIC_FONT : null), _test: { parseOps, readPage, textRuns, rtlText, arabicOf, rtlRuns } };

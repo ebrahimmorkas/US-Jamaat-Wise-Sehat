@@ -5,7 +5,7 @@ import { confirmDialog } from "./components/ConfirmDialog";
 import { ImageIcon, ReportIcon } from "./components/Icons";
 import {
   AuthError, isServerStarting, reportFormats, reportFormatAdd, reportFormatSave, reportFormatReplace, reportFormatDelete,
-  reportFormatFile, reportFormatSample, reportForms, reportPhotos, reportSetCount, reportPick, reportPhotoFile,
+  reportFormatFile, reportFormatSample, reportForms, reportPhotos, reportSetCount, reportPick, reportPhotoFile, reportHeading, reportDescription,
   reportGenerate, reportJob, reportJobFile, reportHistory,
 } from "./lib/api";
 import { lower, plural } from "./lib/helpers";
@@ -13,8 +13,10 @@ import { lower, plural } from "./lib/helpers";
 // Reports (PDF) made from the photos Jamaat Coordinators uploaded in a form.
 //   Generate:       pick the form and the format -> photo report + list of Jamaats not filled (a JC gets only
 //                   their Jamaats; Media gets no "not filled" list). Reports made earlier are listed to make again.
-//   Choose photos:  Media / Super Admin: how many photos per Jamaat, and which ones (else the first ones).
-//   Formats:        Super Admin uploads the one-page PDF: "Image" boxes, "Jamiat" and "Jamaat" words.
+//   Choose photos:  Media / Super Admin: how many photos per Jamaat, and which ones (else the first ones); the
+//                   report's title and date and each Jamaat's description (Arabic, typed in the Al-Kanz font).
+//   Formats:        Super Admin uploads the one-page PDF: "Image" boxes, "Jamiat" and "Jamaat" words
+//                   (+ optional "Title", "Date" and a box with "Description").
 
 export const MEDIA_NAV = [
   { to: "/media/photos", label: "Choose photos", icon: <ImageIcon /> },
@@ -24,7 +26,7 @@ export const MEDIA_NAV = [
 const TAB_LABEL = { generate: "Generate report", photos: "Choose photos", formats: "Formats" };
 const SUB = {
   generate: "Choose a form and a format, then Generate: the format's page is repeated with each Jamaat's name and photos (Jamiat, then Jamaat A–Z). You also get a separate list of the Jamaats that haven't filled the form.",
-  photos: "Choose which photos of each Jamaat go in the report. First type how many photos each Jamaat gets; a Jamaat you don't choose for gets its first photos.",
+  photos: "Type the report's title and date, then choose which photos of each Jamaat go in the report and write its description. First type how many photos each Jamaat gets; a Jamaat you don't choose for gets its first photos.",
   formats: "Upload the report's page as a one-page PDF: borders, background, a box with the word Image where each photo goes, and the words Jamiat and Jamaat where the names go. The page is repeated to make the report.",
 };
 const SUB_MEDIA = "Choose a form and a format, then Generate: the format's page is repeated with each Jamaat's name and photos (Jamiat, then Jamaat A–Z).";
@@ -283,6 +285,7 @@ function ChoosePhotos({ forms, fail, setMsg, onCount }) {
         )}
       </section>
       {code && !data && <div className="panel em-loading">Loading photos…</div>}
+      {data && <ReportHeading key={code} code={code} form={data.form} fail={fail} setMsg={setMsg} onSaved={() => load(code)} />}
       {data && (
         <>
           <p className="rp-meta">
@@ -309,6 +312,61 @@ function ChoosePhotos({ forms, fail, setMsg, onCount }) {
         </>
       )}
     </>
+  );
+}
+
+// The report's title and date (Arabic): printed at the top of every page where the format has "Title" / "Date".
+function ReportHeading({ code, form, fail, setMsg, onSaved }) {
+  const [title, setTitle] = useState(form.reportTitle || "");
+  const [date, setDate] = useState(form.reportDate || "");
+  const [busy, setBusy] = useState(false);
+  const dirty = title.trim() !== (form.reportTitle || "") || date.trim() !== (form.reportDate || "");
+  const save = async () => {
+    setBusy(true);
+    try {
+      await reportHeading(code, title, date);
+      setMsg({ type: "ok", text: "Title and date saved." });
+      await onSaved();
+    } catch (e) { fail(e); } finally { setBusy(false); }
+  };
+  return (
+    <section className="panel rp-heading">
+      <h2>Report title and date</h2>
+      <p className="field-hint">In Arabic. Printed at the top of every page (where the format has the words Title and Date).</p>
+      <div className="rp-heading-row">
+        <label className="field"><span className="field-label">Title</span>
+          <input className="input kanz-input" dir="rtl" lang="ar" maxLength={150} value={title} onChange={(e) => setTitle(e.target.value)} aria-label="Report title" />
+        </label>
+        <label className="field"><span className="field-label">Date</span>
+          <input className="input kanz-input" dir="rtl" lang="ar" maxLength={80} value={date} onChange={(e) => setDate(e.target.value)} aria-label="Report date" />
+        </label>
+        <button type="button" className="btn btn-primary" disabled={busy || !dirty} onClick={save}>{busy ? "Saving…" : dirty ? "Save" : "Saved"}</button>
+      </div>
+    </section>
+  );
+}
+
+// A Jamaat's description (Arabic): printed in its "Description" box in the report.
+function JamaatDescription({ j, code, fail, onSaved }) {
+  const [text, setText] = useState(j.description || "");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setText(j.description || ""); }, [j.description]);
+  const dirty = text.trim() !== (j.description || "");
+  const save = async () => {
+    setBusy(true);
+    try { await reportDescription(code, j.id, text); await onSaved(); } catch (e) { fail(e); } finally { setBusy(false); }
+  };
+  return (
+    <div className="rp-desc">
+      <label className="field"><span className="field-label">Description (Arabic)</span>
+        <textarea className="input kanz-input" dir="rtl" lang="ar" rows={3} maxLength={1000} value={text} onChange={(e) => setText(e.target.value)} aria-label={`Description for ${j.name}`} />
+      </label>
+      <div className="rp-desc-foot">
+        <span className="field-hint">{text.length ? `${text.length} / 1000` : "No description"}</span>
+        {dirty && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setText(j.description || "")}>Undo</button>}
+        <button type="button" className="btn btn-primary" disabled={busy || !dirty} onClick={save}>{busy ? "Saving…" : dirty ? "Save description" : "Saved"}</button>
+      </div>
+    </div>
   );
 }
 
@@ -367,6 +425,7 @@ function JamaatPhotos({ j, code, per, fail, onSaved }) {
           {busy ? "Saving…" : j.picked && !dirty ? "Saved" : "Save choice"}
         </button>
       </div>
+      <JamaatDescription j={j} code={code} fail={fail} onSaved={onSaved} />
     </section>
   );
 }
@@ -398,6 +457,7 @@ function Formats({ formats, reload, maxMb, fail, setMsg }) {
           <li>Draw a box where each photo goes and type the word <b>Image</b> inside it.</li>
           <li>Type <b>Jamaat</b> where a Jamaat's name goes and <b>Jamiat</b> where its Jamiat's name goes (on their own, nothing else in that text). <b>{"{{Jamaat}}"}</b> also works. Words in capitals (JAMAAT) are treated as labels and stay.</li>
           <li>Each <b>Jamaat</b> word is one Jamaat on the page: 3 rows with Jamaat = 3 Jamaats a page. The Image boxes next to it are its photos.</li>
+          <li>Optional: type <b>Title</b> and <b>Date</b> where the report's title and date go (Media types them, in Arabic, on Choose photos), and draw a box with the word <b>Description</b> inside it next to each Jamaat for its description (it is written inside that box, on as many lines as needed).</li>
           <li>Save it as a PDF (text must stay text, not a picture) and upload it. Then check it with <b>Sample PDF</b>.</li>
         </ol>
         <p className="field-hint">Photos are shown whole (not cut), centred in their box, at the photo size you set. If a Jamaat has fewer photos than boxes, its photos are centred and the empty boxes are removed.</p>

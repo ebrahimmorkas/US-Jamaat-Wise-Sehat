@@ -81,6 +81,9 @@ const formSchema = new mongoose.Schema(
     reminders: { type: [reminderSchema], default: [] },
     // Reports: how many photos of each Jamaat go in the report (Media types it, then chooses them).
     reportPhotos: { type: Number, min: 1, max: 10, default: 2 },
+    // The report's heading, typed by Media (Arabic): printed where the format has "Title" / "Date".
+    reportTitle: { type: String, default: "" },
+    reportDate: { type: String, default: "" },
     // Defaults for image questions (each image question can set its own).
     imageExt: { type: [String], default: undefined },
     imageMaxMb: { type: Number, default: null },
