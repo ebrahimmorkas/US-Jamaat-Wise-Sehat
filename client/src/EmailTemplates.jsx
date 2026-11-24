@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import RichEditor from "./components/RichEditor";
 import { confirmDialog } from "./components/ConfirmDialog";
 import { AuthError, emailAttach, emailDropFile, emailPublic, emailRender, emailVariables, emailForms,
-  templateList, templateGet, templateCreate, templateSave, templateDelete, templateRestore } from "./lib/api";
+  templateList, templateGet, templateCreate, templateSave, templateDelete } from "./lib/api";
 import { plural } from "./lib/helpers";
 import { CloseIcon } from "./components/Icons";
 
@@ -143,12 +143,8 @@ export function PreviewButton({ build, people = [], fail, label = "Preview" }) {
 // ---------------------------------------------------------------- Templates tab
 export function Templates({ meta, reload, fail, setMsg, onUse, onAuthExpired, maxMb }) {
   const [editing, setEditing] = useState(null); // null | "new" | id
-  const [showDeleted, setShowDeleted] = useState(false);
-  const [deleted, setDeleted] = useState([]);
-  useEffect(() => { if (showDeleted) templateList(true).then((r) => setDeleted(r.templates.filter((t) => t.deleted))).catch(fail); }, [showDeleted, fail, meta.templates]);
   if (editing) return <TemplateEditor id={editing === "new" ? null : editing} meta={meta} fail={fail} maxMb={maxMb} onAuthExpired={onAuthExpired}
     onDone={(text) => { setEditing(null); reload(); if (text) setMsg({ type: "ok", text }); }} onUse={onUse} />;
-  const restore = async (t) => { try { await templateRestore(t.id); setMsg({ type: "ok", text: `"${t.name}" was restored.` }); reload(); } catch (e) { fail(e); } };
   return (
     <section className="panel">
       <div className="panel-head">
@@ -173,10 +169,6 @@ export function Templates({ meta, reload, fail, setMsg, onUse, onAuthExpired, ma
             </tbody>
           </table>
         )}
-        <label className="em-show-del"><input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} /> Show deleted templates</label>
-        {showDeleted && (deleted.length ? (
-          <div className="em-deleted">{deleted.map((t) => <div key={t.id} className="em-file"><span className="em-file-name">{t.name}</span><button type="button" className="link-btn" onClick={() => restore(t)}>Restore</button></div>)}</div>
-        ) : <p className="em-muted">No deleted templates.</p>)}
       </div>
     </section>
   );
@@ -216,7 +208,7 @@ function TemplateEditor({ id, meta, fail, onDone, onUse, maxMb, onAuthExpired })
     finally { setBusy(false); }
   };
   const del = async () => {
-    if (!(await confirmDialog({ title: "Delete this template?", message: `"${t.name}" is hidden. You can restore it later from "Show deleted templates".`, confirmText: "Delete", tone: "danger" }))) return;
+    if (!(await confirmDialog({ title: "Delete this template?", message: `It gets status D (deleted) in the database and can't be restored. A new template can use the same name.`, confirmText: "Delete", tone: "danger" }))) return;
     try { await templateDelete(id); onDone(`Template "${t.name}" deleted.`); } catch (e) { fail(e); }
   };
   const back = async () => {

@@ -1,16 +1,15 @@
 // Email templates (Super Admin and Saheb) — mounted inside /api/emails (same sign-in checks).
-//   GET    /                 the templates (deleted ones with ?deleted=1)
+//   GET    /                 the templates (not the deleted ones)
 //   GET    /:id              one template (with its attachments)
 //   POST   /                 { name, subject, html, cc, bcc, greeting, files: [new attachment ids] }
 //   PUT    /:id              same + keepFiles: [indexes of its attachments to keep]
 //   DELETE /:id              status "D" (kept, restorable)
-//   POST   /:id/restore
 const express = require("express");
 const EmailTemplate = require("../models/EmailTemplate");
 const EmailFile = require("../models/EmailFile");
 const { audit } = require("../services/audit");
 const { InputError, isId, sendError } = require("../lib/validate");
-const { notDeleted, isDeleted, markDeleted, markRestored } = require("../lib/softDelete");
+const { notDeleted, isDeleted, markDeleted } = require("../lib/softDelete");
 const { readMessage } = require("../services/emailCompose");
 const storage = require("../services/storage");
 const config = require("../config");
@@ -46,7 +45,7 @@ async function read(req, current) {
 
 router.get("/", async (req, res, next) => {
   try {
-    const list = await EmailTemplate.find(req.query.deleted === "1" ? {} : notDeleted()).select("-html").sort({ name: 1 }).lean();
+    const list = await EmailTemplate.find(notDeleted()).select("-html").sort({ name: 1 }).lean();
     res.json({ templates: list.map((t) => out(t, false)) });
   } catch (err) { sendError(err, res, next); }
 });
@@ -97,19 +96,6 @@ router.delete("/:id", async (req, res, next) => {
     await t.save();
     audit(req, "email_template_deleted", { target: target(t) });
     res.json({ ok: true });
-  } catch (err) { sendError(err, res, next); }
-});
-
-router.post("/:id/restore", async (req, res, next) => {
-  try {
-    if (!isId(req.params.id)) throw new InputError("Template not found.", 404);
-    const t = await EmailTemplate.findById(req.params.id);
-    if (!t || !isDeleted(t)) throw new InputError("Template not found.", 404);
-    if (await EmailTemplate.exists({ _id: { $ne: t._id }, name: new RegExp(`^${t.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i"), ...notDeleted() })) throw new InputError("Another template now has this name. Rename that one first.", 409);
-    markRestored(t);
-    await t.save();
-    audit(req, "email_template_restored", { target: target(t) });
-    res.json({ template: out(t.toObject(), true) });
   } catch (err) { sendError(err, res, next); }
 });
 

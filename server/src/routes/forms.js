@@ -1,6 +1,6 @@
 // Forms the Super Admin builds (instead of Google Forms) for Jamaat Coordinators.
 //   Super Admin:  GET /meta, GET /, GET /:id, POST /, PUT /:id, POST /:id/status, POST|DELETE /:id/top-image,
-//                 GET /:id/link?email=, GET /:id/links.xlsx, DELETE /:id/test-responses, DELETE /:id, POST /:id/restore
+//                 GET /:id/link?email=, GET /:id/links.xlsx, DELETE /:id/test-responses, DELETE /:id
 //   JC:           GET /jc-links   — the open forms with a link for each Jamaat Coordinator of their Jamaats
 //   Coordinator:  GET /mine       — their forms ("My forms")
 // Filling a form (no sign-in needed for some forms) is in routes/formFill.js.
@@ -16,7 +16,7 @@ const Jamaat = require("../models/Jamaat");
 const Jamiat = require("../models/Jamiat");
 const { audit } = require("../services/audit");
 const { InputError, requireId, sendError } = require("../lib/validate");
-const { notDeleted, isDeleted, markDeleted, markRestored, deletedInfo } = require("../lib/softDelete");
+const { notDeleted, isDeleted, markDeleted, deletedInfo } = require("../lib/softDelete");
 const storage = require("../services/storage");
 const config = require("../config");
 const F = require("../services/forms");
@@ -100,7 +100,7 @@ async function findForm(id) {
   if (!f) throw new InputError("Form not found. Reload the page.", 404);
   return f;
 }
-const notDeletedForm = (f) => { if (isDeleted(f)) throw new InputError("This form is deleted. Restore it first.", 409); };
+const notDeletedForm = (f) => { if (isDeleted(f)) throw new InputError("This form is deleted.", 409); };
 
 // ---------- Jamaat Coordinators (for links) ----------
 /** Active Coordinators (optionally only of these Jamaats), with their Jamaat and Jamiat names. */
@@ -123,7 +123,7 @@ router.get("/meta", admin, (req, res) => res.json(F.meta()));
 
 router.get("/", admin, async (req, res, next) => {
   try {
-    const forms = await Form.find().sort({ createdAt: -1 }).lean();
+    const forms = await Form.find(notDeleted()).sort({ createdAt: -1 }).lean();
     const counts = await countsFor(forms.map((f) => f._id));
     res.json({ forms: forms.map((f) => formOut(f, counts.get(String(f._id)))), meta: F.meta() });
   } catch (err) { next(err); }
@@ -331,15 +331,4 @@ router.delete("/:id", admin, async (req, res, next) => {
     res.status(204).end();
   } catch (err) { sendError(err, res, next); }
 });
-router.post("/:id/restore", admin, async (req, res, next) => {
-  try {
-    const f = await findForm(req.params.id);
-    if (!isDeleted(f)) throw new InputError("This form is not deleted.", 409);
-    markRestored(f);
-    await f.save();
-    audit(req, "form_restored", { target: target(f) });
-    res.json({ form: formOut(f) });
-  } catch (err) { sendError(err, res, next); }
-});
-
 module.exports = router;

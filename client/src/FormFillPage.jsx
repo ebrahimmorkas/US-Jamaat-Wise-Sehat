@@ -256,6 +256,10 @@ export default function FormFillPage({ id, theme, onToggleTheme }) {
   }
   return shell(
     <form className="fill-form" onSubmit={submit} noValidate>
+      {/* image, form name, description first; then Jamiat, Jamaat and email; then the questions */}
+      <div className="panel fv-card">
+        <FormView form={form} part="head" values={values} onChange={set} />
+      </div>
       {me.isTest && <div className="alert info notice fill-test"><InfoIcon /><span className="notice-text"><b>Testing.</b> Only testers can fill this form now. What you send is saved as a test response.</span></div>}
       {me.onBehalf && (
         <div className="panel fill-behalf" role="note">
@@ -267,25 +271,6 @@ export default function FormFillPage({ id, theme, onToggleTheme }) {
           </div>
         </div>
       )}
-      <div className="panel fill-who" id="fv-email">
-        {me.onBehalf ? (
-          <p className="fill-as"><LockIcon /> Filled by <b>you (JC {me.onBehalf.jc})</b> for <b>{me.jamaat}</b>{me.email ? <> · Coordinator: {me.email}</> : null}</p>
-        ) : me.needEmail ? (
-          <label className="field fill-email">
-            <span className="field-label">Your email <span className="fv-star">*</span></span>
-            <input className="input" type="email" inputMode="email" autoComplete="email" value={email} disabled={!!editing}
-              onChange={(e) => { setEmail(e.target.value); if (problems._email) setProblems((p) => ({ ...p, _email: undefined })); }} placeholder="name@example.com" />
-            {problems._email && <span className="fv-problem">{problems._email}</span>}
-            {form.sendCopy && <span className="field-hint">A copy of your response is sent to this email.</span>}
-          </label>
-        ) : (
-          <p className="fill-as"><LockIcon /> Filling as <b>{me.email}</b>{me.name ? ` (${me.name})` : ""}
-            {form.sendCopy && <span className="muted"> — a copy of your response is sent to this email.</span>}</p>
-        )}
-        <p className="fill-close muted">Closes {fmtWhen(form.endAt)} <span>(your time{myZone() ? `, ${myZone()}` : ""})</span>
-          {form.maxPerPerson != null && <> · You can fill it {form.maxPerPerson === 1 ? "once" : `${form.maxPerPerson} times`}{data.used ? ` (used ${data.used})` : ""}</>}</p>
-      </div>
-
       <div className="panel fill-place" id="fv-place">
         {!me.needJamaat ? (
           <div className="fill-place-grid">
@@ -309,8 +294,27 @@ export default function FormFillPage({ id, theme, onToggleTheme }) {
         {problems._jamaat && <span className="fv-problem">{problems._jamaat}</span>}
       </div>
 
+      <div className="panel fill-who" id="fv-email">
+        {me.onBehalf ? (
+          <p className="fill-as"><LockIcon /> Filled by <b>you (JC {me.onBehalf.jc})</b> for <b>{me.jamaat}</b>{me.email ? <> · Coordinator: {me.email}</> : null}</p>
+        ) : me.needEmail ? (
+          <label className="field fill-email">
+            <span className="field-label">Your email <span className="fv-star">*</span></span>
+            <input className="input" type="email" inputMode="email" autoComplete="email" value={email} disabled={!!editing}
+              onChange={(e) => { setEmail(e.target.value); if (problems._email) setProblems((p) => ({ ...p, _email: undefined })); }} placeholder="name@example.com" />
+            {problems._email && <span className="fv-problem">{problems._email}</span>}
+            {form.sendCopy && <span className="field-hint">A copy of your response is sent to this email.</span>}
+          </label>
+        ) : (
+          <p className="fill-as"><LockIcon /> Filling as <b>{me.email}</b>{me.name ? ` (${me.name})` : ""}
+            {form.sendCopy && <span className="muted"> — a copy of your response is sent to this email.</span>}</p>
+        )}
+        <p className="fill-close muted">Closes {fmtWhen(form.endAt)} <span>(your time{myZone() ? `, ${myZone()}` : ""})</span>
+          {form.maxPerPerson != null && <> · You can fill it {form.maxPerPerson === 1 ? "once" : `${form.maxPerPerson} times`}{data.used ? ` (used ${data.used})` : ""}</>}</p>
+      </div>
+
       <div className="panel fv-card">
-        <FormView form={form} values={values} onChange={set} problems={problems} onUpload={onUpload} onRemoveFile={onRemoveFile} locked={busy || full} />
+        <FormView form={form} part="questions" values={values} onChange={set} problems={problems} onUpload={onUpload} onRemoveFile={onRemoveFile} locked={busy || full} />
       </div>
 
       {data.mine.length > 0 && (
@@ -334,7 +338,7 @@ export default function FormFillPage({ id, theme, onToggleTheme }) {
         <div className="alert info notice"><span className="notice-text">You have already filled this form{data.used > 1 ? ` ${data.used} times` : ""}{form.allowEdit && data.mine.length ? ". You can change your response above." : "."}</span></div>
       ) : (
         <div className="fill-submit">
-          <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? "Sending…" : editing ? "Save changes" : "Send"}</button>
+          <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? "Submitting…" : editing ? "Save changes" : "Submit"}</button>
           {form.access === "personal_link" && !me.onBehalf && <span className="muted">Don't share your personal link: anyone with it can fill as you.</span>}
         </div>
       )}

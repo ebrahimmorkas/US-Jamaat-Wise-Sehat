@@ -32,17 +32,21 @@ export function phoneValue(v) {
 }
 export const phoneOk = (v) => { const s = phoneValue(v); const ph = s && parsePhoneNumberFromString(s); return !!(ph && ph.isValid()); };
 
-export default function FormView({ form, values, onChange, problems = {}, onUpload, onRemoveFile, preview, locked }) {
+// part: "all" (default), "head" = top image + name + description only, "questions" = the questions only
+// (the fill page puts Jamiat, Jamaat and email between the two).
+export default function FormView({ form, values, onChange, problems = {}, onUpload, onRemoveFile, preview, locked, part = "all" }) {
   let n = 0;
   return (
     <div className="fv">
-      {form.topImage && <img className="fv-top" src={form.topImage} alt="" />}
-      <div className="fv-head">
-        <h1>{form.title || "Untitled form"}</h1>
-        {form.description && <p className="fv-desc">{form.description}</p>}
-        {form.fields.some((f) => f.required) && <p className="fv-req-note"><span className="fv-star">*</span> Required</p>}
-      </div>
-      {form.fields.map((f) => {
+      {part !== "questions" && form.topImage && <img className="fv-top" src={form.topImage} alt="" />}
+      {part !== "questions" && (
+        <div className="fv-head">
+          <h1>{form.title || "Untitled form"}</h1>
+          {form.description && <p className="fv-desc">{form.description}</p>}
+        </div>
+      )}
+      {part !== "head" && form.fields.some((f) => f.required) && <p className="fv-req-note"><span className="fv-star">*</span> Required</p>}
+      {part !== "head" && form.fields.map((f) => {
         if (isLayout(f.type)) {
           return f.type === "heading"
             ? <div key={f.key} className="fv-section"><h2>{f.label}</h2>{f.help && <p>{f.help}</p>}</div>

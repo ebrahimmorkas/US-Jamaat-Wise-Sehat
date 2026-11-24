@@ -10,7 +10,9 @@
 //     PUT  /forms/:code/count       photos per Jamaat          PUT /forms/:code/picks  { jamaat, photos | null }
 //     GET  /photos/:id/file         download one photo
 //   Generate (Super Admin, Saheb, JC = own Jamaats, Media):
-//     POST /generate { form, format } -> { job }    GET /jobs/:id    GET /jobs/:id/:which (photos | not-filled)
+//     POST /generate { form, format, name } -> { job }    GET /jobs/:id    GET /jobs/:id/:which (photos | not-filled)
+//     GET  /history                 reports generated earlier (own; Super Admin: everyone's), to make again
+//   Media never gets the list of Jamaats not filled.
 // Ids on the website are sealed (never database ids). Reports are made one at a time and kept for 2 hours.
 const express = require("express");
 const crypto = require("crypto");
@@ -24,6 +26,7 @@ const FormResponse = require("../models/FormResponse");
 const FormUpload = require("../models/FormUpload");
 const ReportFormat = require("../models/ReportFormat");
 const ReportPick = require("../models/ReportPick");
+const ReportRun = require("../models/ReportRun");
 const User = require("../models/User");
 const Jamaat = require("../models/Jamaat");
 const Jamiat = require("../models/Jamiat");
@@ -257,7 +260,7 @@ router.get("/forms/:code/photos", chooser, async (req, res, next) => {
     const filled = list.filter((x) => x.filled);
     res.json({
       form: { code: form.code, title: form.title, status: form.stage, photosPerJamaat: form.reportPhotos || 2 },
-      notFilled: list.length - filled.length,
+      ...(req.user.role === "media" ? {} : { notFilled: list.length - filled.length }),
       jamaats: filled.map((x) => ({
         id: F.seal(x.jamaat._id), jamiat: x.jamaat.jamiat, name: x.jamaat.name, picked: x.picked, pickedBy: x.pickedBy,
         chosen: x.chosen.map((id) => x.photos.findIndex((p) => String(p._id) === id)),
@@ -352,7 +355,7 @@ const jobOut = (j) => ({
   id: j.id, status: j.status, step: j.step, done: j.done, total: j.total, error: j.error || "",
   form: j.formTitle, format: j.formatName, createdAt: j.createdAt,
   files: Object.fromEntries(Object.entries(j.files || {}).map(([k, f]) => [k, { name: f.name, pages: f.pages, size: f.size }])),
-  failed: j.failed || 0, jamaats: j.jamaats || 0, photos: j.photos || 0, notFilled: j.notFilled || 0, noPhoto: j.noPhoto || 0,
+  failed: j.failed || 0, jamaats: j.jamaats || 0, photos: j.photos || 0, notFilled: j.notFilled == null ? null : j.notFilled, noPhoto: j.noPhoto || 0,
 });
 
 async function runJob(job, { req, form, format, fileName }) {
@@ -372,7 +375,8 @@ async function runJob(job, { req, form, format, fileName }) {
   job.total = groups.reduce((n, g) => n + g.photos.length, 0);
   job.done = 0;
   job.jamaats = groups.length;
-  job.notFilled = notFilled.length;
+  const media = req.user.role === "media"; // Media doesn't get the list of Jamaats not filled
+  job.notFilled = media ? null : notFilled.length;
   job.noPhoto = noPhoto.length;
 
   // photos are fetched a few at a time, ahead of where the report is
@@ -406,24 +410,33 @@ async function runJob(job, { req, form, format, fileName }) {
     job.failed = out.failed;
     job.photos = job.total - out.failed;
   }
-  job.step = "Making the list of Jamaats not filled";
-  const nf = await R.notFilledPdf({
-    title: form.title,
-    note: `Jamaats that have not filled the form${req.user.role === "jc" ? " (your Jamaats)" : ""} · made ${made}`,
-    sections: [
-      { title: "Not filled", rows: notFilled.map((x) => ({ jamiat: x.jamaat.jamiat, jamaat: x.jamaat.name })), empty: "Every Jamaat has filled the form." },
-      ...(noPhoto.length ? [{ title: "Filled, but no photo", rows: noPhoto.map((x) => ({ jamiat: x.jamaat.jamiat, jamaat: x.jamaat.name })) }] : []),
-    ],
-  });
-  const p2 = path.join(DIR, `${job.id}-not-filled.pdf`);
-  await fs.promises.writeFile(p2, nf);
-  job.files.notFilled = { path: p2, name: `${base} - not filled.pdf`, pages: null, size: nf.length };
+  if (!media) {
+    job.step = "Making the list of Jamaats not filled";
+    const nf = await R.notFilledPdf({
+      title: form.title,
+      note: `Jamaats that have not filled the form${req.user.role === "jc" ? " (your Jamaats)" : ""} · made ${made}`,
+      sections: [
+        { title: "Not filled", rows: notFilled.map((x) => ({ jamiat: x.jamaat.jamiat, jamaat: x.jamaat.name })), empty: "Every Jamaat has filled the form." },
+        ...(noPhoto.length ? [{ title: "Filled, but no photo", rows: noPhoto.map((x) => ({ jamiat: x.jamaat.jamiat, jamaat: x.jamaat.name })) }] : []),
+      ],
+    });
+    const p2 = path.join(DIR, `${job.id}-not-filled.pdf`);
+    await fs.promises.writeFile(p2, nf);
+    job.files.notFilled = { path: p2, name: `${base} - not filled.pdf`, pages: null, size: nf.length };
+  }
   job.status = "done";
   job.step = "Ready";
   audit(req, "report_generated", { target: { type: "form", id: String(form._id), label: form.title }, details: {
     format: format.name, jamaats: job.jamaats, photos: job.photos || 0, failedPhotos: job.failed || 0, notFilled: job.notFilled, noPhoto: job.noPhoto,
     pages: job.files.photos ? job.files.photos.pages : 0,
   } });
+  // listed on the Generate page (to make the same report again)
+  await ReportRun.create({
+    owner: req.user.id, by: { email: req.user.email, name: req.user.name || "", role: req.user.role },
+    form: form._id, formTitle: form.title, format: format._id, formatName: format.name, name: fileName || "",
+    fileName: job.files.photos ? job.files.photos.name : "", jobId: job.id,
+    pages: job.files.photos ? job.files.photos.pages : 0, jamaats: job.jamaats, photos: job.photos || 0,
+  }).catch((err) => console.error("report history:", err.message));
 }
 
 router.post("/generate", async (req, res, next) => {
@@ -469,6 +482,35 @@ router.get("/jobs/:id/:which", async (req, res, next) => {
     res.set("Content-Disposition", disposition("attachment", f.name));
     res.send(data);
   } catch (err) { sendFail(err, res, next); }
+});
+
+// ---------- reports generated earlier ----------
+router.get("/history", async (req, res, next) => {
+  try {
+    sweep();
+    const all = req.user.role === "superadmin";
+    const runs = await ReportRun.find(all ? {} : { owner: req.user.id }).sort({ createdAt: -1 }).limit(30).lean();
+    // still usable: the form (for this person) and the format
+    const [forms, formats] = await Promise.all([
+      Form.find({ _id: { $in: runs.map((r) => r.form) }, stage: { $in: stagesFor(req) }, ...notDeleted() }).select("code fields.type").lean(),
+      ReportFormat.find({ _id: { $in: runs.map((r) => r.format) }, ...notDeleted() }).select("_id").lean(),
+    ]);
+    const codeOf = new Map(forms.filter((f) => photoFields(f).length).map((f) => [String(f._id), f.code]));
+    const fmtOk = new Set(formats.map((f) => String(f._id)));
+    res.json({
+      reports: runs.map((r) => {
+        const j = r.jobId && jobs.get(r.jobId);
+        const mine = String(r.owner) === req.user.id;
+        return {
+          id: F.seal(r._id), at: r.createdAt, formTitle: r.formTitle, formatName: r.formatName,
+          name: r.name || "", fileName: r.fileName || "", pages: r.pages || 0, jamaats: r.jamaats || 0, photos: r.photos || 0,
+          ...(all && !mine ? { by: (r.by && (r.by.name || r.by.email)) || "" } : {}),
+          form: codeOf.get(String(r.form)) || "", format: fmtOk.has(String(r.format)) ? F.seal(r.format) : "",
+          job: mine && j && j.status === "done" ? { id: j.id, files: Object.keys(j.files || {}) } : null,
+        };
+      }),
+    });
+  } catch (err) { next(err); }
 });
 
 module.exports = router;

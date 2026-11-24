@@ -152,8 +152,14 @@ async function migrate() {
     await Session.updateMany({ user: { $in: noEmail.map((u) => u._id) }, revokedAt: null }, { $set: { revokedAt: new Date(), revokeReason: "no_gmail" } });
   }
 
-  // 3) User indexes: username / Gmail are unique only when present.
+  // 3) Unique names / Gmails count only records that aren't deleted (a deleted one's can be used again):
+  //    records from before status existed get "A", then the indexes are rebuilt.
+  const Jamiat = require("../models/Jamiat");
+  const Jamaat = require("../models/Jamaat");
+  for (const M of [User, Jamiat, Jamaat]) await M.collection.updateMany({ status: { $exists: false } }, { $set: { status: "A" } });
   await User.syncIndexes();
+  await Jamiat.syncIndexes();
+  await Jamaat.syncIndexes();
 
   // 4) Mauze Type list, then the JC form questions.
   await seedLists();

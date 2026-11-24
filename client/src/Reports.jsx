@@ -6,13 +6,13 @@ import { ImageIcon, ReportIcon } from "./components/Icons";
 import {
   AuthError, isServerStarting, reportFormats, reportFormatAdd, reportFormatSave, reportFormatReplace, reportFormatDelete,
   reportFormatFile, reportFormatSample, reportForms, reportPhotos, reportSetCount, reportPick, reportPhotoFile,
-  reportGenerate, reportJob, reportJobFile,
+  reportGenerate, reportJob, reportJobFile, reportHistory,
 } from "./lib/api";
 import { lower, plural } from "./lib/helpers";
 
 // Reports (PDF) made from the photos Jamaat Coordinators uploaded in a form.
-//   Generate:       pick the form and the format -> photo report + list of Jamaats not filled (everyone here;
-//                   a JC gets only their Jamaats).
+//   Generate:       pick the form and the format -> photo report + list of Jamaats not filled (a JC gets only
+//                   their Jamaats; Media gets no "not filled" list). Reports made earlier are listed to make again.
 //   Choose photos:  Media / Super Admin: how many photos per Jamaat, and which ones (else the first ones).
 //   Formats:        Super Admin uploads the one-page PDF: "Image" boxes, "Jamiat" and "Jamaat" words.
 
@@ -27,6 +27,7 @@ const SUB = {
   photos: "Choose which photos of each Jamaat go in the report. First type how many photos each Jamaat gets; a Jamaat you don't choose for gets its first photos.",
   formats: "Upload the report's page as a one-page PDF: borders, background, a box with the word Image where each photo goes, and the words Jamiat and Jamaat where the names go. The page is repeated to make the report.",
 };
+const SUB_MEDIA = "Choose a form and a format, then Generate: the format's page is repeated with each Jamaat's name and photos (Jamiat, then Jamaat A–Z).";
 const STATE = { open: "Open", not_started: "Not started", closed: "Closed" };
 const sizeText = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 
@@ -64,7 +65,7 @@ export default function Reports({ embedded, nav, page, only, user, onSignOut, on
   const body = (
     <div className="rp-page">
       <section className="page-head"><div className="page-title"><h1>{only ? TAB_LABEL[only] : "Reports"}</h1>
-        <p className="page-sub">{SUB[tab]}</p></div></section>
+        <p className="page-sub">{tab === "generate" && role === "media" ? SUB_MEDIA : SUB[tab]}</p></div></section>
       {tabs.length > 1 && (
         <div className="cp-tabs" role="tablist">
           {tabs.map((k) => <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? "is-on" : ""} onClick={() => go(k)}>{TAB_LABEL[k]}</button>)}
@@ -103,18 +104,40 @@ function Generate({ forms, formats, role, fail }) {
   const fm = forms.find((f) => f.code === form);
   const defaultName = fm ? `${fm.title} – Report – ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : "";
   const fileName = typed ? name : defaultName;
+  const media = role === "media";
+
+  // reports generated earlier (listed below, to download again while kept or make again)
+  const [history, setHistory] = useState(null);
+  const failRef = useRef(fail);
+  failRef.current = fail;
+  const loadHistory = useCallback(() => reportHistory().then((r) => setHistory(r.reports)).catch((e) => failRef.current(e)), []);
+  useEffect(() => { loadHistory(); }, [loadHistory]);
 
   useEffect(() => {
     if (!running) return undefined;
-    const t = setTimeout(() => reportJob(job.id).then((r) => setJob(r.job)).catch((e) => { setJob(null); fail(e); }), 1500);
+    const t = setTimeout(() => reportJob(job.id).then((r) => { setJob(r.job); if (r.job.status === "done") loadHistory(); }).catch((e) => { setJob(null); fail(e); }), 1500);
     return () => clearTimeout(t);
-  }, [job, running, fail]);
+  }, [job, running, fail, loadHistory]);
 
-  const start = async () => {
+  const run = async (f, fm, n) => {
     setBusy(true);
-    try { setJob((await reportGenerate(form, format, fileName.trim() || defaultName)).job); } catch (e) { fail(e); } finally { setBusy(false); }
+    try { setJob((await reportGenerate(f, fm, n)).job); } catch (e) { fail(e); } finally { setBusy(false); }
   };
-  const save = async (which) => { try { await reportJobFile(job.id, which); } catch (e) { fail(e); } };
+  const start = () => run(form, format, fileName.trim() || defaultName);
+  const save = async (which, id = job.id) => { try { await reportJobFile(id, which); } catch (e) { fail(e); } };
+  // the same report again: same form, format and file name
+  const [extraFmt, setExtraFmt] = useState(null); // a format chosen from the list below that the menu can't name
+  const again = (h) => {
+    // page ids change on every load: find the format in the menu by its name
+    const same = formats.filter((x) => x.name === h.formatName);
+    setForm(h.form); setFormat(same.length === 1 ? same[0].id : h.format);
+    setExtraFmt(same.length === 1 ? null : { id: h.format, name: h.formatName });
+    setTyped(!!h.name); setName(h.name);
+    const f = forms.find((x) => x.code === h.form);
+    const dflt = f ? `${f.title} – Report – ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : "";
+    run(h.form, h.format, h.name || dflt);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   if (!forms.length) return <div className="panel em-loading">No form with a photo question has been published yet.</div>;
   return (
@@ -130,6 +153,7 @@ function Generate({ forms, formats, role, fail }) {
           <select className="input" value={format} onChange={(e) => { setFormat(e.target.value); setJob(null); }} disabled={running || !formats.length}>
             <option value="">{formats.length ? "Choose a format…" : "No format yet"}</option>
             {formats.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+            {extraFmt && extraFmt.id === format && <option value={extraFmt.id}>{extraFmt.name}</option>}
           </select>
         </label>
         <button type="button" className="btn btn-primary rp-go" disabled={!form || !format || running || busy} onClick={start}>
@@ -162,22 +186,48 @@ function Generate({ forms, formats, role, fail }) {
             <div className="rp-done-title">Report ready: {job.form}</div>
             <ul className="rp-facts">
               <li>{plural(job.jamaats, "Jamaat")} · {plural(job.photos, "photo")}{job.files.photos ? ` · ${plural(job.files.photos.pages, "page")}` : ""}</li>
-              <li>{plural(job.notFilled, "Jamaat")} not filled{job.noPhoto ? ` · ${plural(job.noPhoto, "Jamaat")} filled without a photo` : ""}</li>
+              {job.notFilled != null && <li>{plural(job.notFilled, "Jamaat")} not filled{job.noPhoto ? ` · ${plural(job.noPhoto, "Jamaat")} filled without a photo` : ""}</li>}
               {job.failed > 0 && <li className="rp-warn">{plural(job.failed, "photo")} couldn't be loaded and {job.failed === 1 ? "was" : "were"} left out. Generate again to retry.</li>}
             </ul>
             <div className="rp-dl">
               {job.files.photos
                 ? <button type="button" className="btn btn-primary" onClick={() => save("photos")}>Download report ({sizeText(job.files.photos.size)})</button>
                 : <span className="field-hint">No photos to put in a report yet.</span>}
-              <button type="button" className="btn btn-ghost" onClick={() => save("not-filled")}>Download “not filled” list</button>
+              {job.files.notFilled && <button type="button" className="btn btn-ghost" onClick={() => save("not-filled")}>Download “not filled” list</button>}
             </div>
-            <p className="field-hint">The files can be downloaded for 2 hours.</p>
+            <p className="field-hint">The files can be downloaded for 2 hours. After that, use Generate again below.</p>
           </>}
         </div>
       )}
+
+      <div className="rp-hist">
+        <h2>Generated reports</h2>
+        {!history ? <p className="field-hint">Loading…</p> : !history.length ? <p className="field-hint">Reports you generate are listed here, so you can make the same report again.</p> : (
+          <ul className="rp-hist-list">
+            {history.map((h) => {
+              const ok = h.form && h.format;
+              return (
+                <li key={h.id} className="rp-hist-item">
+                  <div className="rp-hist-main">
+                    <b className="rp-hist-name">{h.fileName || `${h.formTitle} (no photos)`}</b>
+                    <span className="rp-hist-meta">{h.formTitle} · {h.formatName} · {fmtAt(h.at)}{h.pages ? ` · ${plural(h.pages, "page")}` : ""}{h.by ? ` · by ${h.by}` : ""}</span>
+                    {!ok && <span className="rp-hist-meta rp-warn">{!h.form ? "The form isn't available any more." : "The format was deleted."}</span>}
+                  </div>
+                  <div className="rp-hist-act">
+                    {h.job && h.job.files.includes("photos") && <button type="button" className="btn btn-ghost btn-sm" onClick={() => save("photos", h.job.id)}>Download</button>}
+                    {!media && h.job && h.job.files.includes("notFilled") && <button type="button" className="btn btn-ghost btn-sm" onClick={() => save("not-filled", h.job.id)}>Not filled list</button>}
+                    <button type="button" className="btn btn-primary btn-sm" disabled={!ok || running || busy} onClick={() => again(h)}>Generate again</button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
     </section>
   );
 }
+const fmtAt = (d) => new Date(d).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
 
 // ---------- Choose photos ----------
 const PAGE = 30;
@@ -236,7 +286,7 @@ function ChoosePhotos({ forms, fail, setMsg, onCount }) {
       {data && (
         <>
           <p className="rp-meta">
-            {plural(data.jamaats.length, "Jamaat")} filled the form · {data.jamaats.filter((j) => j.picked).length} chosen by Media · {plural(data.notFilled, "Jamaat")} not filled
+            {plural(data.jamaats.length, "Jamaat")} filled the form · {data.jamaats.filter((j) => j.picked).length} chosen by Media{data.notFilled != null ? ` · ${plural(data.notFilled, "Jamaat")} not filled` : ""}
           </p>
           {data.jamaats.length > 0 && (
             <div className="rp-filters">

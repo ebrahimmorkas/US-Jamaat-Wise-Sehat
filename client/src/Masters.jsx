@@ -4,7 +4,7 @@ import Notice from "./components/Notice";
 import { confirmDialog } from "./components/ConfirmDialog";
 import {
   AuthError, createJamaat, createJamiat, deleteJamaat, deleteJamiat, isServerStarting,
-  allAccessCount, grantAllAccess, mastersList, restoreJamaat, restoreJamiat, updateJamaat, updateJamiat,
+  allAccessCount, grantAllAccess, mastersList, updateJamaat, updateJamiat,
 } from "./lib/api";
 import { deletedLine, lower, plural } from "./lib/helpers";
 
@@ -33,7 +33,6 @@ export default function Masters({ onAuthExpired }) {
   const [edit, setEdit] = useState(emptyJamaat);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);            // { type: "error" | "ok", text }
-  const [showDeleted, setShowDeleted] = useState(false); // also list records with status "D"
 
   const load = useCallback(async (tries = 0) => {
     try {
@@ -96,12 +95,11 @@ export default function Masters({ onAuthExpired }) {
     return <div className="panel portal-empty" style={{ marginTop: 28 }}>{loadMsg}</div>;
   }
 
-  const selected = data.jamiats.find((j) => j.id === selectedId && (showDeleted || !j.deleted)) || null;
+  const selected = data.jamiats.find((j) => j.id === selectedId && !j.deleted) || null;
   const jq = lower(jamiatQuery);
-  const visible = (x) => showDeleted || !x.deleted;
+  const visible = (x) => !x.deleted;
   const liveJamiats = data.jamiats.filter((j) => !j.deleted);
   const liveJamaats = data.jamaats.filter((jm) => !jm.deleted);
-  const deletedCount = data.jamiats.length - liveJamiats.length + data.jamaats.length - liveJamaats.length;
   const jamiatRows = data.jamiats.filter((j) => visible(j) && (!jq || lower(j.name).includes(jq)));
   const allInJamiat = selected ? data.jamaats.filter((jm) => jm.jamiatId === selected.id && visible(jm)) : [];
   const liveInJamiat = allInJamiat.filter((jm) => !jm.deleted);
@@ -138,11 +136,10 @@ export default function Masters({ onAuthExpired }) {
   const removeJamiat = async () => {
     if (!(await confirmDialog({
       tone: "danger", title: `Delete the Jamiat ${selected.name}?`, confirmText: "Delete",
-      message: "It will get status D (deleted): hidden everywhere and taken away from JCs.\n\nNothing is erased; you can restore it from “Show deleted”.",
+      message: "It will be hidden everywhere and taken away from JCs.\n\nIt gets status D (deleted) in the database and can't be restored. A new one can be added with the same name.",
     }))) return;
-    act(() => deleteJamiat(selected.id), `Deleted ${selected.name} (status D). Tick “Show deleted” to restore it.`).then((ok) => ok && !showDeleted && setSelectedId(""));
+    act(() => deleteJamiat(selected.id), `Deleted ${selected.name}.`).then((ok) => ok && setSelectedId(""));
   };
-  const restoreJamiatNow = () => act(() => restoreJamiat(selected.id), `Restored ${selected.name}.`);
 
   const startAdd = () => { setEditId("new"); setEdit({ ...emptyJamaat, jamiatId: selected.id }); setMsg(null); };
   const startEdit = (jm) => { setEditId(jm.id); setEdit(toForm(jm)); setMsg(null); };
@@ -172,11 +169,10 @@ export default function Masters({ onAuthExpired }) {
   const removeJamaat = async (jm) => {
     if (!(await confirmDialog({
       tone: "danger", title: `Delete the Jamaat ${jm.name}?`, confirmText: "Delete",
-      message: "It will get status D (deleted): hidden everywhere and taken away from JCs.\n\nNothing is erased; you can restore it from “Show deleted”.",
+      message: "It will be hidden everywhere and taken away from JCs.\n\nIt gets status D (deleted) in the database and can't be restored. A new one can be added with the same name.",
     }))) return;
-    act(() => deleteJamaat(jm.id), `Deleted ${jm.name} (status D). Tick “Show deleted” to restore it.`);
+    act(() => deleteJamaat(jm.id), `Deleted ${jm.name}.`);
   };
-  const restoreJamaatNow = (jm) => act(() => restoreJamaat(jm.id), `Restored ${jm.name}. Give JCs access to it again in Users if needed.`);
 
   const editRow = (key) => (
     <tr className="edit-row" key={key}>
@@ -216,9 +212,6 @@ export default function Masters({ onAuthExpired }) {
             <p className="page-sub">Jamiat and Jamaat lists used by the JC portal and the dashboard. {plural(liveJamiats.length, "Jamiat")} · {plural(liveJamaats.length, "Jamaat")}.
               {missingArAll ? ` ${missingArAll} without an Arabic name (used in reports).` : " Every one has its Arabic name."}</p>
           </div>
-          <label className="check show-deleted">
-            <input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} /> Show deleted ({deletedCount})
-          </label>
         </section>
 
         {msg && <Notice type={msg.type} text={msg.text} onClose={() => setMsg(null)} />}
@@ -270,23 +263,16 @@ export default function Masters({ onAuthExpired }) {
                     </form>
                   )}
                   <div className="head-actions">
-                    {selected.deleted ? (
-                      <button type="button" className="mini-btn primary" onClick={restoreJamiatNow} disabled={busy}>Restore</button>
-                    ) : (
-                      <>
-                        {renaming == null && <button type="button" className="mini-btn" onClick={() => setRenaming({ name: selected.name, nameAr: selected.nameAr || "" })}>Rename / Arabic name</button>}
-                        <button type="button" className="mini-btn" onClick={toggleJamiat} disabled={busy}>{selected.isActive ? "Mark inactive" : "Mark active"}</button>
-                        <button type="button" className="mini-btn danger" onClick={removeJamiat} disabled={busy}>Delete</button>
-                      </>
-                    )}
+                    {renaming == null && <button type="button" className="mini-btn" onClick={() => setRenaming({ name: selected.name, nameAr: selected.nameAr || "" })}>Rename / Arabic name</button>}
+                    <button type="button" className="mini-btn" onClick={toggleJamiat} disabled={busy}>{selected.isActive ? "Mark inactive" : "Mark active"}</button>
+                    <button type="button" className="mini-btn danger" onClick={removeJamiat} disabled={busy}>Delete</button>
                   </div>
                 </div>
 
                 <div className="add-line jamaat-tools">
                   <input className="input" type="search" placeholder={`Search Jamaats in ${selected.name}…`} value={jamaatQuery}
                     onChange={(e) => setJamaatQuery(e.target.value)} aria-label="Search Jamaats" />
-                  <button type="button" className="btn btn-primary" onClick={startAdd} disabled={editId === "new" || selected.deleted}
-                    title={selected.deleted ? "Restore the Jamiat first" : ""}>Add Jamaat</button>
+                  <button type="button" className="btn btn-primary" onClick={startAdd} disabled={editId === "new"}>Add Jamaat</button>
                 </div>
                 {(missingAr > 0 || noArabic) && (
                   <label className="check ar-filter"><input type="checkbox" checked={noArabic} onChange={(e) => setNoArabic(e.target.checked)} /> Only Jamaats without an Arabic name ({missingAr})</label>
@@ -313,15 +299,12 @@ export default function Masters({ onAuthExpired }) {
                             <td data-label="Status">{jm.deleted ? <span className="pill bad" title={deletedLine(jm)}>Deleted (D)</span> : jm.isActive ? <span className="pill good">Active</span> : <span className="pill na">Inactive</span>}</td>
                             <td className="tnum" data-label="Entries">{jm.entryCount}</td>
                             <td className="row-actions">
-                              {jm.deleted ? (
-                                <button type="button" className="mini-btn primary" onClick={() => restoreJamaatNow(jm)} disabled={busy || selected.deleted}
-                                  title={selected.deleted ? "Restore the Jamiat first" : deletedLine(jm)}>Restore</button>
-                              ) : <>
+                              <>
                               <button type="button" className="mini-btn" onClick={() => startEdit(jm)} disabled={busy}>Edit</button>
                               <button type="button" className="mini-btn" onClick={() => toggleJamaat(jm)} disabled={busy}>{jm.isActive ? "Deactivate" : "Activate"}</button>
                               <button type="button" className="mini-btn danger" onClick={() => removeJamaat(jm)} disabled={busy || jm.entryCount > 0}
                                 title={jm.entryCount ? "Has monthly entries: deactivate instead" : "Delete"}>Delete</button>
-                              </>}
+                              </>
                             </td>
                           </tr>
                         )

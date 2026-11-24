@@ -5,7 +5,7 @@ import { confirmDialog } from "./components/ConfirmDialog";
 import { CloseIcon, DownloadIcon, EyeIcon, UploadIcon } from "./components/Icons";
 import {
   AuthError, isServerStarting, formsList, formGet, formCreate, formSave, formStatus, formTopImage, formTopImageRemove,
-  formLinkFor, formClearTests, formDelete, formRestore, formLinksExcel, templateList,
+  formLinkFor, formClearTests, formDelete, formLinksExcel, templateList,
 } from "./lib/api";
 import { deletedLine, plural } from "./lib/helpers";
 
@@ -104,7 +104,6 @@ export default function FormsAdmin({ onAuthExpired }) {
   const [meta, setMeta] = useState(null);
   const [loadMsg, setLoadMsg] = useState("Loading…");
   const [open, setOpen] = useState(null); // the form being edited (server copy) or "new"
-  const [showDeleted, setShowDeleted] = useState(false);
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -136,13 +135,12 @@ export default function FormsAdmin({ onAuthExpired }) {
       onClose={() => { setOpen(null); load(); }} />;
   }
 
-  const shown = list.filter((f) => showDeleted || !f.deleted);
-  const deletedCount = list.filter((f) => f.deleted).length;
+  const shown = list.filter((f) => !f.deleted);
   const edit = async (f) => { try { const r = await formGet(f.id); setOpen(r.form); } catch (err) { fail(err); } };
   const remove = async (f) => {
     if (!(await confirmDialog({ tone: "danger", title: `Delete “${f.title}”?`, confirmText: "Delete",
-      message: `It gets status D (deleted): its link stops working at once.\n\nNothing is erased (${plural(f.responses, "response")} kept); you can restore it from “Show deleted”.` }))) return;
-    act(() => formDelete(f.id), `Deleted “${f.title}”. Tick “Show deleted” to restore.`);
+      message: `Its link stops working at once.\n\nIt gets status D (deleted) in the database and can't be restored. Its ${plural(f.responses, "response")} stay in the database.` }))) return;
+    act(() => formDelete(f.id), `Deleted “${f.title}”.`);
   };
 
   return (
@@ -157,7 +155,6 @@ export default function FormsAdmin({ onAuthExpired }) {
       {msg && <Notice type={msg.type} text={msg.text} onClose={() => setMsg(null)} />}
       <div className="panel">
         <div className="add-line users-tools">
-          <label className="check show-deleted"><input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} /> Show deleted ({deletedCount})</label>
         </div>
         <div className="table-wrap">
           <table className="master-table card-rows forms-table">
@@ -173,11 +170,11 @@ export default function FormsAdmin({ onAuthExpired }) {
                   <td data-label="Who can fill">{ACCESS[f.access].label}</td>
                   <td data-label="Responses">{f.responses}{f.testResponses ? <small className="user-sub">+ {f.testResponses} test</small> : null}</td>
                   <td className="row-actions">
-                    {f.deleted ? <button type="button" className="mini-btn primary" disabled={busy} onClick={() => act(() => formRestore(f.id), `Restored “${f.title}”.`)}>Restore</button> : <>
+                    <>
                       <button type="button" className="mini-btn" onClick={() => edit(f)} disabled={busy}>Edit</button>
                       {f.status !== "draft" && <button type="button" className="mini-btn" onClick={() => copy(f.link).then(() => setMsg({ type: "ok", text: f.access === "personal_link" ? "Copied the form's address. People need their own personal link to fill it (Edit → Share this form)." : "Link copied." }))}>Copy link</button>}
                       <button type="button" className="mini-btn danger" onClick={() => remove(f)} disabled={busy}>Delete</button>
-                    </>}
+                    </>
                   </td>
                 </tr>
               ))}

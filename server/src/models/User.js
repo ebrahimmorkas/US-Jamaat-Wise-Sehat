@@ -40,9 +40,9 @@ const userSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
-// Unique only when present.
-userSchema.index({ username: 1 }, { unique: true, partialFilterExpression: { username: { $type: "string" } } });
-userSchema.index({ emailKey: 1 }, { unique: true, partialFilterExpression: { emailKey: { $type: "string" } } });
+// Unique only when present, among users who aren't deleted (a deleted user's Gmail can be added again).
+userSchema.index({ username: 1 }, { unique: true, partialFilterExpression: { username: { $type: "string" }, status: "A" } });
+userSchema.index({ emailKey: 1 }, { unique: true, partialFilterExpression: { emailKey: { $type: "string" }, status: "A" } });
 
 userSchema.methods.toPublic = function () {
   return {

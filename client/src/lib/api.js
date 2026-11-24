@@ -203,15 +203,12 @@ export const allAccessCount = (type, id) => request(`/api/users/all-access?type=
 export const grantAllAccess = (type, id) => request("/api/users/all-access", { method: "POST", body: { type, id } });
 export const updateUser = (id, body) => request(`/api/users/${id}`, { method: "PATCH", body });
 export const deleteUser = (id) => request(`/api/users/${id}`, { method: "DELETE" });
-export const restoreUser = (id) => request(`/api/users/${id}/restore`, { method: "POST" });
 
 // ---- Portal fields = JC form questions (Super Admin) ----
 export const fieldsGet = () => request("/api/fields");
 export const fieldCreate = (body) => request("/api/fields", { method: "POST", body });
 export const fieldUpdate = (id, body) => request(`/api/fields/${id}`, { method: "PATCH", body });
 export const fieldDelete = (id) => request(`/api/fields/${id}`, { method: "DELETE" });
-export const fieldRestore = (id) => request(`/api/fields/${id}/restore`, { method: "POST" });
-export const optionRestore = (id, oid) => request(`/api/fields/${id}/options/${oid}/restore`, { method: "POST" });
 export const fieldsOrder = (ids) => request("/api/fields/order", { method: "PUT", body: { ids } });
 export const optionAdd = (id, body) => request(`/api/fields/${id}/options`, { method: "POST", body });
 export const optionEdit = (id, oid, body) => request(`/api/fields/${id}/options/${oid}`, { method: "PATCH", body });
@@ -222,7 +219,6 @@ export const activitiesGet = (id, month) => request(`/api/fields/${id}/activitie
 export const activityAdd = (id, month, name) => request(`/api/fields/${id}/activities`, { method: "POST", body: { month, name } });
 export const activityEdit = (id, aid, name) => request(`/api/fields/${id}/activities/${aid}`, { method: "PATCH", body: { name } });
 export const activityRemove = (id, aid) => request(`/api/fields/${id}/activities/${aid}`, { method: "DELETE" });
-export const activityRestore = (id, aid) => request(`/api/fields/${id}/activities/${aid}/restore`, { method: "POST" });
 export const activitiesOrder = (id, month, ids) => request(`/api/fields/${id}/activities/order`, { method: "PUT", body: { month, ids } });
 export const activitiesCopy = (id, month) => request(`/api/fields/${id}/activities/copy`, { method: "POST", body: { month } });
 
@@ -231,7 +227,6 @@ export const listsGet = () => request("/api/settings/lists");
 export const listAdd = (key, body) => request(`/api/settings/lists/${key}/values`, { method: "POST", body });
 export const listEdit = (key, id, body) => request(`/api/settings/lists/${key}/values/${id}`, { method: "PATCH", body });
 export const listRemove = (key, id) => request(`/api/settings/lists/${key}/values/${id}`, { method: "DELETE" });
-export const listRestore = (key, id) => request(`/api/settings/lists/${key}/values/${id}/restore`, { method: "POST" });
 export const listOrder = (key, ids) => request(`/api/settings/lists/${key}/order`, { method: "PUT", body: { ids } });
 
 // ---- Masters (Super Admin) ----
@@ -239,11 +234,9 @@ export const mastersList = () => request("/api/masters");
 export const createJamiat = (body) => request("/api/masters/jamiats", { method: "POST", body });
 export const updateJamiat = (id, body) => request(`/api/masters/jamiats/${id}`, { method: "PATCH", body });
 export const deleteJamiat = (id) => request(`/api/masters/jamiats/${id}`, { method: "DELETE" });
-export const restoreJamiat = (id) => request(`/api/masters/jamiats/${id}/restore`, { method: "POST" });
 export const createJamaat = (body) => request("/api/masters/jamaats", { method: "POST", body });
 export const updateJamaat = (id, body) => request(`/api/masters/jamaats/${id}`, { method: "PATCH", body });
 export const deleteJamaat = (id) => request(`/api/masters/jamaats/${id}`, { method: "DELETE" });
-export const restoreJamaat = (id) => request(`/api/masters/jamaats/${id}/restore`, { method: "POST" });
 
 // ---- Forms (Super Admin builds; JCs share links; Jamaat Coordinators fill) ----
 export const formsList = () => request("/api/forms");
@@ -256,7 +249,6 @@ export const formTopImageRemove = (id) => request(`/api/forms/${id}/top-image`, 
 export const formLinkFor = (id, email) => request(`/api/forms/${id}/link?email=${encodeURIComponent(email)}`);
 export const formClearTests = (id) => request(`/api/forms/${id}/test-responses`, { method: "DELETE" });
 export const formDelete = (id) => request(`/api/forms/${id}`, { method: "DELETE" });
-export const formRestore = (id) => request(`/api/forms/${id}/restore`, { method: "POST" });
 export async function formLinksExcel(id) {
   const { blob, name } = await request(`/api/forms/${id}/links.xlsx`, { blob: true });
   const url = URL.createObjectURL(blob);
@@ -340,7 +332,6 @@ export const templateGet = (id) => raw(`/api/emails/templates/${id}`);
 export const templateCreate = (body) => raw("/api/emails/templates", { method: "POST", body });
 export const templateSave = (id, body) => raw(`/api/emails/templates/${id}`, { method: "PUT", body });
 export const templateDelete = (id) => raw(`/api/emails/templates/${id}`, { method: "DELETE" });
-export const templateRestore = (id) => raw(`/api/emails/templates/${id}/restore`, { method: "POST" });
 
 // Reports: formats (Super Admin), Media's photo choice, generating (Super Admin, Saheb, JC, Media).
 async function saveBlob(path) {
@@ -367,3 +358,4 @@ export const reportPhotoFile = (id) => saveBlob(`/api/reports/photos/${enc(id)}/
 export const reportGenerate = (form, format, name) => request("/api/reports/generate", { method: "POST", body: { form, format, name } });
 export const reportJob = (id) => request(`/api/reports/jobs/${enc(id)}`);
 export const reportJobFile = (id, which) => saveBlob(`/api/reports/jobs/${enc(id)}/${which}`);
+export const reportHistory = () => request("/api/reports/history");

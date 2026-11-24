@@ -3,6 +3,7 @@ const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 const config = require("../config");
 const { isDbReady } = require("../db");
 const User = require("../models/User");
+const { notDeleted } = require("../lib/softDelete");
 const { parseGmail } = require("../lib/gmail");
 const { verifyGoogleCredential } = require("../lib/google");
 const auth = require("../services/auth");
@@ -40,7 +41,7 @@ router.get("/config", (req, res) => {
 // Signs in the user registered with this Gmail (any role). Only Gmails added by a Super Admin get in.
 async function signIn(req, res, { email, sub, name, method }) {
   const g = parseGmail(email);
-  const user = g.error ? null : await User.findOne({ emailKey: g.emailKey }).select("+googleSub");
+  const user = g.error ? null : await User.findOne({ emailKey: g.emailKey, ...notDeleted() }).select("+googleSub");
 
   const refuse = (reason, message, code) => {
     audit(req, "login_failed", { user: user ? user.toPublic() : null, username: email, success: false, details: { reason, method } });

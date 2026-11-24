@@ -13,7 +13,7 @@ const Entry = require("../models/Entry");
 const { audit, diff } = require("../services/audit");
 const { removeFromAccess } = require("../services/access");
 const { InputError, requireId, parseName, parseJamaatDetails, sendError } = require("../lib/validate");
-const { DELETED, notDeleted, isDeleted, markDeleted, markRestored, deletedInfo, statusChange } = require("../lib/softDelete");
+const { DELETED, notDeleted, isDeleted, markDeleted, deletedInfo, statusChange } = require("../lib/softDelete");
 
 const router = express.Router();
 router.use(requireAuth, requireRole("superadmin"), (req, res, next) => {
@@ -39,19 +39,15 @@ const jamaatOut = (jm, entryCount = 0) => ({
 });
 const jamiatOut = (j) => ({ id: String(j._id), name: j.name, nameAr: j.nameAr || "", isActive: j.isActive, ...deletedInfo(j) });
 
-// A name already used — by a deleted record too (the unique name can't be reused: restore it instead).
+// A name used by another record that isn't deleted (a deleted one's name can be used again).
 async function checkJamiatName(name, exceptId) {
-  const other = await Jamiat.findOne({ name, ...(exceptId ? { _id: { $ne: exceptId } } : {}) }).select("status").lean();
-  if (!other) return;
-  throw new InputError(isDeleted(other) ? `A deleted Jamiat called ${name} exists. Click “Show deleted” and restore it instead.` : DUP_JAMIAT, 409);
+  if (await Jamiat.exists({ name, ...notDeleted(), ...(exceptId ? { _id: { $ne: exceptId } } : {}) })) throw new InputError(DUP_JAMIAT, 409);
 }
 async function checkJamaatName(jamiatId, name, exceptId) {
-  const other = await Jamaat.findOne({ jamiat: jamiatId, name, ...(exceptId ? { _id: { $ne: exceptId } } : {}) }).select("status").lean();
-  if (!other) return;
-  throw new InputError(isDeleted(other) ? `This Jamiat has a deleted Jamaat called ${name}. Click “Show deleted” and restore it instead.` : DUP_JAMAAT, 409);
+  if (await Jamaat.exists({ jamiat: jamiatId, name, ...notDeleted(), ...(exceptId ? { _id: { $ne: exceptId } } : {}) })) throw new InputError(DUP_JAMAAT, 409);
 }
 function notDeletedOrThrow(doc) {
-  if (isDeleted(doc)) throw new InputError(`${doc.name} is deleted. Restore it first to change it.`, 409);
+  if (isDeleted(doc)) throw new InputError(`${doc.name} is deleted.`, 409);
   return doc;
 }
 
@@ -82,8 +78,8 @@ async function jamaatSnapshot(jm) {
 router.get("/", async (req, res, next) => {
   try {
     const [jamiats, jamaats, counts] = await Promise.all([
-      Jamiat.find().sort({ name: 1 }).lean(),
-      Jamaat.find().sort({ name: 1 }).lean(),
+      Jamiat.find(notDeleted()).sort({ name: 1 }).lean(),
+      Jamaat.find(notDeleted()).sort({ name: 1 }).lean(),
       Entry.aggregate([{ $group: { _id: "$jamaat", n: { $sum: 1 } } }]),
     ]);
     const countOf = new Map(counts.map((c) => [String(c._id), c.n]));
@@ -150,26 +146,11 @@ router.delete("/jamiats/:id", async (req, res, next) => {
   }
 });
 
-router.post("/jamiats/:id/restore", async (req, res, next) => {
-  try {
-    const j = await Jamiat.findById(requireId(req.params.id, "Jamiat"));
-    if (!j) throw new InputError("Jamiat not found.", 404);
-    if (!isDeleted(j)) throw new InputError(`${j.name} is not deleted.`, 409);
-    const before = j.toObject();
-    markRestored(j);
-    await j.save();
-    audit(req, "master_restored", { target: jamiatTarget(j), changes: [statusChange(DELETED, "A"), ...diff(before, j, JAMIAT_FIELDS)] });
-    res.json({ jamiat: jamiatOut(j) });
-  } catch (err) {
-    sendError(err, res, next);
-  }
-});
-
 // ---------- Jamaats ----------
 async function findJamiat(id) {
   const j = await Jamiat.findById(requireId(id, "Jamiat")).select("name status").lean();
   if (!j) throw new InputError("Jamiat not found.", 404);
-  if (isDeleted(j)) throw new InputError(`The Jamiat ${j.name} is deleted. Restore it first.`, 409);
+  if (isDeleted(j)) throw new InputError(`The Jamiat ${j.name} is deleted.`, 409);
   return j;
 }
 
@@ -224,24 +205,6 @@ router.delete("/jamaats/:id", async (req, res, next) => {
     await removeFromAccess("jamaat", jm._id);
     audit(req, "master_deleted", { target: jamaatTarget(jm, before.jamiatName), changes: [statusChange("A", DELETED), ...diff(before, await jamaatSnapshot(jm), JAMAAT_FIELDS)] });
     res.status(204).end();
-  } catch (err) {
-    sendError(err, res, next);
-  }
-});
-
-router.post("/jamaats/:id/restore", async (req, res, next) => {
-  try {
-    const jm = await Jamaat.findById(requireId(req.params.id, "Jamaat"));
-    if (!jm) throw new InputError("Jamaat not found.", 404);
-    if (!isDeleted(jm)) throw new InputError(`${jm.name} is not deleted.`, 409);
-    await findJamiat(String(jm.jamiat)); // its Jamiat must not be deleted
-    await checkJamaatName(jm.jamiat, jm.name, jm._id);
-    const before = await jamaatSnapshot(jm);
-    markRestored(jm);
-    await jm.save();
-    const after = await jamaatSnapshot(jm);
-    audit(req, "master_restored", { target: jamaatTarget(jm, after.jamiatName), changes: [statusChange(DELETED, "A"), ...diff(before, after, JAMAAT_FIELDS)] });
-    res.json({ jamaat: jamaatOut(jm, await Entry.countDocuments({ jamaat: jm._id })) });
   } catch (err) {
     sendError(err, res, next);
   }

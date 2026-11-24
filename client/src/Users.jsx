@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Notice from "./components/Notice";
 import MultiSelect from "./components/MultiSelect";
 import { confirmDialog } from "./components/ConfirmDialog";
-import { AuthError, createUser, deleteUser, isServerStarting, mastersList, restoreUser, updateUser, usersList } from "./lib/api";
+import { AuthError, createUser, deleteUser, isServerStarting, mastersList, updateUser, usersList } from "./lib/api";
 import { deletedLine, lower, plural } from "./lib/helpers";
 
 // Quick check in the browser; the server does the full Gmail check.
@@ -27,7 +27,6 @@ export default function Users({ onAuthExpired }) {
   const [form, setForm] = useState(null); // { id: "" (new) | userId, email, role, jamiats, jamaats }
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
-  const [showDeleted, setShowDeleted] = useState(false); // also list users with status "D"
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const formRef = useRef(null);
@@ -170,11 +169,10 @@ export default function Users({ onAuthExpired }) {
   const remove = async (u) => {
     if (!(await confirmDialog({
       tone: "danger", title: `Delete ${who(u)}?`, confirmText: "Delete",
-      message: "They get status D (deleted): signed out at once and can't sign in.\n\nNothing is erased; you can restore them from “Show deleted”.",
+      message: "They are signed out at once and can't sign in.\n\nThey get status D (deleted) in the database and can't be restored. The same Gmail can be added again as a new user.",
     }))) return;
-    act(() => deleteUser(u.id), `Deleted ${who(u)} (status D). Tick “Show deleted” to restore.`).then((ok) => ok && form.id === u.id && setForm(newForm()));
+    act(() => deleteUser(u.id), `Deleted ${who(u)}.`).then((ok) => ok && form.id === u.id && setForm(newForm()));
   };
-  const restore = (u) => act(() => restoreUser(u.id), `Restored ${who(u)}.`);
 
   // "All Jamiats · All Jamaats" / "AHMEDABAD · 12 of 26 Jamaats" / "3 Jamiats · 40 Jamaats"
   const accessText = (u) => {
@@ -194,8 +192,7 @@ export default function Users({ onAuthExpired }) {
   };
 
   const q = lower(query);
-  const deletedCount = users.filter((u) => u.deleted).length;
-  const shown = users.filter((u) => (showDeleted || !u.deleted) && (!roleFilter || u.role === roleFilter) && (!q || lower(u.email).includes(q) || lower(u.name).includes(q) || lower(u.username).includes(q)));
+  const shown = users.filter((u) => !u.deleted && (!roleFilter || u.role === roleFilter) && (!q || lower(u.email).includes(q) || lower(u.name).includes(q) || lower(u.username).includes(q)));
   const countOf = (r) => users.filter((u) => u.role === r && !u.deleted).length;
 
   return (
@@ -278,9 +275,6 @@ export default function Users({ onAuthExpired }) {
             <option value="">All roles</option>
             {ROLES.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
           </select>
-          <label className="check show-deleted">
-            <input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} /> Show deleted ({deletedCount})
-          </label>
         </div>
         <div className="table-wrap">
           <table className="master-table users-table card-rows">
@@ -306,15 +300,13 @@ export default function Users({ onAuthExpired }) {
                     <td className="access wide" data-label="Assigned" title={a.title}>{a.text}</td>
                     <td className="muted wide" data-label="Last sign-in">{u.lastLoginAt ? fmtDate(u.lastLoginAt) : "Never"}</td>
                     <td className="row-actions">
-                      {u.deleted ? (
-                        <button type="button" className="mini-btn primary" onClick={() => restore(u)} disabled={busy} title={deletedLine(u)}>Restore</button>
-                      ) : <>
+                      <>
                       <button type="button" className="mini-btn" onClick={() => startEdit(u)} disabled={busy}>Edit</button>
                       <button type="button" className="mini-btn" onClick={() => toggle(u)} disabled={busy || self}
                         title={self ? "You can't deactivate yourself" : ""}>{u.isActive ? "Deactivate" : "Activate"}</button>
                       <button type="button" className="mini-btn danger" onClick={() => remove(u)} disabled={busy || self}
                         title={self ? "You can't delete yourself" : ""}>Delete</button>
-                      </>}
+                      </>
                     </td>
                   </tr>
                 );

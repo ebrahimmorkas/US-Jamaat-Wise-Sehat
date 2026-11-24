@@ -16,7 +16,7 @@ const Jamiat = require("../models/Jamiat");
 const Jamaat = require("../models/Jamaat");
 const { InputError, requireId, sendError } = require("../lib/validate");
 const realtime = require("../realtime");
-const { DELETED, notDeleted, isDeleted, markDeleted, markRestored, deletedInfo, statusChange } = require("../lib/softDelete");
+const { DELETED, notDeleted, isDeleted, markDeleted, deletedInfo, statusChange } = require("../lib/softDelete");
 
 const router = express.Router();
 router.use(requireAuth, requireRole("superadmin"), (req, res, next) => {
@@ -62,11 +62,9 @@ async function findUser(id) {
   if (!u) throw new InputError("User not found.", 404);
   return u;
 }
-// A Gmail already registered — also by a deleted user (restore that one instead of adding again).
+// A Gmail used by another user who isn't deleted (a deleted user's Gmail can be added again as a new user).
 async function checkGmailFree(emailKey, exceptId) {
-  const other = await User.findOne({ emailKey, ...(exceptId ? { _id: { $ne: exceptId } } : {}) }).select("status").lean();
-  if (!other) return;
-  throw new InputError(isDeleted(other) ? "This Gmail belongs to a deleted user. Click “Show deleted” and restore that user instead." : DUPLICATE, 409);
+  if (await User.exists({ emailKey, ...notDeleted(), ...(exceptId ? { _id: { $ne: exceptId } } : {}) })) throw new InputError(DUPLICATE, 409);
 }
 // Jamaat Coordinator: exactly one active Jamaat, and no other (not deleted) Coordinator for it.
 async function coordinatorJamaat(id, exceptUserId) {
@@ -96,7 +94,7 @@ async function guardSuperAdmin(req, u, { deactivate, demote, remove }) {
 // ---------- GET /api/users ----------
 router.get("/", async (req, res, next) => {
   try {
-    const users = await User.find().sort({ role: 1, email: 1 }).lean();
+    const users = await User.find(notDeleted()).sort({ role: 1, email: 1 }).lean();
     res.json({ users: users.map(out), me: req.user.id });
   } catch (err) {
     next(err);
@@ -155,7 +153,7 @@ router.patch("/:id", async (req, res, next) => {
   try {
     const body = req.body || {};
     const u = await findUser(req.params.id);
-    if (isDeleted(u)) throw new InputError("This user is deleted. Restore them first to change anything.", 409);
+    if (isDeleted(u)) throw new InputError("This user is deleted.", 409);
     const before = { email: u.email, role: u.role, isActive: u.isActive, isTester: !!u.isTester, jamaat: u.jamaat ? String(u.jamaat) : "", ...accessOf(u) };
     const changes = {};
     const newRole = "role" in body ? roleOrThrow(body.role) : u.role;
@@ -240,36 +238,6 @@ router.delete("/:id", async (req, res, next) => {
     realtime.disconnectUser(u._id);
     audit(req, "user_deleted", { target: userTarget(u), changes: [statusChange("A", DELETED), ...diff(before, u, USER_FIELDS)] });
     res.status(204).end();
-  } catch (err) {
-    sendError(err, res, next);
-  }
-});
-
-// ---------- POST /api/users/:id/restore ----------  back to status "A" (with the access they had)
-router.post("/:id/restore", async (req, res, next) => {
-  try {
-    const u = await User.findById(requireId(req.params.id, "user")).select("+emailKey");
-    if (!u) throw new InputError("User not found.", 404);
-    if (!isDeleted(u)) throw new InputError("This user is not deleted.", 409);
-    if (u.emailKey) await checkGmailFree(u.emailKey, u._id);
-    const before = { email: u.email, role: u.role, isActive: u.isActive, isTester: !!u.isTester };
-    markRestored(u);
-    if (u.role === "jc") {
-      // Keep only Jamiats / Jamaats that still exist (deleted ones were taken away meanwhile).
-      const [jts, jms] = await Promise.all([
-        Jamiat.find({ _id: { $in: u.jamiats || [] }, ...notDeleted() }).select("_id").lean(),
-        Jamaat.find({ _id: { $in: u.jamaats || [] }, ...notDeleted() }).select("_id").lean(),
-      ]);
-      u.jamiats = jts.map((x) => x._id);
-      u.jamaats = jms.map((x) => x._id);
-    }
-    if (u.role === "jamaat_coordinator" && u.jamaat) {
-      // Their Jamaat was deleted or meanwhile got another Coordinator: restore without a Jamaat (choose one on Edit).
-      try { await coordinatorJamaat(u.jamaat, u._id); } catch { u.jamaat = undefined; }
-    }
-    await u.save();
-    audit(req, "user_restored", { target: userTarget(u), changes: [statusChange(DELETED, "A"), ...diff(before, u, USER_FIELDS)] });
-    res.json({ user: out(u) });
   } catch (err) {
     sendError(err, res, next);
   }

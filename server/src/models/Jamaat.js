@@ -19,10 +19,11 @@ const jamaatSchema = new mongoose.Schema(
     country: { type: String, trim: true, maxlength: 60, default: "" },
     timeZone: { type: String, trim: true, maxlength: 60, default: "" },
     isActive: { type: Boolean, default: true },
-    ...softDeleteFields(), // status "D" = deleted (kept, restorable)
+    ...softDeleteFields(), // status "D" = deleted (kept in the database, can't be restored)
   },
   { timestamps: true }
 );
-jamaatSchema.index({ jamiat: 1, name: 1 }, { unique: true });
+// Unique inside its Jamiat among Jamaats that aren't deleted (a deleted one's name can be used again).
+jamaatSchema.index({ jamiat: 1, name: 1 }, { unique: true, partialFilterExpression: { status: "A" } });
 
 module.exports = mongoose.model("Jamaat", jamaatSchema);
