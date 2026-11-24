@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import FormView, { fmtWhen, myZone, phoneOk, phoneValue } from "./components/FormView";
+import FormView, { fmtWhen, myZone, phoneOk, phoneValue, shownKeys } from "./components/FormView";
 import LoginPage from "./components/LoginPage";
 import { CheckIcon, ClockIcon, InfoIcon, LockIcon, MoonIcon, SunIcon, UsersIcon, WarnIcon } from "./components/Icons";
 import { fillGet, fillSubmit, fillUpload, isServerStarting } from "./lib/api";
@@ -102,9 +102,11 @@ export default function FormFillPage({ id, theme, onToggleTheme }) {
     e.preventDefault();
     if (uploads.current > 0) return setError("Please wait until the files finish uploading.");
     const form = data.form;
-    // Quick checks here; the server checks everything again.
+    // Quick checks here; the server checks everything again. Questions hidden by a condition are skipped.
+    const shown = shownKeys(form.fields, values);
     const p = {};
     for (const f of form.fields) {
+      if (!shown.has(f.key)) continue;
       const v = values[f.key];
       if (["heading", "paragraph"].includes(f.type)) continue;
       const empty = v == null || v === "" || (Array.isArray(v) && !v.length) || (f.type === "phone" && !phoneValue(v));
@@ -128,7 +130,7 @@ export default function FormFillPage({ id, theme, onToggleTheme }) {
     const answers = {};
     for (const f of form.fields) {
       const v = values[f.key];
-      if (v == null || v === "") continue;
+      if (v == null || v === "" || !shown.has(f.key)) continue;
       if (f.type === "phone") { const ph = phoneValue(v); if (ph) answers[f.key] = ph; continue; }
       answers[f.key] = Array.isArray(v) && ["image", "video", "file"].includes(f.type) ? v.map((x) => (x.token ? { id: x.id, token: x.token } : { id: x.id })) : v;
     }

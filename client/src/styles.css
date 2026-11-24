@@ -2448,3 +2448,13 @@ a.em-file:hover { border-color: var(--brand); }
 .rp-hist-name { overflow-wrap: anywhere; }
 .rp-hist-meta { font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
 .rp-hist-act { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* Form builder: "Show only if" (conditions) */
+.q-cond-on { color: var(--ink-2); }
+.q-cond { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px dashed var(--brand); border-radius: 10px; background: var(--brand-soft); }
+.q-cond-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.q-cond-title { font-weight: 600; font-size: 14px; }
+.q-cond select { max-width: 100%; }
+.q-cond-vals { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.q-cond-val.is-on { font-weight: 600; }
+.q-cond-problem { color: var(--t-bad, #b42318); font-size: 13px; }

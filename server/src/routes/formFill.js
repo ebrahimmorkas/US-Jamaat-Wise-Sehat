@@ -151,6 +151,7 @@ async function onBehalf(me, sealedJamaat, isTest) {
 const publicField = (f) => ({
   key: f.key, type: f.type, label: f.label, help: f.help, placeholder: f.placeholder, required: f.required,
   options: f.options ? f.options.map((o) => o.label) : undefined, min: f.min, max: f.max, maxFiles: f.maxFiles,
+  ...(f.showIf && f.showIf.field ? { showIf: { field: f.showIf.field, values: f.showIf.values } } : {}),
 });
 function publicForm(f) {
   return {

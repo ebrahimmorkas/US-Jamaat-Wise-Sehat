@@ -54,6 +54,9 @@ const fieldSchema = new mongoose.Schema(
     maxFiles: { type: Number, default: null },
     // Removed from the form after people answered it: hidden from the form, kept with its answers.
     hidden: { type: Boolean, default: false },
+    // Shown only when an earlier choice question has one of these answers (none = always shown).
+    // On a section heading it shows / hides the whole section (until the next heading).
+    showIf: { type: new mongoose.Schema({ field: String, values: [String] }, { _id: false }), default: undefined },
   },
   { _id: false }
 );

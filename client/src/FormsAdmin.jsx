@@ -48,6 +48,10 @@ const copy = async (text) => {
   }
 };
 
+// Choice questions whose answer can show / hide later questions, and their answers.
+const COND_TYPES = ["select", "radio", "yes_no", "multi_select", "checkbox"];
+const choicesOf = (f) => (f.type === "yes_no" ? ["Yes", "No"] : f.optionsText.split("\n").map((x) => x.trim()).filter(Boolean));
+const refOf = (f) => f.key || f.uid;
 const blankField = (type) => ({
   uid: uid(), type, label: "", help: "", placeholder: "", required: false, optionsText: ["select", "multi_select", "radio", "checkbox"].includes(type) ? "Option 1\nOption 2" : "",
   options: [], min: "", max: type === "rating" ? "5" : "", accept: [], size: { n: "", unit: "MB" }, maxFiles: "1",
@@ -66,6 +70,7 @@ function toDraft(f) {
       options: x.options || [], optionsText: (x.options || []).map((o) => o.label).join("\n"),
       min: x.min == null ? "" : String(x.min), max: x.max == null ? "" : String(x.max), accept: x.accept || [], size: sizeIn(x.maxSizeMb),
       maxFiles: x.maxFiles == null ? "1" : String(x.maxFiles),
+      showIf: x.showIf && x.showIf.field ? { field: x.showIf.field, values: x.showIf.values || [] } : null,
     })),
   };
 }
@@ -80,6 +85,8 @@ function toBody(d) {
       key: f.key, type: f.type, label: f.label, help: f.help, placeholder: f.placeholder, required: f.required,
       options: f.optionsText.split("\n").map((s) => s.trim()).filter(Boolean).map((label) => ({ label, id: (f.options.find((o) => o.label === label) || {}).id })),
       min: numOut(f.min), max: numOut(f.max), accept: f.accept, maxSizeMb: sizeOut(f.size), maxFiles: numOut(f.maxFiles),
+      uid: f.key ? undefined : f.uid, // new questions: conditions name them by this
+      showIf: f.showIf && f.showIf.field ? f.showIf : null,
     })),
   };
 }
@@ -94,6 +101,7 @@ function previewForm(d, meta, topImage) {
         key: f.key || f.uid || String(i), type: f.type, label: f.label, help: f.help, placeholder: f.placeholder, required: f.required,
         options: f.optionsText.split("\n").map((s) => s.trim()).filter(Boolean), min: numOut(f.min), max: numOut(f.max), maxFiles: numOut(f.maxFiles) || 1,
         accept: ext, maxMb: kind ? Math.min(sizeOut(f.size) || (kind === "image" && sizeOut(d.imageSize)) || meta.maxMb[kind], meta.maxMb[kind]) : undefined,
+        showIf: f.showIf && f.showIf.field ? f.showIf : undefined,
       };
     }),
   };
@@ -353,7 +361,8 @@ function FormEditor({ start, meta, onClose, onAuthExpired }) {
     const f = d.fields[i];
     if (f.key && answered.has(f.key) && !(await confirmDialog({ tone: "warn", title: "Remove this question?", confirmText: "Remove",
       message: "People have already answered it. It is hidden from the form, and the answers already sent are kept." }))) return;
-    setD((s) => ({ ...s, fields: s.fields.filter((_, j) => j !== i) }));
+    const ref = f.key || f.uid;
+    setD((s) => ({ ...s, fields: s.fields.filter((_, j) => j !== i).map((x) => (x.showIf && x.showIf.field === ref ? { ...x, showIf: null } : x)) }));
   };
   const addF = (type) => { if (!type) return; setD((s) => ({ ...s, fields: [...s.fields, blankField(type)] })); };
   const dupF = (i) => setD((s) => { const f = s.fields[i]; const c = { ...f, uid: uid(), key: undefined, options: [], label: f.label ? `${f.label} (copy)` : "" }; const fields = [...s.fields]; fields.splice(i + 1, 0, c); return { ...s, fields }; });
@@ -492,7 +501,7 @@ function FormEditor({ start, meta, onClose, onAuthExpired }) {
           <div className="panel ed-section">
             <h2>Questions</h2>
             {d.fields.map((f, i) => (
-              <FieldCard key={f.uid} f={f} i={i} count={d.fields.length} types={types} groups={groups} meta={meta} locked={!!f.key && answered.has(f.key)}
+              <FieldCard key={f.uid} f={f} i={i} count={d.fields.length} types={types} groups={groups} meta={meta} locked={!!f.key && answered.has(f.key)} all={d.fields}
                 set={(p) => setF(i, p)} up={() => moveF(i, -1)} down={() => moveF(i, 1)} remove={() => removeF(i)} dup={() => dupF(i)}
                 extChips={extChips} sizeBox={sizeBox} />
             ))}
@@ -565,7 +574,7 @@ function FormEditor({ start, meta, onClose, onAuthExpired }) {
   );
 }
 
-function FieldCard({ f, i, count, types, groups, meta, locked, set, up, down, remove, dup, extChips, sizeBox }) {
+function FieldCard({ f, i, count, types, groups, meta, locked, all, set, up, down, remove, dup, extChips, sizeBox }) {
   const t = types.find((x) => x.key === f.type) || {};
   const layout = t.layout;
   return (
@@ -620,6 +629,49 @@ function FieldCard({ f, i, count, types, groups, meta, locked, set, up, down, re
         {extChips(t.upload, f.accept, (v) => set({ accept: v }))}
       </>}
       {!layout && <label className="check"><input type="checkbox" checked={f.required} onChange={(e) => set({ required: e.target.checked })} /> Required</label>}
+      <ShowIf f={f} i={i} all={all} set={set} />
+    </div>
+  );
+}
+
+// "Show only if": an earlier choice question + the answers that show this one (a heading: its whole section).
+function ShowIf({ f, i, all, set }) {
+  const c = f.showIf;
+  const earlier = all.slice(0, i).filter((x) => COND_TYPES.includes(x.type) && x.label.trim());
+  const srcAt = c ? all.findIndex((x) => refOf(x) === c.field) : -1;
+  const src = srcAt >= 0 ? all[srcAt] : null;
+  const what = f.type === "heading" ? "this section (every question until the next heading)" : f.type === "paragraph" ? "this text" : "this question";
+  if (!c) {
+    return (
+      <label className="check q-cond-on"><input type="checkbox" disabled={!earlier.length} onChange={() => set({ showIf: { field: refOf(earlier[earlier.length - 1]), values: [] } })} />
+        {" "}Show {what} only for some answers{!earlier.length ? <span className="muted"> (add a dropdown, radio, checkbox or Yes / No question above it first)</span> : null}</label>
+    );
+  }
+  const choices = src ? choicesOf(src) : [];
+  const toggle = (v) => set({ showIf: { ...c, values: c.values.includes(v) ? c.values.filter((x) => x !== v) : [...c.values, v] } });
+  const problem = !src ? "The question it depended on was removed: choose another one."
+    : srcAt > i ? `“${src.label}” must come before ${what}: move it up, or this one down.`
+      : !c.values.some((v) => choices.includes(v)) ? "Tick at least one answer." : "";
+  return (
+    <div className="q-cond">
+      <div className="q-cond-head">
+        <span className="q-cond-title">Show {what} only if</span>
+        <button type="button" className="link-btn" onClick={() => set({ showIf: null })}>Always show</button>
+      </div>
+      <select value={src ? c.field : ""} onChange={(e) => set({ showIf: { field: e.target.value, values: [] } })} aria-label="Question it depends on">
+        {!src && <option value="">Choose a question…</option>}
+        {src && srcAt > i && <option value={c.field}>{src.label}</option>}
+        {earlier.map((x) => <option key={refOf(x)} value={refOf(x)}>{x.label}</option>)}
+      </select>
+      {src && <>
+        <span className="field-hint">{["multi_select", "checkbox"].includes(src.type) ? "is ticked with any of:" : "is answered:"}</span>
+        <div className="q-cond-vals">
+          {choices.map((v) => (
+            <label key={v} className={`check q-cond-val${c.values.includes(v) ? " is-on" : ""}`}><input type="checkbox" checked={c.values.includes(v)} onChange={() => toggle(v)} /> {v}</label>
+          ))}
+        </div>
+      </>}
+      {problem && <span className="q-cond-problem">{problem}</span>}
     </div>
   );
 }

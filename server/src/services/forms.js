@@ -29,6 +29,26 @@ const TYPES = {
   heading: { label: "Section heading", group: "Layout", layout: true },
   paragraph: { label: "Information text", group: "Layout", layout: true },
 };
+// Questions whose answer can show / hide other questions (an answer = one of its choices).
+const CONDITION_SOURCES = ["select", "radio", "yes_no", "multi_select", "checkbox"];
+const choicesOf = (f) => (f.type === "yes_no" ? ["Yes", "No"] : (f.options || []).map((o) => (typeof o === "string" ? o : o.label)));
+/** The answer matches the condition: one of the chosen values (any of them, for choose-many questions). */
+const conditionMet = (answer, values) => (Array.isArray(answer) ? answer.some((a) => values.includes(a)) : answer != null && values.includes(String(answer)));
+/**
+ * Shown questions for these answers: a question is shown when its section (heading) is shown, its own condition
+ * is met, and the question its condition looks at is shown too. Conditions only look at earlier questions.
+ */
+function shownKeys(fields, answers) {
+  const shown = new Set();
+  let section = true;
+  for (const f of fields) {
+    if (f.hidden) continue;
+    const own = !f.showIf || !f.showIf.field || (shown.has(f.showIf.field) && conditionMet(answers[f.showIf.field], f.showIf.values || []));
+    if (f.type === "heading") section = own;
+    if (section && own) shown.add(f.key);
+  }
+  return shown;
+}
 const LIMITS = { fields: 150, options: 200, reminders: 10, maxPerPerson: 1000, files: 10, hours: 24 * 366 };
 const TEXT_MAX = { short_text: 500, long_text: 5000 };
 
@@ -211,6 +231,22 @@ function parseForm(body, existing, answered = new Set()) {
     used.add(field.key);
     return field;
   });
+  // Conditions ("show only if"): the browser names the earlier question by its key, or (new questions) its uid.
+  const keyOf = new Map(list.map((f, i) => [String((f && (f.key || f.uid)) || ""), out.fields[i]]).filter(([k]) => k));
+  out.fields.forEach((field, i) => {
+    const c = list[i] && list[i].showIf;
+    if (!c || !c.field) return;
+    const name = field.label ? `“${field.label.slice(0, 40)}”` : `Question ${i + 1}`;
+    const src = keyOf.get(String(c.field));
+    if (!src) throw new InputError(`${name}: the question it depends on was removed. Choose another one or show it always.`);
+    const at = out.fields.indexOf(src);
+    if (at >= i) throw new InputError(`${name}: it depends on “${src.label.slice(0, 40)}”, which must come before it. Move it lower or change the condition.`);
+    if (!CONDITION_SOURCES.includes(src.type)) throw new InputError(`${name}: only a choice question (dropdown, radio buttons, checkboxes, Yes / No) can show or hide it.`);
+    const choices = choicesOf(src);
+    const values = [...new Set((Array.isArray(c.values) ? c.values : []).map((v) => oneLine(v, 200)))].filter((v) => choices.includes(v));
+    if (!values.length) throw new InputError(`${name}: tick which answer of “${src.label.slice(0, 40)}” shows it.`);
+    field.showIf = { field: src.key, values };
+  });
   // Removed fields that have answers stay (hidden) so their answers aren't lost.
   for (const f of saved.values()) {
     if (!used.has(f.key) && answered.has(f.key)) out.fields.push({ ...(f.toObject ? f.toObject() : f), hidden: true });
@@ -320,10 +356,18 @@ async function checkAnswers(form, input, files, previous = {}) {
   const src = input && typeof input === "object" ? input : {};
   const answers = {};
   const problems = {};
+  // shown / hidden by conditions, worked out as the answers are read (a condition looks at an earlier answer)
+  const shown = new Set();
+  let section = true;
+  const own = (f) => !f.showIf || !f.showIf.field || (shown.has(f.showIf.field) && conditionMet(answers[f.showIf.field], f.showIf.values || []));
   for (const f of form.fields) {
     const t = TYPES[f.type];
-    if (!t || t.layout) continue;
+    if (!t) continue;
     if (f.hidden) { if (f.key in previous) answers[f.key] = previous[f.key]; continue; }
+    if (f.type === "heading") section = own(f);
+    if (!(section && own(f))) continue; // not shown: no answer kept, not required
+    shown.add(f.key);
+    if (t.layout) continue;
     let v = src[f.key];
     const fail = (m) => { problems[f.key] = m; };
     if (typeof v === "string") v = f.type === "long_text" ? clean(v, 20000) : oneLine(v, 20000);
@@ -465,7 +509,7 @@ const hash = (s) => crypto.createHash("sha256").update(String(s)).digest("hex");
 const randomKey = () => crypto.randomBytes(24).toString("base64url");
 
 module.exports = {
-  TYPES, LIMITS, meta, parseForm, readyProblems, stateOf,
+  TYPES, LIMITS, CONDITION_SOURCES, shownKeys, meta, parseForm, readyProblems, stateOf,
   personalToken, readToken, formLink, personalLink, emailKeyOf, simpleEmail, newCode, isCode, seal, unseal,
   checkAnswers, uploadRules, checkUpload, hash, randomKey,
 };

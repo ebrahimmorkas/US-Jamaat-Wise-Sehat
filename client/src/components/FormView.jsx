@@ -4,7 +4,8 @@ import MultiSelect from "./MultiSelect";
 import { CloseIcon, UploadIcon } from "./Icons";
 
 // A form as the person filling it sees it (also the Super Admin's preview).
-//   form: { title, description, topImage, fields: [{ key, type, label, help, placeholder, required, options, min, max, maxFiles, accept, maxMb }] }
+//   form: { title, description, topImage, fields: [{ key, type, label, help, placeholder, required, options, min, max, maxFiles, accept, maxMb, showIf? }] }
+//   showIf: { field: <earlier key>, values: [answers] } — the field shows only when that answer is one of them
 //   values: { <key>: value }   onChange(key, value)   problems: { <key>: message }
 //   onUpload(field, File) -> Promise   (uploads: [{ id, token?, name, size, type, preview?, progress?, error? }])
 //   preview: nothing can be sent / uploaded   locked: read only (e.g. sending)
@@ -12,6 +13,21 @@ export const fmtWhen = (d) => (d ? new Date(d).toLocaleString([], { weekday: "sh
 export const myZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { return ""; } };
 export const fmtSize = (b) => (b >= 1024 * 1024 * 1024 ? `${(b / 1024 / 1024 / 1024).toFixed(1)} GB` : b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 const isLayout = (t) => t === "heading" || t === "paragraph";
+
+// ---------- Conditions ("show only if an earlier answer is …") — the server works it out the same way ----------
+const conditionMet = (answer, values) => (Array.isArray(answer) ? answer.some((a) => values.includes(a)) : answer != null && answer !== "" && values.includes(String(answer)));
+/** Keys of the fields shown for these answers (a heading's condition shows / hides its whole section). */
+export function shownKeys(fields, values) {
+  const shown = new Set();
+  let section = true;
+  for (const f of fields) {
+    const c = f.showIf;
+    const own = !c || !c.field || (shown.has(c.field) && conditionMet(values[c.field], c.values || []));
+    if (f.type === "heading") section = own;
+    if (section && own) shown.add(f.key);
+  }
+  return shown;
+}
 
 // ---------- Phone numbers: a country + the number, checked with that country's rules ----------
 const regionOfBrowser = () => {
@@ -36,6 +52,7 @@ export const phoneOk = (v) => { const s = phoneValue(v); const ph = s && parsePh
 // (the fill page puts Jamiat, Jamaat and email between the two).
 export default function FormView({ form, values, onChange, problems = {}, onUpload, onRemoveFile, preview, locked, part = "all" }) {
   let n = 0;
+  const shown = shownKeys(form.fields, values || {});
   return (
     <div className="fv">
       {part !== "questions" && form.topImage && <img className="fv-top" src={form.topImage} alt="" />}
@@ -47,6 +64,7 @@ export default function FormView({ form, values, onChange, problems = {}, onUplo
       )}
       {part !== "head" && form.fields.some((f) => f.required) && <p className="fv-req-note"><span className="fv-star">*</span> Required</p>}
       {part !== "head" && form.fields.map((f) => {
+        if (!shown.has(f.key)) return null;
         if (isLayout(f.type)) {
           return f.type === "heading"
             ? <div key={f.key} className="fv-section"><h2>{f.label}</h2>{f.help && <p>{f.help}</p>}</div>
