@@ -253,6 +253,10 @@ export const formLinksExcel = (id) => saveBlob(`/api/forms/${id}/links.xlsx`);
 // JC: the personal links of their Jamaats' Coordinators for one open form (one sheet per Jamiat).
 export const jcLinksExcel = (code) => saveBlob(`/api/forms/jc-links/${encodeURIComponent(code)}/links.xlsx`);
 export const jcFormLinks = () => request("/api/forms/jc-links");
+// Users: bulk upload from Excel (Super Admin)
+export const usersBulkSample = () => saveBlob("/api/users/bulk/sample");
+export const usersBulkPreview = (file) => request("/api/users/bulk/preview", { method: "POST", file });
+export const usersBulkAdd = (file) => request("/api/users/bulk", { method: "POST", file });
 
 // Responses (Super Admin, Saheb, JC — a JC sees only their own Jamaats). Forms are addressed by their code.
 const rq = (p) => new URLSearchParams(Object.entries(p || {}).filter(([, v]) => v != null && v !== "")).toString();

@@ -2488,3 +2488,32 @@ textarea.input.kanz-input { min-height: 96px; resize: vertical; }
 /* JC dashboard: "Download Excel" of a personal-link form's links */
 .fl-dl { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 6px 0 10px; }
 .fl-dl .muted { font-size: 13px; flex: 1 1 220px; }
+
+/* Users: bulk upload from Excel */
+.bulk-users .panel-head { align-items: flex-start; }
+.bulk-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: flex-start; margin: 4px 0 12px; }
+.bulk-users > .bulk-actions, .bulk-users > .alert, .bulk-users > p, .bulk-result { padding-left: 20px; padding-right: 20px; }
+.bulk-users > .alert { margin-left: 20px; margin-right: 20px; padding-left: 14px; padding-right: 14px; }
+.bulk-result { padding-bottom: 8px; }
+.bulk-users .btn span { display: inline; }
+.bulk-actions .btn { margin-left: 0; }
+@media (max-width: 640px) {
+  .bulk-users > .bulk-actions, .bulk-users > p, .bulk-result { padding-left: 14px; padding-right: 14px; }
+  .bulk-scroll { max-height: 60vh; }
+  .bulk-scroll .data-table thead { display: none; }
+  .bulk-scroll .data-table, .bulk-scroll .data-table tbody, .bulk-scroll .data-table tr, .bulk-scroll .data-table td { display: block; width: 100%; max-width: none; min-width: 0; }
+  .bulk-scroll .data-table tr { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  .bulk-scroll .data-table td { border: 0; padding: 2px 0; }
+  .bulk-scroll .data-table td:first-child::before { content: "Row "; }
+}
+.bulk-summary { border: 1px solid var(--border); background: var(--surface-2); border-radius: 12px; padding: 10px 14px; margin-bottom: 10px; font-size: 13.5px; }
+.bulk-summary p { margin: 2px 0; }
+.bulk-summary.is-good { background: var(--soft-good); border-color: color-mix(in srgb, var(--t-good) 30%, transparent); }
+.bulk-summary.is-bad { background: var(--soft-bad); border-color: color-mix(in srgb, var(--t-bad) 30%, transparent); }
+.bulk-only { margin: 0 0 8px; font-size: 13px; }
+.bulk-scroll { max-height: 420px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; }
+.bulk-scroll .data-table th { position: sticky; top: 0; z-index: 1; }
+.bulk-err { color: var(--t-bad); font-size: 12.5px; }
+.bulk-note { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
+.data-table tr.is-bad td { background: color-mix(in srgb, var(--soft-bad) 45%, transparent); }
+.bulk-result .tester-pill { margin-left: 6px; }

@@ -3,7 +3,10 @@
 //   saheb      dashboard
 //   superadmin this portal
 // Safety: a Super Admin can't deactivate, delete or demote themselves, and the last active Super Admin stays.
+// Bulk upload (Excel): GET /bulk/sample (the sample file), POST /bulk/preview (every row checked, nothing saved),
+//   POST /bulk (adds the rows that are OK; the others come back with the reason). Format: services/userImport.js.
 const express = require("express");
+const userImport = require("../services/userImport");
 const { isDbReady } = require("../db");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const User = require("../models/User");
@@ -122,6 +125,63 @@ router.post("/all-access", async (req, res, next) => {
     const n = await grantToAllAccess(type, id);
     audit(req, "user_updated", { target: { type, id: String(id), label: doc ? doc.name : String(id) }, details: { op: `new ${type} given to JCs who had access to everything`, users: n } });
     res.json({ updated: n });
+  } catch (err) {
+    sendError(err, res, next);
+  }
+});
+
+// ---------- Bulk upload from Excel ----------
+const excelBody = express.raw({ type: "application/octet-stream", limit: 5 * 1024 * 1024 });
+const fileOf = (req) => {
+  if (!Buffer.isBuffer(req.body) || !req.body.length) throw new InputError("Choose the Excel file.");
+  return req.body;
+};
+const rowOut = ({ data, ...r }) => r; // no ids in the answer
+
+router.get("/bulk/sample", async (req, res, next) => {
+  try {
+    const wb = await userImport.sampleBook();
+    const buf = await wb.xlsx.writeBuffer();
+    res.set({ "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Content-Disposition": 'attachment; filename="Users - bulk upload sample.xlsx"' });
+    res.send(Buffer.from(buf));
+  } catch (err) {
+    sendError(err, res, next);
+  }
+});
+
+router.post("/bulk/preview", excelBody, async (req, res, next) => {
+  try {
+    const rows = await userImport.plan(await userImport.readFile(fileOf(req)));
+    res.json({ rows: rows.map(rowOut), ok: rows.filter((r) => r.ok).length, errors: rows.filter((r) => !r.ok).length });
+  } catch (err) {
+    sendError(err, res, next);
+  }
+});
+
+router.post("/bulk", excelBody, async (req, res, next) => {
+  try {
+    let file = "";
+    try { file = decodeURIComponent(String(req.get("x-file-name") || "")).slice(0, 120); } catch { file = ""; }
+    const rows = await userImport.plan(await userImport.readFile(fileOf(req)));
+    let added = 0;
+    for (const r of rows) {
+      if (!r.ok) continue;
+      try {
+        const u = await User.create({ ...r.data, createdBy: req.user.email });
+        added++;
+        r.added = true;
+        const access = r.data.role === "jc" ? { jamiats: r.data.jamiats.map(String), jamaats: r.data.jamaats.map(String) } : {};
+        audit(req, "user_created", {
+          target: userTarget(u),
+          changes: [...diff(null, u, USER_FIELDS), ...(r.data.role === "jc" ? await accessChanges(null, access) : [])],
+          details: { bulk: true, file, row: r.row, ...(r.data.role === "jamaat_coordinator" ? { jamaat: r.access } : {}) },
+        });
+      } catch (e) {
+        r.ok = false;
+        r.error = e && e.code === 11000 ? DUPLICATE : "Couldn't be added. Try again.";
+      }
+    }
+    res.status(added ? 201 : 200).json({ rows: rows.map(rowOut), added, errors: rows.filter((r) => !r.ok).length });
   } catch (err) {
     sendError(err, res, next);
   }

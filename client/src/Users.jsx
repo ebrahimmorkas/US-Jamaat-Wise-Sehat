@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Notice from "./components/Notice";
 import MultiSelect from "./components/MultiSelect";
+import UsersBulk from "./components/UsersBulk";
 import { confirmDialog } from "./components/ConfirmDialog";
 import { AuthError, createUser, deleteUser, isServerStarting, mastersList, updateUser, usersList } from "./lib/api";
 import { deletedLine, lower, plural } from "./lib/helpers";
@@ -260,6 +261,9 @@ export default function Users({ onAuthExpired }) {
           </div>
         </form>
       </div>
+
+      <UsersBulk onAdded={(n) => { setMsg({ type: "ok", text: `${plural(n, "user")} added from Excel.` }); load(); }}
+        onAuthFail={(e) => { if (e instanceof AuthError) { onAuthExpired(); return true; } return false; }} />
 
       <div className="panel users-list">
         <div className="panel-head">
