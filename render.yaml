@@ -2,7 +2,7 @@
 # Render dashboard -> New -> Blueprint -> pick this repository.
 services:
   - type: web
-    name: us-jamaat-wise-sehat-api
+    name: us-jamaat-wise-sehat
     runtime: node
     plan: free
     region: singapore
@@ -21,7 +21,7 @@ services:
       # Live updates (Socket.IO): browsers connect straight to this server,
       # because Vercel can't forward live connections.
       - key: REALTIME_PUBLIC_URL
-        value: https://us-jamaat-wise-sehat-api.onrender.com
+        value: https://us-jamaat-wise-sehat.onrender.com
       # Sign-in: two random secrets (Render generates them).
       - key: JWT_ACCESS_SECRET
         generateValue: true
