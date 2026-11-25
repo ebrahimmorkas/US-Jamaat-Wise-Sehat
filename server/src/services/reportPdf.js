@@ -1,8 +1,9 @@
 // Report PDFs. The Super Admin uploads a one-page PDF (the "format"): borders, background, a box with the word
 // "Image" where a photo goes, and the words "Jamiat" / "Jamaat" where the names go. Each "Jamaat" word is one
 // place for a Jamaat (3 rows = 3 Jamaats a page); the Image boxes and Jamiat words near it belong to it.
-// Optional words: "Title" and "Date" (the report's heading, on every page, typed by Media in Arabic) and
+// Optional words: "Title" and "Date" (the report's heading, on every page, typed by Media) and
 // "Description" (inside a box: each Jamaat's description, typed by Media, wrapped to fit the box).
+// Media types each of them in Lisan ud Dawat (Al-Kanz font, right to left) or English.
 //
 //   analyze(bytes)  -> where the places are (stored with the format)
 //   buildReport()   -> the format repeated as many times as needed: the words are removed from the page and
@@ -40,6 +41,16 @@ const MIRROR = { "(": ")", ")": "(", "[": "]", "]": "[", "{": "}", "}": "{", "<"
 // (Arabic digits ٠-٩ / ۰-۹ too: "١٤٤٨" must read left to right.)
 const rtlText = (s) => s.replace(/[()[\]{}<>]/g, (c) => MIRROR[c]).replace(/[0-9A-Za-z٠-٩۰-۹]{2,}/g, (w) => [...w].reverse().join(""));
 /** Letters in this text the Arabic font can't draw (none when there is no font: then nothing is checked). */
+// English text is drawn in Helvetica (Windows Latin letters only).
+const LATIN_EXTRA = new Set([..."€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ"]);
+/** Letters the English font can't show (accents are dropped, so é is fine). */
+function missingLatin(value) {
+  const plain = String(value || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+  return [...new Set([...plain].filter((ch) => {
+    const c = ch.codePointAt(0);
+    return !/\s/.test(ch) && !((c >= 0x20 && c < 0x7f) || (c >= 0xa0 && c <= 0xff) || LATIN_EXTRA.has(ch));
+  }))];
+}
 function missingLetters(value) {
   const a = arabicFont();
   if (!a) return [];
@@ -91,6 +102,7 @@ class FormatError extends Error {
 
 const MM = 72 / 25.4; // points in a millimetre
 const LINE = 1.45; // line height of descriptions (x the letter size)
+const LAYOUT_V = 2; // formats read before Title / Date / Description were looked for are read again
 const WORDS = { image: "image", jamiat: "jamiat", jamaat: "jamaat", title: "title", date: "date", description: "description" };
 
 // ---------- small matrix helpers ([a b c d e f], PDF order) ----------
@@ -621,6 +633,7 @@ async function analyze(bytes) {
   const text = (t) => ({ bbox: rbox(t.bbox), size: round(t.size), fill: t.fill.map(round), bold: t.bold, align: t.align, maxW: round(t.maxW) });
   const first = images[0];
   return {
+    v: LAYOUT_V,
     page: { w: round(mb.width), h: round(mb.height), x: round(mb.x), y: round(mb.y), rotate: page.getRotation().angle || 0 },
     slots: slots.map((s) => ({
       jamaat: s.jamaat.map(text),
@@ -736,8 +749,9 @@ const SAFE = (font) => (text) => {
  * @param {{w:number,h:number}} o.photoSize  mm
  * @param {{jamiat:string, jamaat:string, photos:any[]}[]} o.groups  one per Jamaat, in order
  * @param {(photo:any)=>Promise<{bytes:Buffer}|null>} o.loadPhoto  null = draw a grey sample box
- * @param {{title?:string, date?:string}} o.heading  printed where the format has "Title" / "Date" (every page)
- *   (each group may have a description: printed in its "Description" box)
+ * @param {{title?:string, date?:string, titleLang?:string, dateLang?:string}} o.heading  printed where the format
+ *   has "Title" / "Date" (every page); lang "en" = English, else Lisan ud Dawat
+ *   (each group may have a description + descriptionLang: printed in its "Description" box)
  * @returns {Promise<{ bytes: Uint8Array, pages: number, failed: number }>}
  */
 async function buildReport({ bytes, layout, photoSize, groups, loadPhoto, title = "Report", heading = {} }) {
@@ -764,7 +778,7 @@ async function buildReport({ bytes, layout, photoSize, groups, loadPhoto, title 
 
   // one line in a place of the format: Arabic in Al-Kanz (else the English text), made smaller to fit
   const putLine = (page, t, value, valueAr) => {
-    const ar = fonts.ar ? arabicPlain(valueAr) : "";
+    const ar = fonts.ar && valueAr ? arabicPlain(valueAr) : "";
     const font = ar ? fonts.ar : t.bold ? fonts.b : fonts.r;
     const runs = ar ? rtlRuns(ar) : null;
     const text = ar ? "" : safe(value);
@@ -781,10 +795,10 @@ async function buildReport({ bytes, layout, photoSize, groups, loadPhoto, title 
     else page.drawText(text, { x: x - P.x, y: base - P.y, size, font, color });
   };
   // a description: lines wrapped to the box (Arabic from the right), made smaller until it all fits
-  const putParagraph = (page, d, value) => {
+  const putParagraph = (page, d, value, lang) => {
     const raw = String(value || "").replace(/\r/g, "").replace(/[ \t]+/g, " ").trim();
     if (!raw) return;
-    const ar = !!(fonts.ar && arabicPlain(raw, true));
+    const ar = !!(lang !== "en" && fonts.ar && arabicPlain(raw, true));
     const font = ar ? fonts.ar : fonts.r;
     const lineWidth = (l, size) => (ar ? runsWidth(font, rtlRuns(l), size) : font.widthOfTextAtSize(safe(l), size));
     const pad = 4;
@@ -825,8 +839,8 @@ async function buildReport({ bytes, layout, photoSize, groups, loadPhoto, title 
     page.drawPage(B, { x: 0, y: 0 });
     const X = (x) => x - P.x;
     const Y = (y) => y - P.y;
-    (layout.title || []).forEach((t) => putLine(page, t, heading.title, heading.title));
-    (layout.date || []).forEach((t) => putLine(page, t, heading.date, heading.date));
+    (layout.title || []).forEach((t) => putLine(page, t, heading.title, heading.titleLang === "en" ? "" : heading.title));
+    (layout.date || []).forEach((t) => putLine(page, t, heading.date, heading.dateLang === "en" ? "" : heading.date));
     for (let s = 0; s < S; s++) {
       const g = groups[p * S + s];
       if (!g) continue;
@@ -880,7 +894,7 @@ async function buildReport({ bytes, layout, photoSize, groups, loadPhoto, title 
       // names: the Arabic name in Al-Kanz; the English name when there is no Arabic one
       slot.jamaat.forEach((t) => putLine(page, t, g.jamaat, g.jamaatAr));
       slot.jamiat.forEach((t) => putLine(page, t, g.jamiat, g.jamiatAr));
-      (slot.description || []).forEach((d) => putParagraph(page, d, g.description));
+      (slot.description || []).forEach((d) => putParagraph(page, d, g.description, g.descriptionLang));
     }
   }
   return { bytes: await out.save(), pages, failed };
@@ -946,4 +960,4 @@ async function notFilledPdf({ title, sections, note }) {
   return doc.save();
 }
 
-module.exports = { analyze, describe, buildReport, sampleGroups, notFilledPdf, FormatError, MM, missingLetters, SAMPLE_HEADING, arabicFontFile: () => (arabicFont() ? ARABIC_FONT : null), _test: { parseOps, readPage, textRuns, rtlText, arabicOf, rtlRuns } };
+module.exports = { analyze, describe, buildReport, sampleGroups, notFilledPdf, FormatError, MM, LAYOUT_V, missingLetters, missingLatin, SAMPLE_HEADING, arabicFontFile: () => (arabicFont() ? ARABIC_FONT : null), _test: { parseOps, readPage, textRuns, rtlText, arabicOf, rtlRuns } };

@@ -351,7 +351,7 @@ router.post("/:code/submit", submitLimiter, async (req, res, next) => {
 /** Files uploaded but never sent with a response are removed after a day. */
 async function cleanupUploads() {
   if (!isDbReady()) return;
-  const old = await FormUpload.find({ response: null, createdAt: { $lt: new Date(Date.now() - 24 * 3600 * 1000) } }).select("fileId").limit(200).lean();
+  const old = await FormUpload.find({ response: null, report: { $ne: true }, createdAt: { $lt: new Date(Date.now() - 24 * 3600 * 1000) } }).select("fileId").limit(200).lean();
   for (const u of old) {
     try { await storage.deleteImage(u.fileId); await FormUpload.deleteOne({ _id: u._id }); } catch { /* next time */ }
   }

@@ -60,6 +60,10 @@ const ACTIONS = [
   "report_photos_chosen",   // Media chose a Jamaat's photos / the number of photos per Jamaat
   "report_generated",       // a report (PDF) was made
   "report_photo_downloaded",
+  "report_heading_saved",     // the report's title / date typed on Choose photos
+  "report_description_saved", // a Jamaat's description for the report
+  "report_photo_added",       // Media added a photo for a Jamaat (Choose photos)
+  "report_photo_deleted",     // Media removed a photo from Choose photos and reports
   "email_file_published",   // an image / document put inside an email (public link)
   "form_response_edited", // ... and changed their response
   // data changes (audit trail)

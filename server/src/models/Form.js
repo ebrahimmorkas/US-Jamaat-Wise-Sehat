@@ -83,6 +83,8 @@ const formSchema = new mongoose.Schema(
     reportPhotos: { type: Number, min: 1, max: 10, default: 2 },
     // The report's heading, typed by Media (Arabic): printed where the format has "Title" / "Date".
     reportTitle: { type: String, default: "" },
+    reportTitleLang: { type: String, enum: ["lud", "en"], default: "lud" }, // lud = Lisan ud Dawat (Al-Kanz), en = English
+    reportDateLang: { type: String, enum: ["lud", "en"], default: "lud" },
     reportDate: { type: String, default: "" },
     // Defaults for image questions (each image question can set its own).
     imageExt: { type: [String], default: undefined },

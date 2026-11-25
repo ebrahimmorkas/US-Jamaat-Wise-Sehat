@@ -1,4 +1,4 @@
-// A Jamaat's description in a form's report, typed by Media (Arabic): printed in the format's "Description" box.
+// A Jamaat's description in a form's report, typed by Media (Lisan ud Dawat or English): printed in the format's "Description" box.
 const { mongoose } = require("../db");
 
 const reportNoteSchema = new mongoose.Schema(
@@ -6,6 +6,7 @@ const reportNoteSchema = new mongoose.Schema(
     form: { type: mongoose.Schema.Types.ObjectId, ref: "Form", required: true },
     jamaat: { type: mongoose.Schema.Types.ObjectId, ref: "Jamaat", required: true },
     text: { type: String, default: "" },
+    lang: { type: String, enum: ["lud", "en"], default: "lud" },
     by: { type: new mongoose.Schema({ email: String, name: String, role: String }, { _id: false }) },
   },
   { timestamps: true }

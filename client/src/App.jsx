@@ -29,7 +29,7 @@ import { reportClientError } from "./lib/api";
 // Everyone signs in with Google; each role has its own home:
 //   Saheb -> "/" (dashboard)   Super Admin -> "/admin/..."   JC -> "/jc-portal" (their dashboard) + "/jc-portal/form"
 //   Jamaat Coordinator -> "/coordinator" (Home, My forms, My responses, Notifications, Profile)
-//   Media -> "/media/photos" (choose the photos for reports) + "/media/reports"
+//   Media -> "/media/photos" (choose the photos for reports) + "/media/reports" + "/media/formats"
 const homeOf = (role) => ({ superadmin: "/admin/users", jc: "/jc-portal/stats", jamaat_coordinator: COORD_HOME, media: "/media/photos" }[role] || "/"); // JC: Stats first
 const isJcPage = (path) => path === "/jc-portal" || path.startsWith("/jc-portal/");
 const isMediaPage = (path) => MEDIA_NAV.some((n) => n.to === path);
@@ -147,7 +147,7 @@ function Main({ path, theme, onToggleTheme }) {
   } else if (role === "jamaat_coordinator") page = <CoordinatorPortal key={auth.user.id} {...common} path={path} />;
   else if (role === "media") {
     const at = isMediaPage(path) ? path : homeOf(role);
-    page = <Reports key={`${auth.user.id}${at}`} {...common} nav={MEDIA_NAV} page={at} only={at === "/media/photos" ? "photos" : "generate"} />;
+    page = <Reports key={`${auth.user.id}${at}`} {...common} nav={MEDIA_NAV} page={at} only={at === "/media/photos" ? "photos" : at === "/media/formats" ? "formats" : "generate"} />;
   }
   else page = path === "/jc-metrics" ? <SahebMetrics key={auth.user.id} {...common} />
     : path === "/stats" ? <SahebStats key={auth.user.id} {...common} />

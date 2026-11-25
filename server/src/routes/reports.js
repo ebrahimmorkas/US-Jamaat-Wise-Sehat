@@ -1,5 +1,5 @@
 // Reports: /api/reports
-//   Formats (Super Admin): one-page PDFs with "Image" boxes and "Jamiat" / "Jamaat" words.
+//   Formats (Super Admin, Media): one-page PDFs with "Image" boxes and "Jamiat" / "Jamaat" words.
 //     GET  /formats                 list (every role here: to choose one when generating)
 //     POST /formats?name=           upload a PDF (body = the file)      PUT /formats/:id  name, photo size
 //     PUT  /formats/:id/file        replace the PDF                     DELETE /formats/:id
@@ -8,7 +8,9 @@
 //     GET  /forms                   forms with photo questions (every role here)
 //     GET  /forms/:code/photos      each Jamaat's photos + the chosen ones
 //     PUT  /forms/:code/count       photos per Jamaat          PUT /forms/:code/picks  { jamaat, photos | null }
-//     PUT  /forms/:code/heading     { title, date } (Arabic)   PUT /forms/:code/description  { jamaat, text }
+//     PUT  /forms/:code/heading     { title, date, titleLang, dateLang }   PUT /forms/:code/description  { jamaat, text, lang }
+//     (lang: "lud" = Lisan ud Dawat in the Al-Kanz font, "en" = English)
+//     POST /forms/:code/photos?jamaat=  add a photo (body = the file)   DELETE /forms/:code/photos/:id  remove one
 //     GET  /font                    the Arabic font (so what Media types looks as it will in the report)
 //     GET  /photos/:id/file         download one photo
 //   Generate (Super Admin, Saheb, JC = own Jamaats, Media):
@@ -39,6 +41,7 @@ const { notDeleted } = require("../lib/softDelete");
 const F = require("../services/forms");
 const storage = require("../services/storage");
 const R = require("../services/reportPdf");
+const config = require("../config");
 
 const MAX_FORMAT_MB = 12;
 const KEEP_HOURS = 2;
@@ -48,7 +51,7 @@ router.use(requireAuth, requireRole("superadmin", "saheb", "jc", "media"), (req,
   if (!isDbReady()) return res.status(503).json({ error: "Database is starting, please try again in a moment." });
   next();
 });
-const admin = requireRole("superadmin");
+const admin = requireRole("superadmin", "media"); // formats
 const chooser = requireRole("superadmin", "media");
 
 // The format PDF's problems are explained to the Super Admin (400), like other input errors.
@@ -62,6 +65,7 @@ const disposition = (kind, name) => `${kind}; filename="${name.replace(/[^\x20-\
 // ---------- formats ----------
 const formatOut = (f, full) => ({
   id: F.seal(f._id), name: f.name, summary: f.summary || "",
+  has: { title: !!(f.layout.title || []).length, date: !!(f.layout.date || []).length, description: f.layout.slots.some((s) => (s.description || []).length) },
   slots: f.layout.slots.length, photos: Math.max(...f.layout.slots.map((s) => s.images.length)),
   ...(full ? {
     fileName: f.fileName || "", size: f.size || 0, photoW: f.photoW, photoH: f.photoH, suggested: f.layout.photoSize,
@@ -75,7 +79,7 @@ async function findFormat(id, withFile) {
   const q = ReportFormat.findOne({ _id: real, ...notDeleted() });
   const f = await (withFile ? q.select("+file") : q).lean();
   if (!f) throw new InputError("Format not found. Reload the page.", 404);
-  return f;
+  return withFile ? upToDate(f) : f;
 }
 const pdfBody = express.raw({ type: "application/octet-stream", limit: MAX_FORMAT_MB * 1024 * 1024 });
 function readPdf(req) {
@@ -91,10 +95,21 @@ const mmOf = (v, label) => {
   return Math.round(n * 10) / 10;
 };
 
+/** Formats read by older versions are read again (to find the words added since: Title, Date, Description). */
+async function upToDate(f) {
+  if (!f || (f.layout && f.layout.v >= R.LAYOUT_V)) return f;
+  const withFile = f.file ? f : await ReportFormat.findById(f._id).select("+file").lean();
+  try {
+    const layout = await R.analyze(Buffer.from(withFile.file.buffer || withFile.file));
+    await ReportFormat.updateOne({ _id: f._id }, { $set: { layout, summary: R.describe(layout) } });
+    return { ...f, layout, summary: R.describe(layout) };
+  } catch { return f; } // kept as it was
+}
+
 router.get("/formats", async (req, res, next) => {
   try {
-    const list = await ReportFormat.find(notDeleted()).sort({ name: 1 }).lean();
-    res.json({ formats: list.map((f) => formatOut(f, req.user.role === "superadmin")), maxMb: MAX_FORMAT_MB });
+    const list = await Promise.all((await ReportFormat.find(notDeleted()).sort({ name: 1 }).lean()).map(upToDate));
+    res.json({ formats: list.map((f) => formatOut(f, req.user.role === "superadmin" || req.user.role === "media")), maxMb: MAX_FORMAT_MB });
   } catch (err) { next(err); }
 });
 
@@ -218,12 +233,14 @@ async function photosOf(req, form) {
   const fields = photoFields(form);
   const ids = [];
   for (const r of responses) for (const fl of fields) for (const a of (r.answers || {})[fl.key] || []) if (a && a.upload) ids.push(a.upload);
-  const [ups, picks, notes] = await Promise.all([
-    FormUpload.find({ _id: { $in: ids }, form: form._id, kind: "image", response: { $ne: null } }).select("url endpoint name type size response createdAt").lean(),
+  const [ups, added, picks, notes] = await Promise.all([
+    FormUpload.find({ _id: { $in: ids }, form: form._id, kind: "image", response: { $ne: null }, reportStatus: { $ne: "D" } }).select("fileId filePath url endpoint name type size response createdAt").lean(),
+    FormUpload.find({ form: form._id, report: true, kind: "image", jamaat: { $in: jms.map((j) => j._id) }, reportStatus: { $ne: "D" } })
+      .sort({ createdAt: 1 }).select("fileId filePath url endpoint name type size jamaat addedBy createdAt").lean(),
     ReportPick.find({ form: form._id, jamaat: { $in: jms.map((j) => j._id) } }).lean(),
-    ReportNote.find({ form: form._id, jamaat: { $in: jms.map((j) => j._id) } }).select("jamaat text").lean(),
+    ReportNote.find({ form: form._id, jamaat: { $in: jms.map((j) => j._id) } }).select("jamaat text lang").lean(),
   ]);
-  const noteOf = new Map(notes.map((n) => [String(n.jamaat), n.text || ""]));
+  const noteOf = new Map(notes.map((n) => [String(n.jamaat), n]));
   const upOf = new Map(ups.map((u) => [String(u._id), u]));
   const pickOf = new Map(picks.map((p) => [String(p.jamaat), p]));
   const filled = new Set(responses.map((r) => String(r.jamaat)));
@@ -239,14 +256,17 @@ async function photosOf(req, form) {
         }
       }
     }
+    for (const u of added) if (String(u.jamaat) === String(j._id)) photos.push({ ...u, field: "Added on Choose photos", at: u.createdAt, added: true });
     const pick = pickOf.get(String(j._id));
     const have = new Set(photos.map((p) => String(p._id)));
     const chosen = pick ? pick.uploads.map(String).filter((id) => have.has(id)).slice(0, count) : photos.slice(0, count).map((p) => String(p._id));
-    return { jamaat: j, filled: filled.has(String(j._id)), photos, chosen, picked: !!pick, description: noteOf.get(String(j._id)) || "", pickedBy: pick && pick.by ? pick.by.name || ROLE_NAME[pick.by.role] || "Media" : "" }; // a name, never a Gmail
+    const note = noteOf.get(String(j._id));
+    return { jamaat: j, filled: filled.has(String(j._id)), photos, chosen, picked: !!pick, description: (note && note.text) || "", descriptionLang: (note && note.lang) || "lud", pickedBy: pick && pick.by ? pick.by.name || ROLE_NAME[pick.by.role] || "Media" : "" }; // a name, never a Gmail
   });
 }
 
 const ROLE_NAME = { media: "Media", superadmin: "Super Admin" };
+const photoOut = (p) => ({ id: F.seal(p._id), name: p.name || "photo", field: p.field, at: p.at, added: !!p.added, thumb: thumb(p), url: storage.signedUrl(p) });
 const thumb = (u) => storage.variantUrl(u, { w: 360, h: 360 });
 
 router.get("/forms", async (req, res, next) => {
@@ -264,12 +284,17 @@ router.get("/forms/:code/photos", chooser, async (req, res, next) => {
     const list = await photosOf(req, form);
     const filled = list.filter((x) => x.filled);
     res.json({
-      form: { code: form.code, title: form.title, status: form.stage, photosPerJamaat: form.reportPhotos || 2, reportTitle: form.reportTitle || "", reportDate: form.reportDate || "" },
+      form: {
+        code: form.code, title: form.title, status: form.stage, photosPerJamaat: form.reportPhotos || 2,
+        reportTitle: form.reportTitle || "", reportDate: form.reportDate || "", titleLang: form.reportTitleLang || "lud", dateLang: form.reportDateLang || "lud",
+      },
+      maxPhotoMb: config.forms.maxMb.image, photoExt: config.forms.extensions.image,
       ...(req.user.role === "media" ? {} : { notFilled: list.length - filled.length }),
       jamaats: filled.map((x) => ({
-        id: F.seal(x.jamaat._id), jamiat: x.jamaat.jamiat, name: x.jamaat.name, picked: x.picked, pickedBy: x.pickedBy, description: x.description,
+        id: F.seal(x.jamaat._id), jamiat: x.jamaat.jamiat, name: x.jamaat.name, picked: x.picked, pickedBy: x.pickedBy,
+        description: x.description, descriptionLang: x.descriptionLang,
         chosen: x.chosen.map((id) => x.photos.findIndex((p) => String(p._id) === id)),
-        photos: x.photos.map((p) => ({ id: F.seal(p._id), name: p.name || "photo", field: p.field, at: p.at, thumb: thumb(p), url: storage.signedUrl(p) })),
+        photos: x.photos.map(photoOut),
       })),
     });
   } catch (err) { sendFail(err, res, next); }
@@ -316,29 +341,37 @@ router.put("/forms/:code/picks", chooser, async (req, res, next) => {
   } catch (err) { sendFail(err, res, next); }
 });
 
-// Text Media types for the report must be drawable in the report's Arabic font.
-function checkLetters(text, what) {
+// Text Media types for the report must be drawable: Lisan ud Dawat in the Al-Kanz font, English in the English font.
+const langOf = (v) => (v === "en" ? "en" : "lud");
+function checkLetters(text, what, lang = "lud") {
+  if (lang === "en") {
+    const bad = R.missingLatin(text);
+    if (bad.length) throw new InputError(`${what} is set to English, but it has ${bad.slice(0, 8).join(" ")}. Choose Lisan ud Dawat for text in Lisan ud Dawat or Arabic.`);
+    return;
+  }
   const bad = R.missingLetters(text);
   if (bad.length) throw new InputError(`${what}: the report's Arabic font (Al-Kanz) can't show ${bad.slice(0, 8).join(" ")}. Type ${bad.length === 1 ? "it" : "them"} as you would in Al-Kanz.`);
 }
 const MAX_DESC = 1000;
 
-// The report's heading (Arabic): printed on every page where the format has "Title" and "Date".
+// The report's heading: printed on every page where the format has "Title" and "Date".
 router.put("/forms/:code/heading", chooser, async (req, res, next) => {
   try {
     const form = await findForm(req, req.params.code);
     const b = req.body || {};
     const title = clean(b.title, 150);
     const date = clean(b.date, 80);
-    checkLetters(title, "Title");
-    checkLetters(date, "Date");
-    await Form.updateOne({ _id: form._id }, { $set: { reportTitle: title, reportDate: date } });
-    audit(req, "report_heading_saved", { target: { type: "form", id: String(form._id), label: form.title }, details: { title, date, before: { title: form.reportTitle || "", date: form.reportDate || "" } } });
-    res.json({ reportTitle: title, reportDate: date });
+    const titleLang = langOf(b.titleLang), dateLang = langOf(b.dateLang);
+    checkLetters(title, "Title", titleLang);
+    checkLetters(date, "Date", dateLang);
+    const before = { title: form.reportTitle || "", date: form.reportDate || "", titleLang: form.reportTitleLang || "lud", dateLang: form.reportDateLang || "lud" };
+    await Form.updateOne({ _id: form._id }, { $set: { reportTitle: title, reportDate: date, reportTitleLang: titleLang, reportDateLang: dateLang } });
+    audit(req, "report_heading_saved", { target: { type: "form", id: String(form._id), label: form.title }, details: { title, date, titleLang, dateLang, before } });
+    res.json({ reportTitle: title, reportDate: date, titleLang, dateLang });
   } catch (err) { sendFail(err, res, next); }
 });
 
-// A Jamaat's description (Arabic): printed in its "Description" box. Empty = no description.
+// A Jamaat's description (Lisan ud Dawat or English): printed in its "Description" box. Empty = no description.
 router.put("/forms/:code/description", chooser, async (req, res, next) => {
   try {
     const form = await findForm(req, req.params.code);
@@ -349,13 +382,50 @@ router.put("/forms/:code/description", chooser, async (req, res, next) => {
     if (!entry || !entry.filled) throw new InputError("Jamaat not found. Reload the page.", 404);
     const text = String(b.text == null ? "" : b.text).replace(/\r\n?/g, "\n").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
     if (text.length > MAX_DESC) throw new InputError(`The description is too long (at most ${MAX_DESC} letters).`);
-    checkLetters(text, "Description");
-    if (text) {
-      await ReportNote.updateOne({ form: form._id, jamaat: jamaatId },
-        { $set: { text, by: { email: req.user.email, name: req.user.name || "", role: req.user.role } } }, { upsert: true });
-    } else await ReportNote.deleteOne({ form: form._id, jamaat: jamaatId });
-    audit(req, "report_description_saved", { target: { type: "form", id: String(form._id), label: form.title }, details: { jamaat: entry.jamaat.name, jamiat: entry.jamaat.jamiat, letters: text.length, before: entry.description.length } });
-    res.json({ description: text });
+    const lang = langOf(b.lang);
+    checkLetters(text, "Description", lang);
+    // the language is kept with an empty description too (it is what Media chose for this Jamaat)
+    await ReportNote.updateOne({ form: form._id, jamaat: jamaatId },
+      { $set: { text, lang, by: { email: req.user.email, name: req.user.name || "", role: req.user.role } } }, { upsert: true });
+    audit(req, "report_description_saved", { target: { type: "form", id: String(form._id), label: form.title }, details: { jamaat: entry.jamaat.name, jamiat: entry.jamaat.jamiat, letters: text.length, lang, before: entry.description.length } });
+    res.json({ description: text, lang });
+  } catch (err) { sendFail(err, res, next); }
+});
+
+// Media adds a photo for a Jamaat (it goes after the Jamaat's own photos).
+const photoBody = express.raw({ type: "application/octet-stream", limit: Math.round(config.forms.maxMb.image * 1024 * 1024) });
+router.post("/forms/:code/photos", chooser, photoBody, async (req, res, next) => {
+  try {
+    const form = await findForm(req, req.params.code);
+    const jamaatId = F.unseal(req.query.jamaat);
+    if (!jamaatId) throw new InputError("Jamaat not found. Reload the page.", 404);
+    const entry = (await photosOf(req, form)).find((x) => String(x.jamaat._id) === jamaatId);
+    if (!entry || !entry.filled) throw new InputError("Jamaat not found. Reload the page.", 404);
+    const fileName = fileNameOf(req) || "photo.jpg";
+    const mb = config.forms.maxMb.image;
+    const { ext, type } = F.checkUpload(req.body, fileName, { kind: "image", ext: config.forms.extensions.image, maxBytes: Math.round(mb * 1024 * 1024), maxMb: mb });
+    const kept = await storage.uploadImage(req.body, { fileName: `report.${ext}`, type, folder: `${config.forms.folder}/${form._id}` });
+    const up = await FormUpload.create({
+      form: form._id, field: "report", kind: "image", ...kept, name: fileName, size: req.body.length, type,
+      report: true, jamaat: jamaatId, addedBy: { email: req.user.email, name: req.user.name || "", role: req.user.role },
+    });
+    audit(req, "report_photo_added", { target: { type: "form", id: String(form._id), label: form.title }, details: { jamaat: entry.jamaat.name, jamiat: entry.jamaat.jamiat, file: fileName } });
+    res.status(201).json({ photo: photoOut({ ...up.toObject(), field: "Added on Choose photos", at: up.createdAt, added: true }) });
+  } catch (err) { sendFail(err, res, next); }
+});
+
+// Media removes a photo from Choose photos and reports (kept in the database, marked deleted).
+router.delete("/forms/:code/photos/:id", chooser, async (req, res, next) => {
+  try {
+    const form = await findForm(req, req.params.code);
+    const id = F.unseal(req.params.id);
+    const entry = id && (await photosOf(req, form)).find((x) => x.filled && x.photos.some((p) => String(p._id) === id));
+    if (!entry) throw new InputError("Photo not found. Reload the page.", 404);
+    const p = entry.photos.find((x) => String(x._id) === id);
+    await FormUpload.updateOne({ _id: id }, { $set: { reportStatus: "D", reportDeletedAt: new Date(), reportDeletedBy: who(req) } });
+    await ReportPick.updateOne({ form: form._id, jamaat: entry.jamaat._id }, { $pull: { uploads: p._id } });
+    audit(req, "report_photo_deleted", { target: { type: "form", id: String(form._id), label: form.title }, details: { jamaat: entry.jamaat.name, jamiat: entry.jamaat.jamiat, file: p.name || "", added: !!p.added } });
+    res.json({ ok: true });
   } catch (err) { sendFail(err, res, next); }
 });
 
@@ -373,8 +443,8 @@ router.get("/photos/:id/file", chooser, async (req, res, next) => {
   try {
     const id = F.unseal(req.params.id);
     if (!id) throw new InputError("Photo not found.", 404);
-    const u = await FormUpload.findOne({ _id: id, kind: "image", response: { $ne: null } }).lean();
-    const r = u && await FormResponse.findOne({ _id: u.response, isTest: false }).select("jamaat form").lean();
+    const u = await FormUpload.findOne({ _id: id, kind: "image", reportStatus: { $ne: "D" }, $or: [{ response: { $ne: null } }, { report: true }] }).lean();
+    const r = u && (u.report ? { jamaat: u.jamaat, form: u.form } : await FormResponse.findOne({ _id: u.response, isTest: false }).select("jamaat form").lean());
     const form = r && await Form.findOne({ _id: r.form, stage: { $in: stagesFor(req) }, ...notDeleted() }).select("title").lean();
     if (!form) throw new InputError("Photo not found.", 404);
     const got = await fetchPhoto(u, 0);
@@ -424,7 +494,7 @@ async function runJob(job, { req, form, format, fileName }) {
   const slots = format.layout.slots;
   const maxPer = Math.max(...slots.map((s) => s.images.length));
   const upOf = new Map(filled.flatMap((x) => x.photos.map((p) => [String(p._id), p])));
-  const groups = filled.map((x) => ({ jamiat: x.jamaat.jamiat, jamiatAr: x.jamaat.jamiatAr, jamaat: x.jamaat.name, jamaatAr: x.jamaat.nameAr, description: x.description, photos: x.chosen.slice(0, maxPer).map((id) => upOf.get(id)) }))
+  const groups = filled.map((x) => ({ jamiat: x.jamaat.jamiat, jamiatAr: x.jamaat.jamiatAr, jamaat: x.jamaat.name, jamaatAr: x.jamaat.nameAr, description: x.description, descriptionLang: x.descriptionLang, photos: x.chosen.slice(0, maxPer).map((id) => upOf.get(id)) }))
     .filter((g) => g.photos.length);
   const noPhoto = filled.filter((x) => !x.chosen.length);
   const notFilled = list.filter((x) => !x.filled);
@@ -461,7 +531,7 @@ async function runJob(job, { req, form, format, fileName }) {
   job.files = {};
   if (groups.length) {
     job.step = "Adding photos";
-    const out = await R.buildReport({ bytes: Buffer.from(format.file.buffer || format.file), layout: format.layout, photoSize: { w: format.photoW, h: format.photoH }, groups, loadPhoto, title: form.title, heading: { title: form.reportTitle || "", date: form.reportDate || "" } });
+    const out = await R.buildReport({ bytes: Buffer.from(format.file.buffer || format.file), layout: format.layout, photoSize: { w: format.photoW, h: format.photoH }, groups, loadPhoto, title: form.title, heading: { title: form.reportTitle || "", date: form.reportDate || "", titleLang: form.reportTitleLang, dateLang: form.reportDateLang } });
     const p = path.join(DIR, `${job.id}-photos.pdf`);
     await fs.promises.writeFile(p, out.bytes);
     job.files.photos = { path: p, name: fileName ? `${base}.pdf` : `${base} - report.pdf`, pages: out.pages, size: out.bytes.length };
