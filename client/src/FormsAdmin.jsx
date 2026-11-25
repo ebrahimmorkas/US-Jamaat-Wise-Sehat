@@ -464,7 +464,8 @@ function FormEditor({ start, meta, onClose, onAuthExpired }) {
                   onKeyDown={(e) => { if (e.key === "Enter" && linkEmail.trim()) { e.preventDefault(); getPersonal(); } }} />
                   <button type="button" className="btn btn-ghost" onClick={getPersonal} disabled={!linkEmail.trim()}>Get link</button></span></label>
               <div className="field"><span className="field-label">Everyone at once</span>
-                <button type="button" className="btn btn-ghost" onClick={() => formLinksExcel(saved.id).catch(fail)}><DownloadIcon /> <span>Excel: links of all Coordinators</span></button></div>
+                <button type="button" className="btn btn-ghost" onClick={() => formLinksExcel(saved.id).catch(fail)}><DownloadIcon /> <span>Excel: links of all Coordinators</span></button>
+                <small className="field-hint">One sheet per Jamiat, with all its Jamaats.</small></div>
             </div>
             {personal && <div className="link-out"><code>{personal}</code><button type="button" className="mini-btn primary" onClick={() => copy(personal).then(() => setMsg({ type: "ok", text: "Personal link copied." }))}>Copy</button></div>}
           </>}
