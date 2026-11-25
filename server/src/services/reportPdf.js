@@ -102,7 +102,7 @@ class FormatError extends Error {
 
 const MM = 72 / 25.4; // points in a millimetre
 const LINE = 1.45; // line height of descriptions (x the letter size)
-const LAYOUT_V = 2; // formats read before Title / Date / Description were looked for are read again
+const LAYOUT_V = 3; // older formats are read again (2: Title / Date / Description; 3: each Jamaat's whole place, left out when empty)
 const WORDS = { image: "image", jamiat: "jamiat", jamaat: "jamaat", title: "title", date: "date", description: "description" };
 
 // ---------- small matrix helpers ([a b c d e f], PDF order) ----------
@@ -629,6 +629,28 @@ async function analyze(bytes) {
     }
   }
 
+  // Each Jamaat's whole place on the page: the smallest drawn shape (a frame / card) around all its words and boxes
+  // that holds nothing of another Jamaat — else just the area of its words, boxes and their frames. Everything drawn
+  // only inside it (frame, name pill, description box, labels) is left out on a page where that place has no Jamaat
+  // (the last page, when there are fewer Jamaats than places). Something drawn once and reused in several places is
+  // left out only by the command that draws it there.
+  const itemsOf = (s) => [...s.images.map((im) => im.box), ...[...s.jamaat, ...s.jamiat, ...s.description].flatMap((t) => [t.bbox, t.frame].filter(Boolean)), ...s.description.map((d) => d.area)];
+  const wordsOf = (s) => [...s.images.map((im) => im.box), ...[...s.jamaat, ...s.jamiat, ...s.description].map((t) => t.bbox)];
+  const instances = new Map(); // "stream#op" -> bboxes of every time it is drawn
+  const add = (stream, op, bbox) => { const k = `${stream}#${op}`; if (!instances.has(k)) instances.set(k, { stream, op, boxes: [] }); instances.get(k).boxes.push(bbox); };
+  for (const x of shapes) add(x.stream, x.op, x.bbox);
+  for (const g of glyphs) add(g.stream, g.op, g.bbox);
+  slots.forEach((s, k) => {
+    const own = itemsOf(s).reduce((acc, b) => union(acc, b), null);
+    const others = slots.flatMap((o, j) => (j === k ? [] : wordsOf(o)));
+    const card = shapes
+      .filter((x) => area(x.bbox) < pageArea * 0.5 && contains(x.bbox, own, 0.5) && !others.some((b) => holds(x.bbox, center(b))))
+      .sort((a, b) => area(a.bbox) - area(b.bbox))[0];
+    const region = card ? card.bbox : own;
+    s.place = region;
+    s.empty = [...instances.values()].filter((it) => it.boxes.every((b) => contains(region, b, 2))).map((it) => ({ stream: it.stream, op: it.op }));
+  });
+
   const ref = (g) => ({ stream: g.stream, op: g.op, part: g.part, idx: g.idx, bytes: g.bytes, adjN: round(g.adjN) });
   const text = (t) => ({ bbox: rbox(t.bbox), size: round(t.size), fill: t.fill.map(round), bold: t.bold, align: t.align, maxW: round(t.maxW) });
   const first = images[0];
@@ -640,6 +662,8 @@ async function analyze(bytes) {
       jamiat: s.jamiat.map(text),
       images: s.images.map((im) => ({ word: rbox(im.bbox), box: rbox(im.box), hasShape: im.hasShape })),
       description: s.description.map((d) => ({ ...text(d), area: rbox(d.area) })),
+      place: rbox(s.place),
+      empty: s.empty,
     })),
     title: found.title.map(text),
     date: found.date.map(text),
@@ -670,8 +694,11 @@ function describe(layout) {
 const hex = (str) => { let h = ""; for (let k = 0; k < str.length; k++) h += str.charCodeAt(k).toString(16).padStart(2, "0"); return `<${h}>`; };
 const fmt = (n) => String(Math.round(n * 1000) / 1000);
 
-/** A copy of the format page without the placeholder words (and, if asked, without the Image boxes). */
-async function variant(bytes, layout, removeBoxes) {
+/**
+ * A copy of the format page without the placeholder words (and, if asked, without the Image boxes), and without the
+ * drawing commands in `drop` ({stream, op}: the places of Jamaats that aren't on this page).
+ */
+async function variant(bytes, layout, removeBoxes, drop = []) {
   const doc = await PDFDocument.load(bytes, { updateMetadata: false });
   const page = doc.getPage(0);
   const { streams } = readPage(doc, page);
@@ -684,6 +711,7 @@ async function variant(bytes, layout, removeBoxes) {
   };
   for (const g of layout.remove.words) at(g.stream, g.op).glyphs.push(g);
   if (removeBoxes) for (const b of layout.remove.boxes) at(b.stream, b.op).drop = true;
+  for (const d of drop) at(d.stream, d.op).drop = true;
 
   for (const [key, changes] of edits) {
     const st = streams.get(key);
@@ -695,7 +723,12 @@ async function variant(bytes, layout, removeBoxes) {
       if (!ch) return;
       out += st.text.slice(pos, o.s);
       pos = o.e;
-      if (ch.drop) { out += o.op === "Do" || o.op === "BI" ? " " : " n"; return; }
+      if (ch.drop) {
+        // text: nothing shown, but a "next line" stays so later lines don't move; shapes: the path is ended unpainted
+        out += o.op === "Do" || o.op === "BI" || o.op === "Tj" || o.op === "TJ" ? " "
+          : o.op === "'" ? " T*" : o.op === "\"" ? ` ${fmt(o.args[0] || 0)} Tw ${fmt(o.args[1] || 0)} Tc T*` : " n";
+        return;
+      }
       // Remove some letters but keep everything after them where it was (TJ with spacing instead of the letters).
       const gone = new Map(ch.glyphs.map((g) => [`${g.part}:${g.idx}`, g]));
       const b = ch.glyphs[0] ? ch.glyphs[0].bytes || 1 : 1; // one font per command
@@ -773,6 +806,13 @@ async function buildReport({ bytes, layout, photoSize, groups, loadPhoto, title 
   const H = Math.max(5, Number(photoSize && photoSize.h) || 50) * MM;
   const S = layout.slots.length;
   const pages = Math.max(1, Math.ceil(groups.length / S));
+  // The last page may have fewer Jamaats than places: those places are left out (not drawn empty).
+  const onLast = groups.length - (pages - 1) * S;
+  let Last = B;
+  if (onLast < S) {
+    const drop = layout.slots.slice(Math.max(0, onLast)).flatMap((s) => s.empty || []);
+    if (drop.length) [Last] = await out.embedPdf(await variant(bytes, layout, true, drop), [0]);
+  }
   let failed = 0;
   const sample = rgb(0.85, 0.87, 0.9);
 
@@ -836,7 +876,7 @@ async function buildReport({ bytes, layout, photoSize, groups, loadPhoto, title 
   for (let p = 0; p < pages; p++) {
     const page = out.addPage([P.w, P.h]);
     if (P.rotate) page.setRotation(degrees(P.rotate));
-    page.drawPage(B, { x: 0, y: 0 });
+    page.drawPage(p === pages - 1 ? Last : B, { x: 0, y: 0 });
     const X = (x) => x - P.x;
     const Y = (y) => y - P.y;
     (layout.title || []).forEach((t) => putLine(page, t, heading.title, heading.titleLang === "en" ? "" : heading.title));
