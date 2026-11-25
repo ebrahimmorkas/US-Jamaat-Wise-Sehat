@@ -2,6 +2,7 @@
 //   Super Admin:  GET /meta, GET /, GET /:id, POST /, PUT /:id, POST /:id/status, POST|DELETE /:id/top-image,
 //                 GET /:id/link?email=, GET /:id/links.xlsx, DELETE /:id/test-responses, DELETE /:id
 //   JC:           GET /jc-links   — the open forms with a link for each Jamaat Coordinator of their Jamaats
+//                 GET /jc-links/:code/links.xlsx — personal-link form: the Excel of those links (one sheet per Jamiat)
 //   Coordinator:  GET /mine       — their forms ("My forms")
 // Filling a form (no sign-in needed for some forms) is in routes/formFill.js.
 const express = require("express");
@@ -118,6 +119,78 @@ async function coordinators(jamaatIds) {
 }
 const linkFor = (f, email) => (f.access === "personal_link" ? F.personalLink(f.code, email) : F.formLink(f.code));
 
+/**
+ * Active Jamaats (inside active Jamiats) with their Jamiat name. JC (`jc` = their user record): only their Jamaats
+ * inside their Jamiats, as everywhere else for a JC.
+ */
+async function jamaatsFor(jc) {
+  const jts = await Jamiat.find({ isActive: true, ...notDeleted(), ...(jc ? { _id: { $in: jc.jamiats || [] } } : {}) }).select("name").lean();
+  const jms = await Jamaat.find({ isActive: true, ...notDeleted(), jamiat: { $in: jts.map((j) => j._id) }, ...(jc ? { _id: { $in: jc.jamaats || [] } } : {}) })
+    .select("name jamiat").lean();
+  const jtName = new Map(jts.map((j) => [String(j._id), j.name]));
+  return jms.map((j) => ({ id: j._id, name: j.name, jamiat: jtName.get(String(j.jamiat)) || "" }));
+}
+
+/** Excel sheet names: at most 31 characters, none of : \ / ? * [ ], and different from each other. */
+function sheetName(name, used) {
+  const base = (String(name || "").replace(/[:\\/?*[\]]/g, " ").replace(/\s+/g, " ").trim() || "Jamiat").slice(0, 31);
+  let out = base;
+  for (let n = 2; used.has(out.toLowerCase()); n++) out = `${base.slice(0, 31 - String(n).length - 3)} (${n})`;
+  used.add(out.toLowerCase());
+  return out;
+}
+
+/**
+ * Personal links as an Excel file: one sheet per Jamiat (A-Z), and in it every Jamaat of that Jamiat (A-Z) with its
+ * Coordinator, Gmail and personal link (a Jamaat with two Coordinators gets two rows; none: "No Coordinator").
+ */
+async function personalLinksBook(f, jamaats) {
+  const people = await User.find({ role: "jamaat_coordinator", isActive: true, ...notDeleted(), email: { $ne: null }, jamaat: { $in: jamaats.map((j) => j.id) } })
+    .select("email name jamaat").sort({ name: 1, email: 1 }).lean();
+  const byJm = new Map();
+  for (const p of people) { const k = String(p.jamaat); if (!byJm.has(k)) byJm.set(k, []); byJm.get(k).push(p); }
+  const byJt = new Map();
+  for (const j of jamaats) { if (!byJt.has(j.jamiat)) byJt.set(j.jamiat, []); byJt.get(j.jamiat).push(j); }
+
+  const wb = new ExcelJS.Workbook();
+  const used = new Set();
+  let links = 0;
+  for (const jt of [...byJt.keys()].sort((a, b) => a.localeCompare(b))) {
+    const ws = wb.addWorksheet(sheetName(jt, used));
+    ws.columns = [
+      { header: "#", key: "n", width: 6 }, { header: "Jamaat", key: "jamaat", width: 28 },
+      { header: "Coordinator", key: "name", width: 24 }, { header: "Gmail", key: "email", width: 32 }, { header: "Personal link", key: "link", width: 90 },
+    ];
+    ws.getRow(1).font = { bold: true };
+    ws.views = [{ state: "frozen", ySplit: 1 }];
+    let n = 0;
+    for (const jm of byJt.get(jt).sort((a, b) => a.name.localeCompare(b.name))) {
+      const ps = byJm.get(String(jm.id)) || [];
+      if (!ps.length) {
+        const row = ws.addRow({ n: ++n, jamaat: jm.name, name: "No Coordinator" });
+        row.getCell("name").font = { italic: true, color: { argb: "FF6B7280" } };
+        continue;
+      }
+      for (const p of ps) {
+        const link = linkFor(f, p.email);
+        const row = ws.addRow({ n: ++n, jamaat: jm.name, name: p.name || "", email: p.email, link });
+        row.getCell("link").value = { text: link, hyperlink: link };
+        row.getCell("link").font = { color: { argb: "FF1D4ED8" }, underline: true };
+        links++;
+      }
+    }
+  }
+  if (!byJt.size) wb.addWorksheet("Links").addRow(["No Jamaats."]);
+  return { wb, jamaats: jamaats.length, links, jamiats: byJt.size };
+}
+
+async function sendLinksBook(res, f, wb) {
+  const buf = await wb.xlsx.writeBuffer();
+  const safe = f.title.replace(/[^\w\- ]+/g, "").slice(0, 60).trim() || "Form";
+  res.set({ "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Content-Disposition": `attachment; filename="${safe} - links.xlsx"` });
+  res.send(Buffer.from(buf));
+}
+
 // ---------- Super Admin ----------
 router.get("/meta", admin, (req, res) => res.json(F.meta()));
 
@@ -137,11 +210,24 @@ router.get("/jc-links", requireRole("jc"), async (req, res, next) => {
     const live = forms.filter((f) => ["open", "not_started"].includes(F.stateOf(f)));
     res.json({
       forms: live.map((f) => ({
-        id: String(f._id), title: f.title, startAt: f.startAt, endAt: f.endAt, state: F.stateOf(f), access: f.access,
+        id: f.code, title: f.title, startAt: f.startAt, endAt: f.endAt, state: F.stateOf(f), access: f.access,
         link: F.formLink(f.code),
         coordinators: people.map((p) => ({ ...p, link: linkFor(f, p.email) })),
       })),
     });
+  } catch (err) { sendError(err, res, next); }
+});
+
+// A JC's Excel of personal links for one open personal-link form: only their Jamaats (inside their Jamiats).
+router.get("/jc-links/:code/links.xlsx", requireRole("jc"), async (req, res, next) => {
+  try {
+    const code = String(req.params.code || "");
+    const f = F.isCode(code) ? await Form.findOne({ code, stage: "published", access: "personal_link", ...notDeleted() }).lean() : null;
+    if (!f || !["open", "not_started"].includes(F.stateOf(f))) throw new InputError("This form isn't open any more. Reload the page.", 404);
+    const me = await User.findById(req.user.id).select("jamiats jamaats").lean();
+    const out = await personalLinksBook(f, await jamaatsFor(me || {}));
+    audit(req, "form_links_downloaded", { target: target(f), details: { jamiats: out.jamiats, jamaats: out.jamaats, people: out.links } });
+    await sendLinksBook(res, f, out.wb);
   } catch (err) { sendError(err, res, next); }
 });
 
@@ -288,6 +374,12 @@ router.get("/:id/link", admin, async (req, res, next) => {
 router.get("/:id/links.xlsx", admin, async (req, res, next) => {
   try {
     const f = await findForm(req.params.id);
+    if (f.access === "personal_link") {
+      // One sheet per Jamiat with all its Jamaats.
+      const out = await personalLinksBook(f, await jamaatsFor(null));
+      audit(req, "form_links_downloaded", { target: target(f), details: { jamiats: out.jamiats, jamaats: out.jamaats, people: out.links } });
+      return sendLinksBook(res, f, out.wb);
+    }
     const people = await coordinators(null);
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet("Links");

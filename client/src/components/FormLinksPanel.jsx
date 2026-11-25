@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { fmtWhen } from "./FormView";
-import { FormIcon } from "./Icons";
-import { jcFormLinks } from "../lib/api";
+import { FormIcon, DownloadIcon } from "./Icons";
+import { jcFormLinks, jcLinksExcel } from "../lib/api";
 import { lower } from "../lib/helpers";
 
 // JC dashboard: open forms, with a link for each Jamaat Coordinator of the JC's Jamaats (copy and share).
@@ -17,6 +17,8 @@ export default function FormLinksPanel() {
   const [open, setOpen] = useState("");
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState("");
+  const [busy, setBusy] = useState("");
+  const [err, setErr] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -25,11 +27,16 @@ export default function FormLinksPanel() {
   }, []);
   if (!forms || !forms.length) return null; // nothing to share
 
+  const download = (f) => {
+    setBusy(f.id); setErr("");
+    jcLinksExcel(f.id).catch((e) => setErr(e.message || "Couldn't download the Excel file.")).finally(() => setBusy(""));
+  };
   const doCopy = (key, link) => copyText(link).then(() => { setCopied(key); setTimeout(() => setCopied((c) => (c === key ? "" : c)), 1800); });
   return (
     <div className="panel form-links">
       <div className="panel-head"><div><h2><FormIcon /> Form links for your Jamaat Coordinators</h2>
-        <p>Copy a link and send it to the Coordinator. Personal links have their Gmail inside, so send each one only to that person.</p></div></div>
+        <p>Copy a link and send it to the Coordinator, or download all of them as an Excel file (one sheet per Jamiat). Personal links have their Gmail inside, so send each one only to that person.</p></div></div>
+      {err && <div className="alert" role="alert">{err}</div>}
       {forms.map((f) => {
         const q = lower(query);
         const people = f.coordinators.filter((p) => !q || lower(p.jamaat).includes(q) || lower(p.jamiat).includes(q) || lower(p.email).includes(q) || lower(p.name).includes(q));
@@ -40,6 +47,13 @@ export default function FormLinksPanel() {
               <b>{f.title}</b>
               <span className="muted">{f.state === "not_started" ? `opens ${fmtWhen(f.startAt)}` : `closes ${fmtWhen(f.endAt)}`} · {f.coordinators.length} Coordinator{f.coordinators.length === 1 ? "" : "s"}</span>
             </button>
+            {f.access === "personal_link" && (
+              <div className="fl-dl">
+                <span className="muted">Personal links of your Jamaats' Coordinators: download them and send each link to its Coordinator.</span>
+                <button type="button" className="btn btn-ghost" onClick={() => download(f)} disabled={busy === f.id}>
+                  <DownloadIcon /> <span>{busy === f.id ? "Downloading…" : "Download Excel"}</span></button>
+              </div>
+            )}
             {isOpen && (
               f.access !== "personal_link" ? (
                 <div className="fl-row"><span>Same link for everyone{f.access === "signed_in" ? " (they sign in with their Gmail)" : ""}</span>

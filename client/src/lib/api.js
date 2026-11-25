@@ -249,14 +249,9 @@ export const formTopImageRemove = (id) => request(`/api/forms/${id}/top-image`, 
 export const formLinkFor = (id, email) => request(`/api/forms/${id}/link?email=${encodeURIComponent(email)}`);
 export const formClearTests = (id) => request(`/api/forms/${id}/test-responses`, { method: "DELETE" });
 export const formDelete = (id) => request(`/api/forms/${id}`, { method: "DELETE" });
-export async function formLinksExcel(id) {
-  const { blob, name } = await request(`/api/forms/${id}/links.xlsx`, { blob: true });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = name;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
-}
+export const formLinksExcel = (id) => saveBlob(`/api/forms/${id}/links.xlsx`);
+// JC: the personal links of their Jamaats' Coordinators for one open form (one sheet per Jamiat).
+export const jcLinksExcel = (code) => saveBlob(`/api/forms/jc-links/${encodeURIComponent(code)}/links.xlsx`);
 export const jcFormLinks = () => request("/api/forms/jc-links");
 
 // Responses (Super Admin, Saheb, JC — a JC sees only their own Jamaats). Forms are addressed by their code.
