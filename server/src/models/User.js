@@ -4,8 +4,9 @@ const { softDeleteFields } = require("../lib/softDelete");
 // Everyone signs in with Google. Only Gmail addresses added by a Super Admin can sign in.
 //   saheb      -> Sahebo dashboard
 //   superadmin -> Super Admin portal (users, masters, portal fields)
-//   jc         -> JC portal, only for the Jamiats / Jamaats assigned to them
-const ROLES = ["saheb", "superadmin", "jc"];
+//   jc         -> JC (Jamiat Coordinator) portal, only for the Jamiats / Jamaats assigned to them
+//   jamaat_coordinator -> fills the forms the Super Admin builds ("My forms"); one per Jamaat
+const ROLES = ["saheb", "superadmin", "jc", "jamaat_coordinator", "media"]; // media: chooses the photos for reports
 
 const userSchema = new mongoose.Schema(
   {
@@ -27,6 +28,10 @@ const userSchema = new mongoose.Schema(
     // Saved as explicit lists ("All" in the form ticks everything that exists at that moment).
     jamiats: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Jamiat" }], default: undefined },
     jamaats: { type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Jamaat" }], default: undefined },
+    // Jamaat Coordinator: the one Jamaat they coordinate (a Jamaat has at most one Coordinator).
+    jamaat: { type: mongoose.Schema.Types.ObjectId, ref: "Jamaat" },
+    // Form tester (any role): may open and fill forms that are in "Testing".
+    isTester: { type: Boolean, default: false },
 
     isActive: { type: Boolean, default: true },
     ...softDeleteFields(), // status "D" = deleted: can't sign in, kept and restorable
@@ -35,9 +40,9 @@ const userSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
-// Unique only when present.
-userSchema.index({ username: 1 }, { unique: true, partialFilterExpression: { username: { $type: "string" } } });
-userSchema.index({ emailKey: 1 }, { unique: true, partialFilterExpression: { emailKey: { $type: "string" } } });
+// Unique only when present, among users who aren't deleted (a deleted user's Gmail can be added again).
+userSchema.index({ username: 1 }, { unique: true, partialFilterExpression: { username: { $type: "string" }, status: "A" } });
+userSchema.index({ emailKey: 1 }, { unique: true, partialFilterExpression: { emailKey: { $type: "string" }, status: "A" } });
 
 userSchema.methods.toPublic = function () {
   return {
@@ -46,6 +51,7 @@ userSchema.methods.toPublic = function () {
     name: this.name || "",
     username: this.name || this.email || this.username || "",
     role: this.role,
+    isTester: !!this.isTester,
   };
 };
 

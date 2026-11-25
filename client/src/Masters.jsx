@@ -4,15 +4,16 @@ import Notice from "./components/Notice";
 import { confirmDialog } from "./components/ConfirmDialog";
 import {
   AuthError, createJamaat, createJamiat, deleteJamaat, deleteJamiat, isServerStarting,
-  allAccessCount, grantAllAccess, mastersList, restoreJamaat, restoreJamiat, updateJamaat, updateJamiat,
+  allAccessCount, grantAllAccess, mastersList, updateJamaat, updateJamiat,
 } from "./lib/api";
 import { deletedLine, lower, plural } from "./lib/helpers";
 
 const cleanName = (v) => v.replace(/\s+/g, " ").trim().toUpperCase();
-const emptyJamaat = { name: "", mauzeType: "", houseCount: "", children: "" };
+const emptyJamaat = { name: "", nameAr: "", mauzeType: "", houseCount: "", children: "" };
 const toForm = (jm) => ({
   jamiatId: jm.jamiatId,
   name: jm.name,
+  nameAr: jm.nameAr || "",
   mauzeType: jm.mauzeType,
   houseCount: jm.houseCount == null ? "" : String(jm.houseCount),
   children: jm.children == null ? "" : String(jm.children),
@@ -26,12 +27,12 @@ export default function Masters({ onAuthExpired }) {
   const [jamiatQuery, setJamiatQuery] = useState("");
   const [jamaatQuery, setJamaatQuery] = useState("");
   const [newJamiat, setNewJamiat] = useState("");
-  const [renaming, setRenaming] = useState(null);  // new name while renaming the selected Jamiat
+  const [renaming, setRenaming] = useState(null);  // { name, nameAr } while editing the selected Jamiat's names
+  const [noArabic, setNoArabic] = useState(false);  // only Jamaats without an Arabic name
   const [editId, setEditId] = useState("");        // Jamaat being edited ("new" = adding)
   const [edit, setEdit] = useState(emptyJamaat);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);            // { type: "error" | "ok", text }
-  const [showDeleted, setShowDeleted] = useState(false); // also list records with status "D"
 
   const load = useCallback(async (tries = 0) => {
     try {
@@ -94,17 +95,18 @@ export default function Masters({ onAuthExpired }) {
     return <div className="panel portal-empty" style={{ marginTop: 28 }}>{loadMsg}</div>;
   }
 
-  const selected = data.jamiats.find((j) => j.id === selectedId && (showDeleted || !j.deleted)) || null;
+  const selected = data.jamiats.find((j) => j.id === selectedId && !j.deleted) || null;
   const jq = lower(jamiatQuery);
-  const visible = (x) => showDeleted || !x.deleted;
+  const visible = (x) => !x.deleted;
   const liveJamiats = data.jamiats.filter((j) => !j.deleted);
   const liveJamaats = data.jamaats.filter((jm) => !jm.deleted);
-  const deletedCount = data.jamiats.length - liveJamiats.length + data.jamaats.length - liveJamaats.length;
   const jamiatRows = data.jamiats.filter((j) => visible(j) && (!jq || lower(j.name).includes(jq)));
   const allInJamiat = selected ? data.jamaats.filter((jm) => jm.jamiatId === selected.id && visible(jm)) : [];
   const liveInJamiat = allInJamiat.filter((jm) => !jm.deleted);
   const mq = lower(jamaatQuery);
-  const jamaatRows = allInJamiat.filter((jm) => !mq || lower(jm.name).includes(mq));
+  const jamaatRows = allInJamiat.filter((jm) => (!mq || lower(jm.name).includes(mq) || (jm.nameAr || "").includes(jamaatQuery.trim())) && (!noArabic || !jm.nameAr));
+  const missingAr = liveInJamiat.filter((jm) => !jm.nameAr).length;
+  const missingArAll = liveJamaats.filter((jm) => !jm.nameAr).length + liveJamiats.filter((j) => !j.nameAr).length;
 
   const addJamiat = async (e) => {
     e.preventDefault();
@@ -116,9 +118,10 @@ export default function Masters({ onAuthExpired }) {
 
   const saveRename = async (e) => {
     e.preventDefault();
-    const name = cleanName(renaming || "");
-    if (name === selected.name) return setRenaming(null);
-    if (await act(() => updateJamiat(selected.id, { name }), `Renamed to ${name}.`)) setRenaming(null);
+    const name = cleanName(renaming.name || "");
+    const nameAr = renaming.nameAr.replace(/\s+/g, " ").trim();
+    if (name === selected.name && nameAr === (selected.nameAr || "")) return setRenaming(null);
+    if (await act(() => updateJamiat(selected.id, { name, nameAr }), `Saved ${name}.`)) setRenaming(null);
   };
 
   const toggleJamiat = async () => {
@@ -133,11 +136,10 @@ export default function Masters({ onAuthExpired }) {
   const removeJamiat = async () => {
     if (!(await confirmDialog({
       tone: "danger", title: `Delete the Jamiat ${selected.name}?`, confirmText: "Delete",
-      message: "It will get status D (deleted): hidden everywhere and taken away from JCs.\n\nNothing is erased; you can restore it from “Show deleted”.",
+      message: "It will be hidden everywhere and taken away from JCs.\n\nIt gets status D (deleted) in the database and can't be restored. A new one can be added with the same name.",
     }))) return;
-    act(() => deleteJamiat(selected.id), `Deleted ${selected.name} (status D). Tick “Show deleted” to restore it.`).then((ok) => ok && !showDeleted && setSelectedId(""));
+    act(() => deleteJamiat(selected.id), `Deleted ${selected.name}.`).then((ok) => ok && setSelectedId(""));
   };
-  const restoreJamiatNow = () => act(() => restoreJamiat(selected.id), `Restored ${selected.name}.`);
 
   const startAdd = () => { setEditId("new"); setEdit({ ...emptyJamaat, jamiatId: selected.id }); setMsg(null); };
   const startEdit = (jm) => { setEditId(jm.id); setEdit(toForm(jm)); setMsg(null); };
@@ -147,7 +149,7 @@ export default function Masters({ onAuthExpired }) {
     e.preventDefault();
     const name = cleanName(edit.name);
     if (name.length < 2) return setMsg({ type: "error", text: "Enter the Jamaat name." });
-    const body = { name, mauzeType: edit.mauzeType, houseCount: edit.houseCount, children: edit.children };
+    const body = { name, nameAr: edit.nameAr, mauzeType: edit.mauzeType, houseCount: edit.houseCount, children: edit.children };
     const ok = editId === "new"
       ? await act(() => createJamaat({ ...body, jamiatId: selected.id }), `Added Jamaat ${name}.`)
       : await act(() => updateJamaat(editId, { ...body, jamiatId: edit.jamiatId }), `Saved ${name}.`);
@@ -167,11 +169,10 @@ export default function Masters({ onAuthExpired }) {
   const removeJamaat = async (jm) => {
     if (!(await confirmDialog({
       tone: "danger", title: `Delete the Jamaat ${jm.name}?`, confirmText: "Delete",
-      message: "It will get status D (deleted): hidden everywhere and taken away from JCs.\n\nNothing is erased; you can restore it from “Show deleted”.",
+      message: "It will be hidden everywhere and taken away from JCs.\n\nIt gets status D (deleted) in the database and can't be restored. A new one can be added with the same name.",
     }))) return;
-    act(() => deleteJamaat(jm.id), `Deleted ${jm.name} (status D). Tick “Show deleted” to restore it.`);
+    act(() => deleteJamaat(jm.id), `Deleted ${jm.name}.`);
   };
-  const restoreJamaatNow = (jm) => act(() => restoreJamaat(jm.id), `Restored ${jm.name}. Give JCs access to it again in Users if needed.`);
 
   const editRow = (key) => (
     <tr className="edit-row" key={key}>
@@ -179,6 +180,8 @@ export default function Masters({ onAuthExpired }) {
       <td className="cell-main" data-label={editId === "new" ? "New Jamaat" : "Jamaat"}>
         <input className="input" autoFocus placeholder="Jamaat name" value={edit.name} maxLength={120}
           onChange={(e) => setEdit({ ...edit, name: e.target.value })} aria-label="Jamaat name" />
+        <input className="input ar-input" dir="rtl" lang="ar" placeholder="Arabic name (for reports)" value={edit.nameAr} maxLength={200}
+          onChange={(e) => setEdit({ ...edit, nameAr: e.target.value })} aria-label="Arabic name" />
         {editId !== "new" && (
           <select className="move-select" value={edit.jamiatId} onChange={(e) => setEdit({ ...edit, jamiatId: e.target.value })} aria-label="Jamiat">
             {liveJamiats.map((j) => <option key={j.id} value={j.id}>{j.id === selected.id ? `Jamiat: ${j.name}` : `Move to ${j.name}`}</option>)}
@@ -206,11 +209,9 @@ export default function Masters({ onAuthExpired }) {
         <section className="page-head">
           <div className="page-title">
             <h1>Masters</h1>
-            <p className="page-sub">Jamiat and Jamaat lists used by the JC portal and the dashboard. {plural(liveJamiats.length, "Jamiat")} · {plural(liveJamaats.length, "Jamaat")}.</p>
+            <p className="page-sub">Jamiat and Jamaat lists used by the JC portal and the dashboard. {plural(liveJamiats.length, "Jamiat")} · {plural(liveJamaats.length, "Jamaat")}.
+              {missingArAll ? ` ${missingArAll} without an Arabic name (used in reports).` : " Every one has its Arabic name."}</p>
           </div>
-          <label className="check show-deleted">
-            <input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} /> Show deleted ({deletedCount})
-          </label>
         </section>
 
         {msg && <Notice type={msg.type} text={msg.text} onClose={() => setMsg(null)} />}
@@ -232,7 +233,7 @@ export default function Masters({ onAuthExpired }) {
               {jamiatRows.map((j) => (
                 <button type="button" key={j.id} className={`master-row${j.id === selectedId ? " is-sel" : ""}${j.isActive ? "" : " is-off"}${j.deleted ? " is-deleted" : ""}`}
                   onClick={() => { setSelectedId(j.id); setRenaming(null); cancelEdit(); setJamaatQuery(""); }}>
-                  <span className="rank-name">{j.name}</span>
+                  <span className="rank-name">{j.name}{j.nameAr && <small className="ar-name" dir="rtl" lang="ar">{j.nameAr}</small>}</span>
                   {j.deleted ? <span className="pill bad">Deleted</span> : !j.isActive && <span className="pill na">Inactive</span>}
                   <span className="master-count">{counts.get(j.id) || 0}</span>
                 </button>
@@ -250,35 +251,32 @@ export default function Masters({ onAuthExpired }) {
                 <div className="panel-head master-head">
                   {renaming == null ? (
                     <div>
-                      <h2>{selected.name} {selected.deleted ? <span className="pill bad">Deleted (status D)</span> : !selected.isActive && <span className="pill na">Inactive</span>}</h2>
+                      <h2>{selected.name} {selected.nameAr ? <span className="ar-name ar-head" dir="rtl" lang="ar">{selected.nameAr}</span> : !selected.deleted && <span className="pill warn">No Arabic name</span>} {selected.deleted ? <span className="pill bad">Deleted (status D)</span> : !selected.isActive && <span className="pill na">Inactive</span>}</h2>
                       <p>{selected.deleted ? deletedLine(selected) : plural(liveInJamiat.length, "Jamaat")}</p>
                     </div>
                   ) : (
                     <form className="rename-form" onSubmit={saveRename}>
-                      <input className="input" autoFocus value={renaming} maxLength={80} onChange={(e) => setRenaming(e.target.value)} aria-label="Jamiat name" />
+                      <input className="input" autoFocus value={renaming.name} maxLength={80} onChange={(e) => setRenaming({ ...renaming, name: e.target.value })} aria-label="Jamiat name" />
+                      <input className="input ar-input" dir="rtl" lang="ar" placeholder="Arabic name" value={renaming.nameAr} maxLength={200} onChange={(e) => setRenaming({ ...renaming, nameAr: e.target.value })} aria-label="Jamiat Arabic name" />
                       <button type="submit" className="mini-btn primary" disabled={busy}><CheckIcon /> Save</button>
                       <button type="button" className="mini-btn" onClick={() => setRenaming(null)}><CloseIcon /></button>
                     </form>
                   )}
                   <div className="head-actions">
-                    {selected.deleted ? (
-                      <button type="button" className="mini-btn primary" onClick={restoreJamiatNow} disabled={busy}>Restore</button>
-                    ) : (
-                      <>
-                        {renaming == null && <button type="button" className="mini-btn" onClick={() => setRenaming(selected.name)}>Rename</button>}
-                        <button type="button" className="mini-btn" onClick={toggleJamiat} disabled={busy}>{selected.isActive ? "Mark inactive" : "Mark active"}</button>
-                        <button type="button" className="mini-btn danger" onClick={removeJamiat} disabled={busy}>Delete</button>
-                      </>
-                    )}
+                    {renaming == null && <button type="button" className="mini-btn" onClick={() => setRenaming({ name: selected.name, nameAr: selected.nameAr || "" })}>Rename / Arabic name</button>}
+                    <button type="button" className="mini-btn" onClick={toggleJamiat} disabled={busy}>{selected.isActive ? "Mark inactive" : "Mark active"}</button>
+                    <button type="button" className="mini-btn danger" onClick={removeJamiat} disabled={busy}>Delete</button>
                   </div>
                 </div>
 
                 <div className="add-line jamaat-tools">
                   <input className="input" type="search" placeholder={`Search Jamaats in ${selected.name}…`} value={jamaatQuery}
                     onChange={(e) => setJamaatQuery(e.target.value)} aria-label="Search Jamaats" />
-                  <button type="button" className="btn btn-primary" onClick={startAdd} disabled={editId === "new" || selected.deleted}
-                    title={selected.deleted ? "Restore the Jamiat first" : ""}>Add Jamaat</button>
+                  <button type="button" className="btn btn-primary" onClick={startAdd} disabled={editId === "new"}>Add Jamaat</button>
                 </div>
+                {(missingAr > 0 || noArabic) && (
+                  <label className="check ar-filter"><input type="checkbox" checked={noArabic} onChange={(e) => setNoArabic(e.target.checked)} /> Only Jamaats without an Arabic name ({missingAr})</label>
+                )}
 
                 <form onSubmit={saveJamaat} className="table-wrap">
                   <table className="master-table card-rows">
@@ -294,22 +292,19 @@ export default function Masters({ onAuthExpired }) {
                         jm.id === editId ? editRow(jm.id) : (
                           <tr key={jm.id} className={`${jm.isActive ? "" : "is-off"}${jm.deleted ? " is-deleted" : ""}`}>
                             <td className="idx">{i + 1}</td>
-                            <td className="jm-name cell-main">{jm.name}</td>
+                            <td className="jm-name cell-main">{jm.name}{jm.nameAr ? <span className="ar-name" dir="rtl" lang="ar">{jm.nameAr}</span> : !jm.deleted && <span className="ar-missing">No Arabic name</span>}</td>
                             <td data-label="Mauze Type">{jm.mauzeType || <span className="muted">—</span>}</td>
                             <td className="tnum" data-label="House Count">{jm.houseCount ?? <span className="muted">—</span>}</td>
                             <td className="tnum" data-label="Children">{jm.children ?? <span className="muted">—</span>}</td>
                             <td data-label="Status">{jm.deleted ? <span className="pill bad" title={deletedLine(jm)}>Deleted (D)</span> : jm.isActive ? <span className="pill good">Active</span> : <span className="pill na">Inactive</span>}</td>
                             <td className="tnum" data-label="Entries">{jm.entryCount}</td>
                             <td className="row-actions">
-                              {jm.deleted ? (
-                                <button type="button" className="mini-btn primary" onClick={() => restoreJamaatNow(jm)} disabled={busy || selected.deleted}
-                                  title={selected.deleted ? "Restore the Jamiat first" : deletedLine(jm)}>Restore</button>
-                              ) : <>
+                              <>
                               <button type="button" className="mini-btn" onClick={() => startEdit(jm)} disabled={busy}>Edit</button>
                               <button type="button" className="mini-btn" onClick={() => toggleJamaat(jm)} disabled={busy}>{jm.isActive ? "Deactivate" : "Activate"}</button>
                               <button type="button" className="mini-btn danger" onClick={() => removeJamaat(jm)} disabled={busy || jm.entryCount > 0}
                                 title={jm.entryCount ? "Has monthly entries: deactivate instead" : "Delete"}>Delete</button>
-                              </>}
+                              </>
                             </td>
                           </tr>
                         )
@@ -317,7 +312,7 @@ export default function Masters({ onAuthExpired }) {
                     </tbody>
                   </table>
                   {!jamaatRows.length && editId !== "new" && (
-                    <div className="empty-state">{allInJamiat.length ? "No Jamaat matches." : "No Jamaats yet. Click “Add Jamaat”."}</div>
+                    <div className="empty-state">{noArabic && !mq ? "Every Jamaat here has its Arabic name." : allInJamiat.length ? "No Jamaat matches." : "No Jamaats yet. Click “Add Jamaat”."}</div>
                   )}
                 </form>
               </>

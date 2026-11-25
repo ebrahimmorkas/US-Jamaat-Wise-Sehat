@@ -30,3 +30,6 @@ npm-debug.log*
 Thumbs.db
 .vscode/
 .idea/
+
+# Files kept on the server (image storage "Local")
+server/uploads/

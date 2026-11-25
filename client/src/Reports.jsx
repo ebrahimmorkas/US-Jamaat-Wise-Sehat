@@ -1,0 +1,678 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import AppBar from "./components/AppBar";
+import Notice from "./components/Notice";
+import { confirmDialog } from "./components/ConfirmDialog";
+import { ImageIcon, ReportIcon, FormIcon } from "./components/Icons";
+import {
+  AuthError, isServerStarting, reportFormats, reportFormatAdd, reportFormatSave, reportFormatReplace, reportFormatDelete,
+  reportFormatFile, reportFormatSample, reportForms, reportPhotos, reportSetCount, reportPick, reportPhotoFile, reportHeading, reportDescription, reportPhotoAdd, reportPhotoDelete,
+  reportGenerate, reportJob, reportJobFile, reportHistory,
+} from "./lib/api";
+import { lower, plural } from "./lib/helpers";
+
+// Reports (PDF) made from the photos Jamaat Coordinators uploaded in a form.
+//   Generate:       pick the form and the format -> photo report + list of Jamaats not filled (a JC gets only
+//                   their Jamaats; Media gets no "not filled" list). Reports made earlier are listed to make again.
+//   Choose photos:  Media / Super Admin: how many photos per Jamaat, and which ones (else the first ones); the
+//                   report's title and date and each Jamaat's description (Lisan ud Dawat in the Al-Kanz font, or
+//                   English); photos can be added and deleted. Everything saves by itself (no Save buttons).
+//   Formats:        Super Admin / Media upload the one-page PDF: "Image" boxes, "Jamiat" and "Jamaat" words
+//                   (+ optional "Title", "Date" and a box with "Description").
+
+export const MEDIA_NAV = [
+  { to: "/media/photos", label: "Choose photos", icon: <ImageIcon /> },
+  { to: "/media/reports", label: "Reports", icon: <ReportIcon /> },
+  { to: "/media/formats", label: "Formats", icon: <FormIcon /> },
+];
+
+const TAB_LABEL = { generate: "Generate report", photos: "Choose photos", formats: "Formats" };
+const SUB = {
+  generate: "Choose a form and a format, then Generate: the format's page is repeated with each Jamaat's name and photos (Jamiat, then Jamaat A–Z). You also get a separate list of the Jamaats that haven't filled the form.",
+  photos: "Type the report's title and date, then choose which photos of each Jamaat go in the report and write its description. First type how many photos each Jamaat gets; a Jamaat you don't choose for gets its first photos. Everything is saved as you go.",
+  formats: "Upload the report's page as a one-page PDF: borders, background, a box with the word Image where each photo goes, and the words Jamiat and Jamaat where the names go. The page is repeated to make the report.",
+};
+const SUB_MEDIA = "Choose a form and a format, then Generate: the format's page is repeated with each Jamaat's name and photos (Jamiat, then Jamaat A–Z).";
+const STATE = { open: "Open", not_started: "Not started", closed: "Closed" };
+const sizeText = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+
+export default function Reports({ embedded, nav, page, only, user, onSignOut, onAuthExpired, theme, onToggleTheme }) {
+  const role = user ? user.role : "superadmin";
+  const tabs = only ? [only] : ["generate", ...(role === "superadmin" || role === "media" ? ["photos"] : []), ...(role === "superadmin" || role === "media" ? ["formats"] : [])];
+  const [tab, setTab] = useState(tabs[0]);
+  const [msg, setMsg] = useState(null);
+  const fail = useCallback((err) => {
+    if (err instanceof AuthError) return onAuthExpired();
+    setMsg({ type: "error", text: err.message });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [onAuthExpired]);
+  const failRef = useRef(fail);
+  failRef.current = fail;
+
+  const [forms, setForms] = useState(null);
+  const [formats, setFormats] = useState(null);
+  const [maxMb, setMaxMb] = useState(12);
+  const [loadMsg, setLoadMsg] = useState("Loading…");
+  const load = useCallback(async (tries = 0) => {
+    try {
+      const [a, b] = await Promise.all([reportForms(), reportFormats()]);
+      setForms(a.forms); setFormats(b.formats); setMaxMb(b.maxMb || 12);
+    } catch (err) {
+      if (err instanceof AuthError) return onAuthExpired();
+      if (isServerStarting(err) && tries < 24) { setLoadMsg("Connecting to the server…"); setTimeout(() => load(tries + 1), 5000); }
+      else setLoadMsg(err.message);
+    }
+  }, [onAuthExpired]);
+  useEffect(() => { load(); }, [load]);
+  const reloadFormats = useCallback(() => reportFormats().then((b) => setFormats(b.formats)).catch((e) => failRef.current(e)), []);
+
+  const go = (k) => { setTab(k); setMsg(null); };
+  const body = (
+    <div className="rp-page">
+      <section className="page-head"><div className="page-title"><h1>{only ? TAB_LABEL[only] : "Reports"}</h1>
+        <p className="page-sub">{tab === "generate" && role === "media" ? SUB_MEDIA : SUB[tab]}</p></div></section>
+      {tabs.length > 1 && (
+        <div className="cp-tabs" role="tablist">
+          {tabs.map((k) => <button key={k} type="button" role="tab" aria-selected={tab === k} className={tab === k ? "is-on" : ""} onClick={() => go(k)}>{TAB_LABEL[k]}</button>)}
+        </div>
+      )}
+      <Notice type={msg && msg.type} text={msg && msg.text} onClose={() => setMsg(null)} />
+      {!forms || !formats ? <div className="panel em-loading">{loadMsg}</div> : <>
+        {tab === "generate" && <Generate forms={forms} formats={formats} role={role} fail={fail} />}
+        {tab === "photos" && <ChoosePhotos forms={forms} fail={fail} setMsg={setMsg} onCount={load} />}
+        {tab === "formats" && <Formats formats={formats} reload={reloadFormats} maxMb={maxMb} fail={fail} setMsg={setMsg} />}
+      </>}
+    </div>
+  );
+  if (embedded) return body;
+  return (
+    <>
+      <AppBar title={role === "media" ? "Media" : undefined} subtitle={role === "media" ? "Umoor Sehhat" : undefined}
+        nav={nav} page={page} theme={theme} onToggleTheme={onToggleTheme} user={user} onSignOut={onSignOut} />
+      <main className="container">{body}</main>
+    </>
+  );
+}
+
+const formLabel = (f) => `${f.title}${f.status === "testing" ? " (Testing)" : f.state && f.state !== "open" ? ` (${STATE[f.state] || f.state})` : ""}`;
+
+// ---------- Generate ----------
+function Generate({ forms, formats, role, fail }) {
+  const [form, setForm] = useState(forms.length === 1 ? forms[0].code : "");
+  const [format, setFormat] = useState(formats.length === 1 ? formats[0].id : "");
+  const [job, setJob] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [name, setName] = useState(""); // the report's file name; "" until typed = the default below
+  const [typed, setTyped] = useState(false);
+  const running = job && (job.status === "queued" || job.status === "running");
+  const fmt = formats.find((f) => f.id === format);
+  const fm = forms.find((f) => f.code === form);
+  const defaultName = fm ? `${fm.title} – Report – ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : "";
+  const fileName = typed ? name : defaultName;
+  const media = role === "media";
+
+  // reports generated earlier (listed below, to download again while kept or make again)
+  const [history, setHistory] = useState(null);
+  const failRef = useRef(fail);
+  failRef.current = fail;
+  const loadHistory = useCallback(() => reportHistory().then((r) => setHistory(r.reports)).catch((e) => failRef.current(e)), []);
+  useEffect(() => { loadHistory(); }, [loadHistory]);
+
+  useEffect(() => {
+    if (!running) return undefined;
+    const t = setTimeout(() => reportJob(job.id).then((r) => { setJob(r.job); if (r.job.status === "done") loadHistory(); }).catch((e) => { setJob(null); fail(e); }), 1500);
+    return () => clearTimeout(t);
+  }, [job, running, fail, loadHistory]);
+
+  const run = async (f, fm, n) => {
+    setBusy(true);
+    try { setJob((await reportGenerate(f, fm, n)).job); } catch (e) { fail(e); } finally { setBusy(false); }
+  };
+  const start = () => run(form, format, fileName.trim() || defaultName);
+  const save = async (which, id = job.id) => { try { await reportJobFile(id, which); } catch (e) { fail(e); } };
+  // the same report again: same form, format and file name
+  const [extraFmt, setExtraFmt] = useState(null); // a format chosen from the list below that the menu can't name
+  const again = (h) => {
+    // page ids change on every load: find the format in the menu by its name
+    const same = formats.filter((x) => x.name === h.formatName);
+    setForm(h.form); setFormat(same.length === 1 ? same[0].id : h.format);
+    setExtraFmt(same.length === 1 ? null : { id: h.format, name: h.formatName });
+    setTyped(!!h.name); setName(h.name);
+    const f = forms.find((x) => x.code === h.form);
+    const dflt = f ? `${f.title} – Report – ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}` : "";
+    run(h.form, h.format, h.name || dflt);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  if (!forms.length) return <div className="panel em-loading">No form with a photo question has been published yet.</div>;
+  return (
+    <section className="panel rp-gen">
+      <div className="rp-gen-row">
+        <label className="field rp-field"><span className="field-label">Form</span>
+          <select className="input" value={form} onChange={(e) => { setForm(e.target.value); setJob(null); setTyped(false); setName(""); }} disabled={running}>
+            <option value="">Choose a form…</option>
+            {forms.map((f) => <option key={f.code} value={f.code}>{formLabel(f)}</option>)}
+          </select>
+        </label>
+        <label className="field rp-field"><span className="field-label">Format</span>
+          <select className="input" value={format} onChange={(e) => { setFormat(e.target.value); setJob(null); }} disabled={running || !formats.length}>
+            <option value="">{formats.length ? "Choose a format…" : "No format yet"}</option>
+            {formats.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+            {extraFmt && extraFmt.id === format && <option value={extraFmt.id}>{extraFmt.name}</option>}
+          </select>
+        </label>
+        <button type="button" className="btn btn-primary rp-go" disabled={!form || !format || running || busy} onClick={start}>
+          {busy || running ? "Generating…" : "Generate"}
+        </button>
+      </div>
+      {fm && (
+        <label className="field rp-name"><span className="field-label">Report file name</span>
+          <span className="rp-name-row">
+            <input className="input" value={fileName} maxLength={120} disabled={running} onChange={(e) => { setTyped(true); setName(e.target.value); }} />
+            <span className="rp-ext">.pdf</span>
+            {typed && fileName !== defaultName && <button type="button" className="btn btn-ghost btn-sm" disabled={running} onClick={() => { setTyped(false); setName(""); }}>Use default</button>}
+          </span>
+        </label>
+      )}
+      {!formats.length && <p className="field-hint">{role === "superadmin" || media ? "Upload a format first (Formats)." : "No report format has been uploaded yet."}</p>}
+      {fmt && <p className="field-hint rp-fmt-sum">{fmt.summary}{fm ? ` Photos per Jamaat for this form: ${fm.photosPerJamaat}${fm.photosPerJamaat > fmt.photos ? ` (the format has ${fmt.photos} — extra photos are left out)` : ""}.` : ""}</p>}
+      {fmt && (role === "superadmin" || media) && missingWords(fmt).length > 0 && (
+        <p className="field-hint rp-warn">This format has no {missingWords(fmt).join(", ")}, so the {missingWords(fmt).map((w) => w.toLowerCase()).join(" / ")} typed on Choose photos {missingWords(fmt).length === 1 ? "is" : "are"} not printed. To print {missingWords(fmt).length === 1 ? "it" : "them"}, type the word{missingWords(fmt).length === 1 ? "" : "s"} {missingWords(fmt).join(", ")} in the format PDF and upload it again (Formats, Replace PDF).</p>
+      )}
+      {role === "jc" && <p className="field-hint">Only your Jamaats are in the report.</p>}
+
+      {job && (
+        <div className={`rp-job rp-job-${job.status}`} aria-live="polite">
+          {running && <>
+            <div className="rp-step">{job.step}…</div>
+            <div className="rp-bar" role="progressbar" aria-valuemin={0} aria-valuemax={job.total || 1} aria-valuenow={job.done}>
+              <span style={{ width: `${job.total ? Math.round((job.done / job.total) * 100) : 5}%` }} />
+            </div>
+          </>}
+          {job.status === "failed" && <Notice type="error" text={job.error} />}
+          {job.status === "done" && <>
+            <div className="rp-done-title">Report ready: {job.form}</div>
+            <ul className="rp-facts">
+              <li>{plural(job.jamaats, "Jamaat")} · {plural(job.photos, "photo")}{job.files.photos ? ` · ${plural(job.files.photos.pages, "page")}` : ""}</li>
+              {job.notFilled != null && <li>{plural(job.notFilled, "Jamaat")} not filled{job.noPhoto ? ` · ${plural(job.noPhoto, "Jamaat")} filled without a photo` : ""}</li>}
+              {job.failed > 0 && <li className="rp-warn">{plural(job.failed, "photo")} couldn't be loaded and {job.failed === 1 ? "was" : "were"} left out. Generate again to retry.</li>}
+            </ul>
+            <div className="rp-dl">
+              {job.files.photos
+                ? <button type="button" className="btn btn-primary" onClick={() => save("photos")}>Download report ({sizeText(job.files.photos.size)})</button>
+                : <span className="field-hint">No photos to put in a report yet.</span>}
+              {job.files.notFilled && <button type="button" className="btn btn-ghost" onClick={() => save("not-filled")}>Download “not filled” list</button>}
+            </div>
+            <p className="field-hint">The files can be downloaded for 2 hours. After that, use Generate again below.</p>
+          </>}
+        </div>
+      )}
+
+      <div className="rp-hist">
+        <h2>Generated reports</h2>
+        {!history ? <p className="field-hint">Loading…</p> : !history.length ? <p className="field-hint">Reports you generate are listed here, so you can make the same report again.</p> : (
+          <ul className="rp-hist-list">
+            {history.map((h) => {
+              const ok = h.form && h.format;
+              return (
+                <li key={h.id} className="rp-hist-item">
+                  <div className="rp-hist-main">
+                    <b className="rp-hist-name">{h.fileName || `${h.formTitle} (no photos)`}</b>
+                    <span className="rp-hist-meta">{h.formTitle} · {h.formatName} · {fmtAt(h.at)}{h.pages ? ` · ${plural(h.pages, "page")}` : ""}{h.by ? ` · by ${h.by}` : ""}</span>
+                    {!ok && <span className="rp-hist-meta rp-warn">{!h.form ? "The form isn't available any more." : "The format was deleted."}</span>}
+                  </div>
+                  <div className="rp-hist-act">
+                    {h.job && h.job.files.includes("photos") && <button type="button" className="btn btn-ghost btn-sm" onClick={() => save("photos", h.job.id)}>Download</button>}
+                    {!media && h.job && h.job.files.includes("notFilled") && <button type="button" className="btn btn-ghost btn-sm" onClick={() => save("not-filled", h.job.id)}>Not filled list</button>}
+                    <button type="button" className="btn btn-primary btn-sm" disabled={!ok || running || busy} onClick={() => again(h)}>Generate again</button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </section>
+  );
+}
+const missingWords = (f) => (!f.has ? [] : [!f.has.title && "Title", !f.has.date && "Date", !f.has.description && "Description"].filter(Boolean));
+const fmtAt = (d) => new Date(d).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
+
+// ---------- Choose photos ----------
+// Everything here saves by itself: a moment after typing stops, when leaving the box, and when a photo is
+// clicked. "Saving…" / "Saved" / "Not saved" next to each part says where it is.
+const PAGE = 30;
+const unsaved = new Set(); // parts still saving (a warning if the page is closed meanwhile)
+const keyOf = (v) => JSON.stringify(v);
+
+function useAutoSave(value, initial, save, fail, delay = 900) {
+  const [state, setState] = useState({ s: "saved", error: "" }); // saved | waiting | saving | error
+  const savedKey = useRef(keyOf(initial));
+  const latest = useRef(value);
+  latest.current = value;
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  const failRef = useRef(fail);
+  failRef.current = fail;
+  const chain = useRef(Promise.resolve());
+  const timer = useRef(null);
+  const id = useRef({});
+
+  const run = useCallback(() => {
+    clearTimeout(timer.current);
+    chain.current = chain.current.then(async () => {
+      const v = latest.current;
+      const k = keyOf(v);
+      if (k === savedKey.current) { setState({ s: "saved", error: "" }); return; }
+      setState({ s: "saving", error: "" });
+      try {
+        await saveRef.current(v);
+        savedKey.current = k;
+        setState({ s: keyOf(latest.current) === k ? "saved" : "waiting", error: "" });
+      } catch (e) {
+        if (e instanceof AuthError) failRef.current(e);
+        setState({ s: "error", error: e.message });
+      }
+    });
+    return chain.current;
+  }, []);
+
+  const k = keyOf(value);
+  useEffect(() => {
+    if (k === savedKey.current) { setState((st) => (st.s === "waiting" ? { s: "saved", error: "" } : st)); return undefined; }
+    setState({ s: "waiting", error: "" });
+    timer.current = setTimeout(run, delay);
+    return () => clearTimeout(timer.current);
+  }, [k, run, delay]);
+  // leaving (another form chosen): what was typed is still saved
+  useEffect(() => () => { if (keyOf(latest.current) !== savedKey.current) run(); }, [run]);
+  useEffect(() => {
+    const me = id.current;
+    if (state.s === "waiting" || state.s === "saving") unsaved.add(me); else unsaved.delete(me);
+    return () => unsaved.delete(me);
+  }, [state.s]);
+
+  // after the page is reloaded from the server: this is what is saved now
+  const reset = useCallback((v) => { savedKey.current = keyOf(v); }, []);
+  return { state: state.s, error: state.error, flush: run, reset };
+}
+
+function SaveState({ a, idle }) {
+  if (a.state === "error") return <span className="rp-save is-err" role="alert">Not saved: {a.error} <button type="button" className="linklike" onClick={a.flush}>Try again</button></span>;
+  if (a.state === "waiting" || a.state === "saving") return <span className="rp-save" aria-live="polite">Saving…</span>;
+  return <span className="rp-save is-ok" aria-live="polite">{idle || "Saved"}</span>;
+}
+
+// A box for report text with its language: Lisan ud Dawat (typed in the Al-Kanz font, right to left) or English.
+function LangText({ label, value, lang, onText, onLang, onBlur, multiline, max, aria }) {
+  const lud = lang !== "en";
+  const props = {
+    className: `input${lud ? " kanz-input" : ""}`, dir: lud ? "rtl" : "ltr", lang: lud ? "ar" : "en", maxLength: max,
+    value, onChange: (e) => onText(e.target.value), onBlur, "aria-label": aria,
+  };
+  return (
+    <div className="field rp-lt">
+      <div className="rp-lt-head">
+        <span className="field-label">{label}</span>
+        <select className="input rp-lang" value={lud ? "lud" : "en"} onChange={(e) => onLang(e.target.value)} aria-label={`${aria}: language`}>
+          <option value="lud">Lisan ud Dawat</option>
+          <option value="en">English</option>
+        </select>
+      </div>
+      {multiline ? <textarea rows={3} {...props} /> : <input {...props} />}
+    </div>
+  );
+}
+
+function ChoosePhotos({ forms, fail, setMsg, onCount }) {
+  const [code, setCode] = useState(forms.length === 1 ? forms[0].code : "");
+  const [data, setData] = useState(null);
+  const [jamiat, setJamiat] = useState("");
+  const [q, setQ] = useState("");
+  const [show, setShow] = useState("");
+  const [limit, setLimit] = useState(PAGE);
+  const failRef = useRef(fail);
+  failRef.current = fail;
+
+  const load = useCallback((c) => reportPhotos(c).then((r) => setData(r)).catch((e) => failRef.current(e)), []);
+  useEffect(() => { setData(null); setLimit(PAGE); if (code) load(code); }, [code, load]);
+  // one Jamaat changed here (photo added / deleted): only its card is redrawn
+  const patch = useCallback((id, fn) => setData((d) => (d ? { ...d, jamaats: d.jamaats.map((x) => (x.id === id ? fn(x) : x)) } : d)), []);
+  useEffect(() => {
+    const warn = (e) => { if (unsaved.size) { e.preventDefault(); e.returnValue = ""; } };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, []);
+
+  const jamiats = useMemo(() => (data ? [...new Set(data.jamaats.map((j) => j.jamiat))] : []), [data]);
+  const shown = useMemo(() => (!data ? [] : data.jamaats.filter((j) =>
+    (!jamiat || j.jamiat === jamiat) && (!q || lower(j.name).includes(lower(q)))
+    && (!show || (show === "chosen" ? j.picked : !j.picked)))), [data, jamiat, q, show]);
+
+  if (!forms.length) return <div className="panel em-loading">No form with a photo question has been published yet.</div>;
+  const per = data ? data.form.photosPerJamaat : 0;
+  const limits = data ? { mb: data.maxPhotoMb || 10, ext: data.photoExt || [] } : null;
+  return (
+    <>
+      <section className="panel rp-choose-head">
+        <label className="field rp-field"><span className="field-label">Form</span>
+          <select className="input" value={code} onChange={(e) => setCode(e.target.value)}>
+            <option value="">Choose a form…</option>
+            {forms.map((f) => <option key={f.code} value={f.code}>{formLabel(f)}</option>)}
+          </select>
+        </label>
+        {data && <PhotoCount key={`${code}-${per}`} code={code} per={per} fail={fail} onSaved={async () => { await load(code); onCount(); }} />}
+      </section>
+      {code && !data && <div className="panel em-loading">Loading photos…</div>}
+      {data && <ReportHeading key={code} code={code} form={data.form} fail={fail} />}
+      {data && (
+        <>
+          <p className="rp-meta">
+            {plural(data.jamaats.length, "Jamaat")} filled the form · {data.jamaats.filter((j) => j.picked).length} chosen by Media{data.notFilled != null ? ` · ${plural(data.notFilled, "Jamaat")} not filled` : ""}
+          </p>
+          {data.jamaats.length > 0 && (
+            <div className="rp-filters">
+              <select className="input" value={jamiat} onChange={(e) => { setJamiat(e.target.value); setLimit(PAGE); }} aria-label="Jamiat">
+                <option value="">All Jamiats</option>
+                {jamiats.map((j) => <option key={j} value={j}>{j}</option>)}
+              </select>
+              <input className="input" value={q} onChange={(e) => { setQ(e.target.value); setLimit(PAGE); }} placeholder="Search Jamaat" aria-label="Search Jamaat" />
+              <select className="input" value={show} onChange={(e) => { setShow(e.target.value); setLimit(PAGE); }} aria-label="Show">
+                <option value="">All</option>
+                <option value="todo">Not chosen yet</option>
+                <option value="chosen">Chosen</option>
+              </select>
+            </div>
+          )}
+          {!data.jamaats.length && <div className="panel em-loading">No Jamaat has filled this form yet.</div>}
+          {shown.slice(0, limit).map((j) => <JamaatPhotos key={j.id} j={j} code={code} per={per} limits={limits} fail={fail} setMsg={setMsg} patch={patch} />)}
+          {data.jamaats.length > 0 && !shown.length && <div className="panel em-loading">No Jamaat matches.</div>}
+          {shown.length > limit && <button type="button" className="btn btn-ghost rp-more" onClick={() => setLimit(limit + PAGE)}>Show more ({shown.length - limit} more)</button>}
+        </>
+      )}
+    </>
+  );
+}
+
+// Photos per Jamaat (saved by itself; the photos are then loaded again).
+function PhotoCount({ code, per, fail, onSaved }) {
+  const [count, setCount] = useState(String(per));
+  const a = useAutoSave(count, String(per), async (c) => {
+    const n = Number(c);
+    if (!c || !Number.isInteger(n) || n < 1 || n > 10) throw new Error("Type how many photos each Jamaat gets (1 to 10).");
+    await reportSetCount(code, n);
+    await onSaved();
+  }, fail);
+  return (
+    <div className="rp-count">
+      <label className="field rp-count-field"><span className="field-label">Photos per Jamaat</span>
+        <input className="input" type="number" min={1} max={10} step={1} inputMode="numeric" value={count} onBlur={a.flush}
+          onChange={(e) => setCount(e.target.value.replace(/[^0-9]/g, "").slice(0, 2))} />
+      </label>
+      <SaveState a={a} />
+    </div>
+  );
+}
+
+// The report's title and date: printed at the top of every page where the format has "Title" / "Date".
+function ReportHeading({ code, form, fail }) {
+  const first = { title: form.reportTitle || "", date: form.reportDate || "", titleLang: form.titleLang || "lud", dateLang: form.dateLang || "lud" };
+  const [h, setH] = useState(first);
+  const a = useAutoSave(h, first, (v) => reportHeading(code, v), fail);
+  const set = (k, v) => setH((x) => ({ ...x, [k]: v }));
+  return (
+    <section className="panel rp-heading">
+      <div className="rp-lt-head"><h2>Report title and date</h2><SaveState a={a} /></div>
+      <p className="field-hint">Printed at the top of every page (where the format has the words Title and Date).</p>
+      <div className="rp-heading-row">
+        <LangText label="Title" aria="Report title" max={150} value={h.title} lang={h.titleLang} onText={(v) => set("title", v)} onLang={(v) => set("titleLang", v)} onBlur={a.flush} />
+        <LangText label="Date" aria="Report date" max={80} value={h.date} lang={h.dateLang} onText={(v) => set("date", v)} onLang={(v) => set("dateLang", v)} onBlur={a.flush} />
+      </div>
+    </section>
+  );
+}
+
+// A Jamaat's description: printed in its "Description" box in the report.
+function JamaatDescription({ j, code, fail }) {
+  const first = { text: j.description || "", lang: j.descriptionLang || "lud" };
+  const [d, setD] = useState(first);
+  const a = useAutoSave(d, first, (v) => reportDescription(code, j.id, v.text, v.lang), fail, 1200);
+  return (
+    <div className="rp-desc">
+      <LangText label="Description" aria={`Description for ${j.name}`} multiline max={1000} value={d.text} lang={d.lang}
+        onText={(v) => setD((x) => ({ ...x, text: v }))} onLang={(v) => setD((x) => ({ ...x, lang: v }))} onBlur={a.flush} />
+      <div className="rp-desc-foot">
+        <span className="field-hint">{d.text.length ? `${d.text.length} / 1000` : "No description"}</span>
+        <SaveState a={a} idle={d.text.trim() ? "Saved" : " "} />
+      </div>
+    </div>
+  );
+}
+
+function JamaatPhotos({ j, code, per, limits, fail, setMsg, patch }) {
+  const start = useMemo(() => j.chosen.filter((i) => i >= 0).slice(0, per), [j, per]);
+  const [sel, setSel] = useState(start);
+  const [picked, setPicked] = useState(j.picked);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(""); // "" | "first" | "add" | "del"
+  const [upMsg, setUpMsg] = useState("");
+  const ids = (list) => list.map((i) => j.photos[i] && j.photos[i].id).filter(Boolean);
+  // the choice saves itself shortly after a photo is clicked (a few clicks in a row = one save)
+  const a = useAutoSave(ids(sel), ids(start), async (v) => { await reportPick(code, j.id, v); setPicked(true); }, fail, 600);
+  const { reset } = a;
+  useEffect(() => { reset(ids(start)); setSel(start); setPicked(j.picked); setNote(""); }, [start]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggle = (i) => {
+    setNote("");
+    if (sel.includes(i)) setSel(sel.filter((x) => x !== i));
+    else if (sel.length >= per) setNote(`Only ${plural(per, "photo")} per Jamaat. Untick one first.`);
+    else setSel([...sel, i]);
+  };
+  const firstPhotos = async () => {
+    setBusy("first");
+    try {
+      await a.flush();
+      await reportPick(code, j.id, null);
+      patch(j.id, (x) => ({ ...x, picked: false, pickedBy: "", chosen: x.photos.slice(0, per).map((_, i) => i) }));
+    } catch (e) { fail(e); } finally { setBusy(""); }
+  };
+  const download = async (p) => { try { await reportPhotoFile(p.id); } catch (e) { fail(e); } };
+
+  const add = async (files) => {
+    const list = [...files];
+    if (!list.length) return;
+    setBusy("add");
+    await a.flush();
+    let done = 0;
+    const errors = [];
+    for (const [k, file] of list.entries()) {
+      setUpMsg(list.length > 1 ? `Uploading ${k + 1} of ${list.length}…` : "Uploading…");
+      try {
+        if (file.size > limits.mb * 1048576) throw new Error(`too large (largest ${limits.mb} MB)`);
+        const r = await reportPhotoAdd(code, j.id, file);
+        done++;
+        patch(j.id, (x) => ({ ...x, photos: [...x.photos, r.photo] }));
+      } catch (e) {
+        if (e instanceof AuthError) { fail(e); break; }
+        errors.push(`${file.name}: ${e.message}`);
+      }
+    }
+    setUpMsg("");
+    setBusy("");
+    if (errors.length) setMsg({ type: "error", text: `${done ? `${plural(done, "photo")} added. ` : ""}Not added: ${errors.join(" · ")}` });
+    else setMsg({ type: "ok", text: `${plural(done, "photo")} added to ${j.name}. Click ${done === 1 ? "it" : "them"} to put ${done === 1 ? "it" : "them"} in the report.` });
+  };
+  const del = async (p, i) => {
+    const ok = await confirmDialog({
+      title: "Delete this photo?",
+      message: p.added ? "It is removed from Choose photos and from the reports." : "It is removed from Choose photos and from the reports. The Jamaat's form response still has it.",
+      confirmText: "Delete", tone: "danger",
+    });
+    if (!ok) return;
+    setBusy("del");
+    try {
+      await a.flush();
+      await reportPhotoDelete(code, p.id);
+      patch(j.id, (x) => {
+        const photos = x.photos.filter((_, k) => k !== i);
+        const chosen = picked ? sel.filter((c) => c !== i).map((c) => (c > i ? c - 1 : c)) : photos.slice(0, per).map((_, k) => k);
+        return { ...x, photos, chosen, picked };
+      });
+    } catch (e) { fail(e); } finally { setBusy(""); }
+  };
+
+  return (
+    <section className="panel rp-jm">
+      <div className="rp-jm-head">
+        <div><b>{j.name}</b> <span className="rp-jt">{j.jamiat}</span></div>
+        {picked
+          ? <span className="pill good">Chosen{j.pickedBy && j.picked ? ` by ${j.pickedBy}` : ""}</span>
+          : <span className="pill na">Not chosen — first {plural(Math.min(per, j.photos.length), "photo")} used</span>}
+      </div>
+      <div className="rp-grid">
+        {j.photos.map((p, i) => {
+          const n = sel.indexOf(i);
+          return (
+            <div key={p.id} className={`rp-ph${n >= 0 ? " is-on" : ""}`}>
+              <button type="button" className="rp-ph-pick" onClick={() => toggle(i)} aria-pressed={n >= 0} disabled={!!busy}
+                aria-label={`${n >= 0 ? "Remove" : "Use"} photo ${i + 1} (${p.name})`} title={`${p.field} · ${p.name}`}>
+                <img src={p.thumb} alt="" loading="lazy" />
+                {n >= 0 && <span className="rp-ph-n">{n + 1}</span>}
+                {p.added && <span className="rp-ph-tag">Added</span>}
+              </button>
+              <div className="rp-ph-links">
+                <a href={p.url} target="_blank" rel="noopener noreferrer">View</a>
+                <button type="button" className="linklike" onClick={() => download(p)}>Download</button>
+                <button type="button" className="linklike rp-ph-del" disabled={!!busy} onClick={() => del(p, i)} aria-label={`Delete photo ${i + 1} (${p.name})`}>Delete</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {note && <p className="rp-note" role="status">{note}</p>}
+      <div className="rp-jm-foot">
+        <span className="field-hint">{sel.length ? `${plural(sel.length, "photo")} chosen (in this order)` : "No photo chosen: this Jamaat is left out of the report"}</span>
+        {upMsg ? <span className="rp-save">{upMsg}</span> : <SaveState a={a} idle={picked ? "Saved" : " "} />}
+        {picked && <button type="button" className="btn btn-ghost" disabled={!!busy} onClick={firstPhotos}>Use first photos</button>}
+        <label className={`btn btn-ghost rp-add-ph${busy ? " is-disabled" : ""}`}>{busy === "add" ? "Adding…" : "Add photos"}
+          <input type="file" multiple hidden disabled={!!busy} accept={limits && limits.ext.length ? limits.ext.map((e) => `.${e}`).join(",") : "image/*"}
+            onChange={(e) => { const f = e.target.files; add(f).finally(() => { e.target.value = ""; }); }} />
+        </label>
+      </div>
+      <JamaatDescription j={j} code={code} fail={fail} />
+    </section>
+  );
+}
+
+// ---------- Formats (Super Admin, Media) ----------
+function Formats({ formats, reload, maxMb, fail, setMsg }) {
+  const [name, setName] = useState("");
+  const [file, setFile] = useState(null);
+  const [progress, setProgress] = useState(null);
+  const fileRef = useRef(null);
+
+  const add = async () => {
+    if (file.size > maxMb * 1048576) return fail(new Error(`The PDF is too large (largest ${maxMb} MB).`));
+    setProgress(0);
+    try {
+      const r = await reportFormatAdd(name.trim(), file, setProgress);
+      setMsg({ type: "ok", text: `Format “${r.format.name}” added: ${r.format.summary} Check it with “Sample PDF”.` });
+      setName(""); setFile(null); if (fileRef.current) fileRef.current.value = "";
+      await reload();
+    } catch (e) { fail(e); } finally { setProgress(null); }
+  };
+
+  return (
+    <>
+      <section className="panel rp-help">
+        <h2>How to make a format</h2>
+        <ol>
+          <li>Design <b>one page</b> (Canva, Word, …): borders, background, title — everything that stays the same.</li>
+          <li>Draw a box where each photo goes and type the word <b>Image</b> inside it.</li>
+          <li>Type <b>Jamaat</b> where a Jamaat's name goes and <b>Jamiat</b> where its Jamiat's name goes (on their own, nothing else in that text). <b>{"{{Jamaat}}"}</b> also works. Words in capitals (JAMAAT) are treated as labels and stay.</li>
+          <li>Each <b>Jamaat</b> word is one Jamaat on the page: 3 rows with Jamaat = 3 Jamaats a page. The Image boxes next to it are its photos.</li>
+          <li>Optional: type <b>Title</b> and <b>Date</b> where the report's title and date go (Media types them on Choose photos, in Lisan ud Dawat or English), and draw a box with the word <b>Description</b> inside it next to each Jamaat for its description (it is written inside that box, on as many lines as needed).</li>
+          <li>Save it as a PDF (text must stay text, not a picture) and upload it. Then check it with <b>Sample PDF</b>.</li>
+        </ol>
+        <p className="field-hint">Photos are shown whole (not cut), centred in their box, at the photo size you set. If a Jamaat has fewer photos than boxes, its photos are centred and the empty boxes are removed.</p>
+      </section>
+
+      <section className="panel rp-add">
+        <h2>Add a format</h2>
+        <div className="rp-add-row">
+          <label className="field rp-field"><span className="field-label">Name</span>
+            <input className="input" maxLength={120} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Monthly photo report" />
+          </label>
+          <label className="field rp-field"><span className="field-label">PDF (one page, up to {maxMb} MB)</span>
+            <input ref={fileRef} className="input" type="file" accept="application/pdf,.pdf" onChange={(e) => setFile(e.target.files[0] || null)} />
+          </label>
+          <button type="button" className="btn btn-primary rp-go" disabled={!name.trim() || !file || progress !== null} onClick={add}>
+            {progress !== null ? (progress < 1 ? `Uploading ${Math.round(progress * 100)}%` : "Reading the PDF…") : "Upload"}
+          </button>
+        </div>
+      </section>
+
+      {!formats.length ? <div className="panel em-loading">No formats yet.</div>
+        : formats.map((f) => <FormatCard key={f.id} f={f} reload={reload} maxMb={maxMb} fail={fail} setMsg={setMsg} />)}
+    </>
+  );
+}
+
+function FormatCard({ f, reload, maxMb, fail, setMsg }) {
+  const [name, setName] = useState(f.name);
+  const [w, setW] = useState(String(f.photoW || ""));
+  const [h, setH] = useState(String(f.photoH || ""));
+  const [busy, setBusy] = useState("");
+  useEffect(() => { setName(f.name); setW(String(f.photoW || "")); setH(String(f.photoH || "")); }, [f]);
+  const dirty = name.trim() !== f.name || w !== String(f.photoW || "") || h !== String(f.photoH || "");
+  const run = async (what, fn) => { setBusy(what); try { await fn(); } catch (e) { fail(e); } finally { setBusy(""); } };
+
+  const save = () => run("save", async () => {
+    await reportFormatSave(f.id, { name: name.trim(), photoW: w, photoH: h });
+    setMsg({ type: "ok", text: `Format “${name.trim()}” saved.` });
+    await reload();
+  });
+  const replace = (file) => run("replace", async () => {
+    if (!file) return;
+    if (file.size > maxMb * 1048576) throw new Error(`The PDF is too large (largest ${maxMb} MB).`);
+    const r = await reportFormatReplace(f.id, file);
+    setMsg({ type: "ok", text: `New PDF for “${f.name}”: ${r.format.summary} The photo size was set from its first box — check it with “Sample PDF”.` });
+    await reload();
+  });
+  const del = async () => {
+    if (!(await confirmDialog({ title: "Delete this format?", message: `“${f.name}” can no longer be chosen when generating reports.`, confirmText: "Delete", tone: "danger" }))) return;
+    run("delete", async () => { await reportFormatDelete(f.id); setMsg({ type: "ok", text: `Format “${f.name}” deleted.` }); await reload(); });
+  };
+
+  return (
+    <section className="panel rp-fmt">
+      <div className="rp-fmt-head">
+        <div>
+          <b className="rp-fmt-name">{f.name}</b>
+          <div className="rp-fmt-sum">{f.summary}</div>
+          <div className="field-hint">Page {f.page.w} × {f.page.h} mm · {f.fileName || "PDF"} ({sizeText(f.size)}) · changed by {f.updatedBy || "—"}</div>
+        </div>
+      </div>
+      <div className="rp-fmt-edit">
+        <label className="field rp-field"><span className="field-label">Name</span>
+          <input className="input" maxLength={120} value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <label className="field rp-mm"><span className="field-label">Photo width (mm)</span>
+          <input className="input" type="number" min={5} max={600} step="0.5" value={w} onChange={(e) => setW(e.target.value)} />
+        </label>
+        <label className="field rp-mm"><span className="field-label">Photo height (mm)</span>
+          <input className="input" type="number" min={5} max={600} step="0.5" value={h} onChange={(e) => setH(e.target.value)} />
+        </label>
+        <button type="button" className="btn btn-primary rp-go" disabled={!dirty || !!busy || !name.trim()} onClick={save}>{busy === "save" ? "Saving…" : "Save"}</button>
+      </div>
+      {f.suggested && <p className="field-hint">The first Image box is about {f.suggested.w + 4} × {f.suggested.h + 4} mm. Each photo is fitted whole inside the photo size, centred in its box.</p>}
+      <div className="rp-fmt-actions">
+        <button type="button" className="btn btn-ghost" disabled={!!busy} onClick={() => run("sample", () => reportFormatSample(f.id, w, h))}>{busy === "sample" ? "Making…" : "Sample PDF"}</button>
+        <button type="button" className="btn btn-ghost" disabled={!!busy} onClick={() => run("file", () => reportFormatFile(f.id))}>Download PDF</button>
+        <label className={`btn btn-ghost${busy ? " is-disabled" : ""}`}>{busy === "replace" ? "Reading the PDF…" : "Replace PDF"}
+          <input type="file" accept="application/pdf,.pdf" hidden disabled={!!busy} onChange={(e) => { const file = e.target.files[0]; e.target.value = ""; replace(file); }} />
+        </label>
+        <button type="button" className="btn btn-ghost rp-del" disabled={!!busy} onClick={del}>Delete</button>
+      </div>
+    </section>
+  );
+}

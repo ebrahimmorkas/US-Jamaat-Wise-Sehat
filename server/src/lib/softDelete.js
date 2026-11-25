@@ -1,9 +1,9 @@
-// "Delete" never removes a record: it sets status "D" (deleted), hides it everywhere and keeps it
-// (with who deleted it and when) so it can be restored. Status "A" = normal.
+// "Delete" never removes a record: it sets status "D" (deleted), hides it everywhere and keeps it in the
+// database (with who deleted it and when). A deleted record can't be restored; the same name / Gmail can be
+// added again as a new record. Status "A" = normal.
 //
 // Records with an isActive flag (Jamiats, Jamaats, users, questions) are also made inactive while
 // deleted, so every screen that shows only active records hides them without extra checks.
-// Restoring brings back the active / inactive state they had before.
 const DELETED = "D";
 const STATUSES = ["A", DELETED];
 
@@ -29,18 +29,10 @@ function markDeleted(doc, by) {
   doc.deletedBy = by || "";
 }
 
-function markRestored(doc) {
-  if (typeof doc.activeBeforeDelete === "boolean") doc.isActive = doc.activeBeforeDelete;
-  doc.status = "A";
-  doc.deletedAt = undefined;
-  doc.deletedBy = undefined;
-  doc.activeBeforeDelete = undefined;
-}
-
 /** What the admin screens get about a record's deletion. */
 const deletedInfo = (doc) => (isDeleted(doc) ? { deleted: true, deletedAt: doc.deletedAt || null, deletedBy: doc.deletedBy || "" } : { deleted: false });
 
-/** Audit-trail line for delete / restore. */
+/** Audit-trail line for delete. */
 const statusChange = (from, to) => ({ field: "status", label: "Status", from: from === DELETED ? "D (deleted)" : "A", to: to === DELETED ? "D (deleted)" : "A" });
 
-module.exports = { DELETED, STATUSES, softDeleteFields, notDeleted, isDeleted, markDeleted, markRestored, deletedInfo, statusChange };
+module.exports = { DELETED, STATUSES, softDeleteFields, notDeleted, isDeleted, markDeleted, deletedInfo, statusChange };

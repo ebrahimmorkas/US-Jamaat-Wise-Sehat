@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Notice from "./components/Notice";
 import MultiSelect from "./components/MultiSelect";
 import { confirmDialog } from "./components/ConfirmDialog";
-import { AuthError, createUser, deleteUser, isServerStarting, mastersList, restoreUser, updateUser, usersList } from "./lib/api";
+import { AuthError, createUser, deleteUser, isServerStarting, mastersList, updateUser, usersList } from "./lib/api";
 import { deletedLine, lower, plural } from "./lib/helpers";
 
 // Quick check in the browser; the server does the full Gmail check.
@@ -12,6 +12,8 @@ const ROLES = [
   { key: "jc", label: "JC", hint: "Fills the JC portal for the Jamiats / Jamaats assigned below" },
   { key: "saheb", label: "Saheb", hint: "Sees the Sahebo dashboard" },
   { key: "superadmin", label: "Super Admin", hint: "Manages users, masters and portal fields" },
+  { key: "jamaat_coordinator", label: "Jamaat Coordinator", hint: "Fills the forms built on the Forms page. One Coordinator per Jamaat." },
+  { key: "media", label: "Media", hint: "Sees only the photos Jamaats uploaded in forms, chooses which go in the reports, downloads photos and generates reports." },
 ];
 const roleLabel = (k) => (ROLES.find((r) => r.key === k) || { label: k }).label;
 
@@ -25,7 +27,6 @@ export default function Users({ onAuthExpired }) {
   const [form, setForm] = useState(null); // { id: "" (new) | userId, email, role, jamiats, jamaats }
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
-  const [showDeleted, setShowDeleted] = useState(false); // also list users with status "D"
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null);
   const formRef = useRef(null);
@@ -61,7 +62,7 @@ export default function Users({ onAuthExpired }) {
     jamiats: active.jamiats.map((j) => j.id),  // by default everything is selected
     jamaats: active.jamaats.map((jm) => jm.id),
   }), [active]);
-  const newForm = useCallback(() => ({ id: "", email: "", role: "jc", ...allAccess() }), [allAccess]);
+  const newForm = useCallback(() => ({ id: "", email: "", role: "jc", jamaat: "", isTester: false, ...allAccess() }), [allAccess]);
 
   useEffect(() => { if (active && !form) setForm(newForm()); }, [active, form, newForm]);
 
@@ -101,12 +102,19 @@ export default function Users({ onAuthExpired }) {
 
   const editing = form.id ? users.find((u) => u.id === form.id) : null;
   const isJc = form.role === "jc";
+  const isCoord = form.role === "jamaat_coordinator";
+  // Jamaats that already have a Coordinator (someone else).
+  const coordOf = new Map(users.filter((u) => u.role === "jamaat_coordinator" && !u.deleted && u.jamaat && u.id !== form.id).map((u) => [u.jamaat, u.email]));
 
   const submit = async (e) => {
     e.preventDefault();
     const email = form.email.trim().toLowerCase();
     if (!looksLikeGmail(email)) return setMsg({ type: "error", text: "Enter a Gmail address (ending in @gmail.com)." });
-    const body = { email, role: form.role };
+    const body = { email, role: form.role, isTester: !!form.isTester };
+    if (isCoord) {
+      if (!form.jamaat) return setMsg({ type: "error", text: "Choose the Jamaat this Coordinator is for." });
+      body.jamaat = form.jamaat;
+    }
 
     if (isJc) {
       if (!form.jamiats.length) return setMsg({ type: "error", text: "Choose at least one Jamiat." });
@@ -145,7 +153,7 @@ export default function Users({ onAuthExpired }) {
           jamaats: u.jamaats.filter((id) => active.jamaats.some((jm) => jm.id === id)),
         }
       : allAccess(); // if the role is changed to JC, start from All
-    setForm({ id: u.id, email: u.email, role: u.role, ...access });
+    setForm({ id: u.id, email: u.email, role: u.role, jamaat: u.jamaat || "", isTester: !!u.isTester, ...access });
     setMsg(null);
     formRef.current && formRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
   };
@@ -161,14 +169,17 @@ export default function Users({ onAuthExpired }) {
   const remove = async (u) => {
     if (!(await confirmDialog({
       tone: "danger", title: `Delete ${who(u)}?`, confirmText: "Delete",
-      message: "They get status D (deleted): signed out at once and can't sign in.\n\nNothing is erased; you can restore them from “Show deleted”.",
+      message: "They are signed out at once and can't sign in.\n\nThey get status D (deleted) in the database and can't be restored. The same Gmail can be added again as a new user.",
     }))) return;
-    act(() => deleteUser(u.id), `Deleted ${who(u)} (status D). Tick “Show deleted” to restore.`).then((ok) => ok && form.id === u.id && setForm(newForm()));
+    act(() => deleteUser(u.id), `Deleted ${who(u)}.`).then((ok) => ok && form.id === u.id && setForm(newForm()));
   };
-  const restore = (u) => act(() => restoreUser(u.id), `Restored ${who(u)}.`);
 
   // "All Jamiats · All Jamaats" / "AHMEDABAD · 12 of 26 Jamaats" / "3 Jamiats · 40 Jamaats"
   const accessText = (u) => {
+    if (u.role === "jamaat_coordinator") {
+      const jm = active.jamaats.find((x) => x.id === u.jamaat);
+      return jm ? { text: `${jm.name} · ${active.jamiatName.get(jm.jamiatId)}`, title: "" } : { text: "No Jamaat — click Edit", title: "" };
+    }
     if (u.role !== "jc") return { text: "—", title: "" };
     const jIds = u.jamiats.filter((id) => active.jamiatName.has(id));
     const mIds = u.jamaats.filter((id) => active.jamaats.some((jm) => jm.id === id && jIds.includes(jm.jamiatId)));
@@ -181,8 +192,7 @@ export default function Users({ onAuthExpired }) {
   };
 
   const q = lower(query);
-  const deletedCount = users.filter((u) => u.deleted).length;
-  const shown = users.filter((u) => (showDeleted || !u.deleted) && (!roleFilter || u.role === roleFilter) && (!q || lower(u.email).includes(q) || lower(u.name).includes(q) || lower(u.username).includes(q)));
+  const shown = users.filter((u) => !u.deleted && (!roleFilter || u.role === roleFilter) && (!q || lower(u.email).includes(q) || lower(u.name).includes(q) || lower(u.username).includes(q)));
   const countOf = (r) => users.filter((u) => u.role === r && !u.deleted).length;
 
   return (
@@ -190,7 +200,7 @@ export default function Users({ onAuthExpired }) {
       <section className="page-head">
         <div className="page-title">
           <h1>Users</h1>
-          <p className="page-sub">Everyone signs in with Google. Only the Gmail addresses listed here can sign in. {plural(countOf("jc"), "JC")} · {plural(countOf("saheb"), "Saheb")} · {plural(countOf("superadmin"), "Super Admin")}.</p>
+          <p className="page-sub">Everyone signs in with Google. Only the Gmail addresses listed here can sign in. {plural(countOf("jc"), "JC")} · {plural(countOf("saheb"), "Saheb")} · {plural(countOf("superadmin"), "Super Admin")} · {plural(countOf("jamaat_coordinator"), "Jamaat Coordinator")} · {countOf("media")} Media.</p>
         </div>
       </section>
 
@@ -226,6 +236,24 @@ export default function Users({ onAuthExpired }) {
                 selected={form.jamaats} onChange={(v) => setForm({ ...form, jamaats: v })} />
             </>
           )}
+          {isCoord && (
+            <label className="field">
+              <span className="field-label">Jamaat</span>
+              <select value={form.jamaat} onChange={(e) => setForm({ ...form, jamaat: e.target.value })}>
+                <option value="">Choose the Jamaat…</option>
+                {active.jamiats.map((j) => (
+                  <optgroup key={j.id} label={j.name}>
+                    {(active.jamaatsOf.get(j.id) || []).map((jm) => (
+                      <option key={jm.id} value={jm.id} disabled={coordOf.has(jm.id)}>{jm.name}{coordOf.has(jm.id) ? ` — has ${coordOf.get(jm.id)}` : ""}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="check tester-check" title="Testers can fill forms while they are in Testing">
+            <input type="checkbox" checked={!!form.isTester} onChange={(e) => setForm({ ...form, isTester: e.target.checked })} /> Form tester
+          </label>
           <div className="user-form-actions">
             {editing && <button type="button" className="btn btn-ghost" onClick={() => setForm(newForm())}>Cancel</button>}
             <button type="submit" className="btn btn-primary" disabled={busy}>{editing ? "Save changes" : "Add user"}</button>
@@ -247,9 +275,6 @@ export default function Users({ onAuthExpired }) {
             <option value="">All roles</option>
             {ROLES.map((r) => <option key={r.key} value={r.key}>{r.label}</option>)}
           </select>
-          <label className="check show-deleted">
-            <input type="checkbox" checked={showDeleted} onChange={(e) => setShowDeleted(e.target.checked)} /> Show deleted ({deletedCount})
-          </label>
         </div>
         <div className="table-wrap">
           <table className="master-table users-table card-rows">
@@ -270,20 +295,18 @@ export default function Users({ onAuthExpired }) {
                       {u.name && <small className="user-sub">{u.name}</small>}
                       {self && <small className="user-sub">(you)</small>}
                     </td>
-                    <td data-label="Role"><span className={`pill role-${u.role}`}>{roleLabel(u.role)}</span></td>
+                    <td data-label="Role"><span className={`pill role-${u.role}`}>{roleLabel(u.role)}</span>{u.isTester && <span className="pill warn tester-pill" title="Can fill forms in Testing">Tester</span>}</td>
                     <td data-label="Status">{u.deleted ? <span className="pill bad" title={deletedLine(u)}>Deleted (D)</span> : u.isActive ? <span className="pill good">Active</span> : <span className="pill na">Inactive</span>}</td>
                     <td className="access wide" data-label="Assigned" title={a.title}>{a.text}</td>
                     <td className="muted wide" data-label="Last sign-in">{u.lastLoginAt ? fmtDate(u.lastLoginAt) : "Never"}</td>
                     <td className="row-actions">
-                      {u.deleted ? (
-                        <button type="button" className="mini-btn primary" onClick={() => restore(u)} disabled={busy} title={deletedLine(u)}>Restore</button>
-                      ) : <>
+                      <>
                       <button type="button" className="mini-btn" onClick={() => startEdit(u)} disabled={busy}>Edit</button>
                       <button type="button" className="mini-btn" onClick={() => toggle(u)} disabled={busy || self}
                         title={self ? "You can't deactivate yourself" : ""}>{u.isActive ? "Deactivate" : "Activate"}</button>
                       <button type="button" className="mini-btn danger" onClick={() => remove(u)} disabled={busy || self}
                         title={self ? "You can't delete yourself" : ""}>Delete</button>
-                      </>}
+                      </>
                     </td>
                   </tr>
                 );

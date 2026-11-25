@@ -13,7 +13,7 @@ const clean = (v) => (v == null ? undefined : String(v).slice(0, 120));
 // Groups for the Super Admin's Logs page.
 const CATEGORIES = {
   signin: ["login_success", "login_failed", "login_blocked", "account_locked", "logout", "token_reuse_detected"],
-  changes: ["user_created", "user_updated", "user_deleted", "user_restored", "user_password_reset", "dropdown_updated", "field_created", "field_updated", "field_deleted", "field_restored", "entry_submitted", "master_created", "master_updated", "master_deleted", "master_restored", "logs_deleted", "data_uploaded", "data_cleared", "data_changed", "data_choices_changed", "metric_added", "metric_updated", "metric_deleted", "jc_rated", "stats_uploaded", "stats_deleted"],
+  changes: ["user_created", "user_updated", "user_deleted", "user_restored", "user_password_reset", "dropdown_updated", "field_created", "field_updated", "field_deleted", "field_restored", "entry_submitted", "master_created", "master_updated", "master_deleted", "master_restored", "logs_deleted", "data_uploaded", "data_cleared", "data_changed", "data_choices_changed", "metric_added", "metric_updated", "metric_deleted", "jc_rated", "stats_uploaded", "stats_deleted", "form_created", "form_updated", "form_status_changed", "form_deleted", "form_restored", "form_test_cleared", "form_submitted", "form_response_edited", "form_responses_exported", "form_announced", "email_sent", "email_cancelled", "email_settings_changed", "email_template_saved", "email_template_deleted", "email_template_restored", "reminder_sent"],
   access: ["access_denied"],
   activity: ["dashboard_opened", "admin_opened", "portal_opened", "data_refresh", "list_viewed", "comments_viewed", "entry_viewed", "audit_viewed", "chat_asked", "data_viewed", "data_downloaded"],
 };

@@ -3,11 +3,12 @@ import AppBar from "./components/AppBar";
 import Notice from "./components/Notice";
 import MonthYearPicker from "./components/MonthYearPicker";
 import CommentsDialog from "./components/CommentsDialog";
-import { BuildingIcon, CheckIcon, ClockIcon, CommentIcon, FormIcon, GridIcon, PencilIcon, TableIcon, BriefcaseIcon, ImageIcon } from "./components/Icons";
+import { BuildingIcon, CheckIcon, ClockIcon, CommentIcon, FormIcon, GridIcon, PencilIcon, TableIcon, BriefcaseIcon, ImageIcon, ListIcon, ReportIcon } from "./components/Icons";
 import { AuthError, isServerStarting, portalComments, portalSummary } from "./lib/api";
 import { useRealtime, useRealtimeStatus } from "./hooks/useRealtime";
 import { navigate } from "./lib/router";
 import { pct, plural, same } from "./lib/helpers";
+import FormLinksPanel from "./components/FormLinksPanel";
 
 export const JC_NAV = [
   { to: "/jc-portal/stats", label: "Stats", icon: <ImageIcon /> },
@@ -15,6 +16,8 @@ export const JC_NAV = [
   { to: "/jc-portal/form", label: "Fill form", icon: <PencilIcon /> },
   { to: "/jc-portal/data", label: "Data", icon: <TableIcon /> },
   { to: "/jc-portal/metrics", label: "Metrics", icon: <BriefcaseIcon /> },
+  { to: "/jc-portal/responses", label: "Form responses", icon: <ListIcon /> },
+  { to: "/jc-portal/reports", label: "Reports", icon: <ReportIcon /> },
 ];
 const LIVE_DEBOUNCE_MS = 400;
 
@@ -192,6 +195,7 @@ export default function JcDashboard({ user, onSignOut, onAuthExpired, theme, onT
         </section>
 
         {error && <Notice type={data ? "error" : "info"} text={error} onClose={data ? () => setError("") : undefined} />}
+        <FormLinksPanel />
 
         {!data ? (
           !error && <div className="panel portal-empty">Loading…</div>

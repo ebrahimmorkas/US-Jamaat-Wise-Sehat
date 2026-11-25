@@ -15,7 +15,7 @@ const { audit } = require("../services/audit");
 const { InputError, requireId, sendError } = require("../lib/validate");
 const { publish } = require("../realtime");
 const { TOPICS, EVENTS } = require("../realtime/topics");
-const storage = require("../services/imagekit");
+const storage = require("../services/storage");
 
 const MAX_IMAGE = 8 * 1024 * 1024;
 const router = express.Router();
@@ -44,7 +44,7 @@ const changed = () => {
 };
 const clean = (v, n) => String(v == null ? "" : v).replace(/\s+/g, " ").trim().slice(0, n);
 
-router.get("/", async (req, res, next) => {
+router.get("/", requireRole("saheb", "superadmin", "jc"), async (req, res, next) => {
   try {
     res.set("Cache-Control", "no-store");
     let only = null; // JC: their Jamiats

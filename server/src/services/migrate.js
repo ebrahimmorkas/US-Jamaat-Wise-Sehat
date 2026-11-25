@@ -8,7 +8,7 @@ const Activity = require("../models/Activity");
 const AuditLog = require("../models/AuditLog");
 const { seedLists } = require("./lists");
 const { seedFields, invalidate } = require("./fields");
-const { markDeleted, isDeleted } = require("../lib/softDelete");
+const { markDeleted, isDeleted, notDeleted: notDeletedQ } = require("../lib/softDelete");
 
 // One-time changes: each id runs once and is recorded in the "migrations" collection,
 // so later edits by the Super Admin are never overwritten.
@@ -152,8 +152,14 @@ async function migrate() {
     await Session.updateMany({ user: { $in: noEmail.map((u) => u._id) }, revokedAt: null }, { $set: { revokedAt: new Date(), revokeReason: "no_gmail" } });
   }
 
-  // 3) User indexes: username / Gmail are unique only when present.
+  // 3) Unique names / Gmails count only records that aren't deleted (a deleted one's can be used again):
+  //    records from before status existed get "A", then the indexes are rebuilt.
+  const Jamiat = require("../models/Jamiat");
+  const Jamaat = require("../models/Jamaat");
+  for (const M of [User, Jamiat, Jamaat]) await M.collection.updateMany({ status: { $exists: false } }, { $set: { status: "A" } });
   await User.syncIndexes();
+  await Jamiat.syncIndexes();
+  await Jamaat.syncIndexes();
 
   // 4) Mauze Type list, then the JC form questions.
   await seedLists();
@@ -163,6 +169,151 @@ async function migrate() {
   await once("form-2026-11", formUpdate2026_11);
   await once("hijri-activities-2026-11", hijriActivities2026_11);
   await once("remove-no-2026-11", removeNo2026_11);
+
+  // 6) Forms: every form has a public code (links never show the database id).
+  const Form = require("../models/Form");
+  const { newCode } = require("./forms");
+  for (const f of await Form.find({ code: { $exists: false } }).select("_id").lean()) {
+    await Form.updateOne({ _id: f._id, code: { $exists: false } }, { $set: { code: newCode() } });
+  }
+
+  // 7) Nov 2026: Jamiats / Jamaats from master_check.xlsx that the portal didn't have, and Arabic names.
+  await once("masters-2026-11", mastersNov2026);
+  await once("masters-2026-11-kuwait", mastersKuwaitAmmar);
+
+  // 8) Country of each Jamaat: every Jamaat not tagged yet is India, except the overseas Jamiats (tagged later).
+  //    Runs every start, so Jamaats added later are tagged too; a country set by hand is never changed.
+  await tagIndia();
 }
 
-module.exports = { migrate };
+/**
+ * One-time (seed/masters-2026-11.json, made from master_check.xlsx + Arabic Names.xlsx):
+ *  - adds the Jamiats and Jamaats of master_check that the portal doesn't have (active, no JC assigned yet);
+ *    a Jamaat already in the portal under another spelling (the `alias` list, e.g. VIRAMGAM (ALIGRAH)) is not added again;
+ *    a deleted one is left deleted (not restored, not added twice);
+ *  - fills the Arabic name of every Jamiat / Jamaat that matches by name (only where it is empty, so a name
+ *    typed by the Super Admin is never overwritten).
+ * Nothing is renamed or removed. One summary line goes to the audit log.
+ */
+async function mastersNov2026() {
+  const Jamiat = require("../models/Jamiat");
+  const Jamaat = require("../models/Jamaat");
+  const data = require("../seed/masters-2026-11.json");
+  const jtBy = new Map((await Jamiat.find({}).lean()).map((j) => [j.name, j]));
+  const findJt = (name) => jtBy.get(name) || (data.jamiatAlias[name] || []).map((a) => jtBy.get(a)).find(Boolean);
+  const needed = new Set(data.jamaats.filter((r) => r.add).map((r) => r.jamiat));
+  const out = { jamiats: [], jamaats: [], arabicJamiats: 0, arabicJamaats: 0 };
+  for (const r of data.jamiats) {
+    const doc = findJt(r.name);
+    if (!doc) {
+      if (!needed.has(r.name)) continue;
+      const j = (await Jamiat.create({ name: r.name, nameAr: r.nameAr })).toObject();
+      jtBy.set(j.name, j);
+      out.jamiats.push(r.name);
+    } else if (r.nameAr && !doc.nameAr) {
+      await Jamiat.updateOne({ _id: doc._id }, { $set: { nameAr: r.nameAr } });
+      out.arabicJamiats += 1;
+    }
+  }
+  const key = (jt, n) => `${jt}|${n}`;
+  const jmBy = new Map((await Jamaat.find({}).select("jamiat name nameAr").lean()).map((m) => [key(m.jamiat, m.name), m]));
+  const sets = [];
+  const adds = [];
+  for (const r of data.jamaats) {
+    const jt = findJt(r.jamiat);
+    if (!jt || isDeleted(jt)) continue;
+    const have = [r.name, ...(r.alias || [])].map((n) => jmBy.get(key(jt._id, n))).find(Boolean);
+    if (have) {
+      if (r.nameAr && !have.nameAr) sets.push({ updateOne: { filter: { _id: have._id }, update: { $set: { nameAr: r.nameAr } } } });
+    } else if (r.add) {
+      adds.push({ jamiat: jt._id, name: r.name, nameAr: r.nameAr, mauzeType: r.mauzeType, isActive: true });
+      out.jamaats.push(`${r.name} (${jt.name})`);
+    }
+  }
+  if (sets.length) await Jamaat.bulkWrite(sets);
+  if (adds.length) await Jamaat.insertMany(adds);
+  out.arabicJamaats = sets.length;
+  console.log(`[migrate] master_check: ${out.jamiats.length} Jamiat(s) and ${adds.length} Jamaat(s) added; Arabic names set on ${out.arabicJamiats} Jamiat(s) and ${out.arabicJamaats} Jamaat(s)`);
+  await AuditLog.create({
+    action: "master_created", username: "system", role: "system",
+    target: { type: "masters", id: "masters-2026-11", label: "Jamiats / Jamaats from master_check + Arabic names (automatic)" },
+    details: { jamiatsAdded: out.jamiats, jamaatsAdded: out.jamaats.length, jamaats: out.jamaats, arabicJamiats: out.arabicJamiats, arabicJamaats: out.arabicJamaats + adds.filter((a) => a.nameAr).length },
+  });
+  return [];
+}
+
+/**
+ * One-time, after masters-2026-11 (the user: "master_check is the right one" for Kuwait, AMMAR NAGAR (INDORE) separate):
+ * - KUWAIT: our 9 area names are RENAMED to master_check's Mohalla names (same records, so users / entries / responses
+ *   stay linked) and the 10th Mohalla (BADRI) is added.
+ * - AMMAR NAGAR (INDORE) is added to INDORE as its own Jamaat (not the same as AMMAR NAGAR (NOORANI NAGAR)).
+ * Arabic names from the seed file are set where empty. Skips anything already renamed / added by hand.
+ */
+const KUWAIT_RENAME = {
+  "ABBASIYA (KUWAIT)": "EZZY MOHALLA (ABBASIYA - KUWAIT)",
+  "ABRAQ KHAITAIN (KUWAIT)": "SAIFEE MOHALLA (ABRAQ KHAITAN-KUWAIT)",
+  "FAHAHIL (KUWAIT)": "BURHANI MOHALLA (FAHAHIL-KUWAIT)",
+  "HAWALLI (KUWAIT)": "HAKIMI MOHALLA (HAWALLI-KUWAIT)",
+  "JAHRA (KUWAIT)": "HATEMI MOHALLA (JAHRA-KUWAIT)",
+  "KHAITAN (KUWAIT)": "TAHERI MOHALLA (KHAITAN-KUWAIT)",
+  KUWAIT: "KUWAIT (MUFADDAL MOHALLA - SALMIYAH)",
+  "MIRQAB - KUWAIT": "JAMALI MOHALLA (MIRQAB-KUWAIT)",
+  "MOHAMMEDI MOHALLA (KUWAIT)": "MOHAMMEDI MOHALLA (ISTIQLAL-KUWAIT)",
+};
+async function mastersKuwaitAmmar() {
+  const Jamiat = require("../models/Jamiat");
+  const Jamaat = require("../models/Jamaat");
+  const data = require("../seed/masters-2026-11.json");
+  const seed = (jt, name) => data.jamaats.find((r) => r.jamiat === jt && r.name === name) || {};
+  const renamed = [];
+  const added = [];
+  const kw = await Jamiat.findOne({ name: "KUWAIT", ...notDeletedQ() }).lean();
+  if (kw) {
+    const have = new Map((await Jamaat.find({ jamiat: kw._id }).select("name nameAr").lean()).map((m) => [m.name, m]));
+    for (const [from, to] of Object.entries(KUWAIT_RENAME)) {
+      const m = have.get(from);
+      if (!m || have.has(to)) continue;
+      const set = { name: to };
+      if (!m.nameAr && seed("KUWAIT", to).nameAr) set.nameAr = seed("KUWAIT", to).nameAr;
+      await Jamaat.updateOne({ _id: m._id }, { $set: set });
+      have.set(to, m);
+      renamed.push({ from, to });
+    }
+    for (const r of data.jamaats.filter((x) => x.jamiat === "KUWAIT")) {
+      if (have.has(r.name) || Object.values(KUWAIT_RENAME).includes(r.name)) continue;
+      await Jamaat.create({ jamiat: kw._id, name: r.name, nameAr: r.nameAr, mauzeType: r.mauzeType, isActive: true });
+      added.push(`${r.name} (KUWAIT)`);
+    }
+  }
+  const indore = await Jamiat.findOne({ name: "INDORE", ...notDeletedQ() }).lean();
+  const ammar = seed("INDORE", "AMMAR NAGAR (INDORE)");
+  if (indore && ammar.name && !(await Jamaat.exists({ jamiat: indore._id, name: ammar.name }))) {
+    await Jamaat.create({ jamiat: indore._id, name: ammar.name, nameAr: ammar.nameAr, mauzeType: ammar.mauzeType, isActive: true, country: "India", timeZone: "Asia/Kolkata" });
+    added.push(`${ammar.name} (INDORE)`);
+  }
+  console.log(`[migrate] Kuwait / Ammar Nagar: ${renamed.length} renamed, ${added.length} added`);
+  if (renamed.length || added.length) {
+    await AuditLog.create({
+      action: "master_created", username: "system", role: "system",
+      target: { type: "masters", id: "masters-2026-11-kuwait", label: "Kuwait Mohallas renamed as in master_check, AMMAR NAGAR (INDORE) added (automatic)" },
+      details: { renamed, added },
+    });
+  }
+  return [];
+}
+
+const OVERSEAS = ["EAST AFRICA", "FAR EAST", "INDIAN OCEAN", "KHALEEJ", "KUWAIT", "PAKISTAN", "UK", "USA", "YEMEN"];
+const squash = (s) => String(s || "").toUpperCase().replace(/[^A-Z]/g, "");
+const isOverseas = (name) => OVERSEAS.some((o) => squash(o) === squash(name));
+async function tagIndia() {
+  const Jamiat = require("../models/Jamiat");
+  const Jamaat = require("../models/Jamaat");
+  const india = (await Jamiat.find({}).select("name").lean()).filter((j) => !isOverseas(j.name)).map((j) => j._id);
+  const r = await Jamaat.collection.updateMany(
+    { jamiat: { $in: india }, $or: [{ country: { $exists: false } }, { country: "" }] },
+    { $set: { country: "India", timeZone: "Asia/Kolkata" } }
+  );
+  if (r.modifiedCount) console.log(`[migrate] ${r.modifiedCount} Jamaat(s) tagged India`);
+}
+
+module.exports = { migrate, isOverseas, OVERSEAS };

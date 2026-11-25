@@ -14,7 +14,9 @@ export class ApiError extends Error {
 export class AuthError extends ApiError {}
 
 // file: a File sent as the request body (Excel upload); blob: the answer is a file ({ blob, name }).
-async function raw(path, { method = "GET", body, file, blob } = {}) {
+// headers: extra request headers. onProgress(0..1): upload progress (uses XMLHttpRequest).
+async function raw(path, { method = "GET", body, file, blob, headers: extra, onProgress } = {}) {
+  if (file && onProgress) return rawWithProgress(path, { method, file, extra, onProgress });
   let res;
   try {
     res = await fetch(API_BASE + path, {
@@ -25,6 +27,7 @@ async function raw(path, { method = "GET", body, file, blob } = {}) {
         "X-Requested-With": "fetch",
         ...(body ? { "Content-Type": "application/json" } : {}),
         ...(file ? { "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(file.name || "") } : {}),
+        ...(extra || {}),
       },
       body: file || (body ? JSON.stringify(body) : undefined),
     });
@@ -41,6 +44,7 @@ async function raw(path, { method = "GET", body, file, blob } = {}) {
   try { data = await res.json(); } catch { /* not JSON */ }
   if (!res.ok) {
     const err = new ApiError((data && data.error) || `Server error (${res.status})`, res.status, data && data.code);
+    err.data = data; // e.g. a form's { problems } or { startAt }
     // A server error (already saved in the error log) -> Error page with its reference.
     if (res.status === 500 && data && data.code === "SERVER_ERROR") {
       err.ref = data.ref;
@@ -53,6 +57,29 @@ async function raw(path, { method = "GET", body, file, blob } = {}) {
     throw err;
   }
   return data;
+}
+
+// Upload with a progress bar (fetch can't report upload progress).
+function rawWithProgress(path, { method, file, extra, onProgress }) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open(method, API_BASE + path);
+    x.withCredentials = true;
+    x.setRequestHeader("Accept", "application/json");
+    x.setRequestHeader("X-Requested-With", "fetch");
+    x.setRequestHeader("Content-Type", "application/octet-stream");
+    x.setRequestHeader("X-File-Name", encodeURIComponent(file.name || ""));
+    for (const [k, v] of Object.entries(extra || {})) x.setRequestHeader(k, v);
+    x.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+    x.onerror = () => reject(new ApiError("Can't reach the server. Check your internet connection.", 0, "NETWORK"));
+    x.onload = () => {
+      let data = null;
+      try { data = JSON.parse(x.responseText); } catch { /* not JSON */ }
+      if (x.status >= 200 && x.status < 300) return resolve(data);
+      reject(new ApiError((data && data.error) || (x.status === 413 ? "The file is too large." : `Server error (${x.status})`), x.status, data && data.code));
+    };
+    x.send(file);
+  });
 }
 
 /** Saves a website crash in the error log; resolves to its reference (or "" if it couldn't be sent). */
@@ -176,15 +203,12 @@ export const allAccessCount = (type, id) => request(`/api/users/all-access?type=
 export const grantAllAccess = (type, id) => request("/api/users/all-access", { method: "POST", body: { type, id } });
 export const updateUser = (id, body) => request(`/api/users/${id}`, { method: "PATCH", body });
 export const deleteUser = (id) => request(`/api/users/${id}`, { method: "DELETE" });
-export const restoreUser = (id) => request(`/api/users/${id}/restore`, { method: "POST" });
 
 // ---- Portal fields = JC form questions (Super Admin) ----
 export const fieldsGet = () => request("/api/fields");
 export const fieldCreate = (body) => request("/api/fields", { method: "POST", body });
 export const fieldUpdate = (id, body) => request(`/api/fields/${id}`, { method: "PATCH", body });
 export const fieldDelete = (id) => request(`/api/fields/${id}`, { method: "DELETE" });
-export const fieldRestore = (id) => request(`/api/fields/${id}/restore`, { method: "POST" });
-export const optionRestore = (id, oid) => request(`/api/fields/${id}/options/${oid}/restore`, { method: "POST" });
 export const fieldsOrder = (ids) => request("/api/fields/order", { method: "PUT", body: { ids } });
 export const optionAdd = (id, body) => request(`/api/fields/${id}/options`, { method: "POST", body });
 export const optionEdit = (id, oid, body) => request(`/api/fields/${id}/options/${oid}`, { method: "PATCH", body });
@@ -195,7 +219,6 @@ export const activitiesGet = (id, month) => request(`/api/fields/${id}/activitie
 export const activityAdd = (id, month, name) => request(`/api/fields/${id}/activities`, { method: "POST", body: { month, name } });
 export const activityEdit = (id, aid, name) => request(`/api/fields/${id}/activities/${aid}`, { method: "PATCH", body: { name } });
 export const activityRemove = (id, aid) => request(`/api/fields/${id}/activities/${aid}`, { method: "DELETE" });
-export const activityRestore = (id, aid) => request(`/api/fields/${id}/activities/${aid}/restore`, { method: "POST" });
 export const activitiesOrder = (id, month, ids) => request(`/api/fields/${id}/activities/order`, { method: "PUT", body: { month, ids } });
 export const activitiesCopy = (id, month) => request(`/api/fields/${id}/activities/copy`, { method: "POST", body: { month } });
 
@@ -204,7 +227,6 @@ export const listsGet = () => request("/api/settings/lists");
 export const listAdd = (key, body) => request(`/api/settings/lists/${key}/values`, { method: "POST", body });
 export const listEdit = (key, id, body) => request(`/api/settings/lists/${key}/values/${id}`, { method: "PATCH", body });
 export const listRemove = (key, id) => request(`/api/settings/lists/${key}/values/${id}`, { method: "DELETE" });
-export const listRestore = (key, id) => request(`/api/settings/lists/${key}/values/${id}/restore`, { method: "POST" });
 export const listOrder = (key, ids) => request(`/api/settings/lists/${key}/order`, { method: "PUT", body: { ids } });
 
 // ---- Masters (Super Admin) ----
@@ -212,8 +234,132 @@ export const mastersList = () => request("/api/masters");
 export const createJamiat = (body) => request("/api/masters/jamiats", { method: "POST", body });
 export const updateJamiat = (id, body) => request(`/api/masters/jamiats/${id}`, { method: "PATCH", body });
 export const deleteJamiat = (id) => request(`/api/masters/jamiats/${id}`, { method: "DELETE" });
-export const restoreJamiat = (id) => request(`/api/masters/jamiats/${id}/restore`, { method: "POST" });
 export const createJamaat = (body) => request("/api/masters/jamaats", { method: "POST", body });
 export const updateJamaat = (id, body) => request(`/api/masters/jamaats/${id}`, { method: "PATCH", body });
 export const deleteJamaat = (id) => request(`/api/masters/jamaats/${id}`, { method: "DELETE" });
-export const restoreJamaat = (id) => request(`/api/masters/jamaats/${id}/restore`, { method: "POST" });
+
+// ---- Forms (Super Admin builds; JCs share links; Jamaat Coordinators fill) ----
+export const formsList = () => request("/api/forms");
+export const formGet = (id) => request(`/api/forms/${id}`);
+export const formCreate = (body) => request("/api/forms", { method: "POST", body });
+export const formSave = (id, body) => request(`/api/forms/${id}`, { method: "PUT", body });
+export const formStatus = (id, status) => request(`/api/forms/${id}/status`, { method: "POST", body: { status } });
+export const formTopImage = (id, file) => request(`/api/forms/${id}/top-image`, { method: "POST", file });
+export const formTopImageRemove = (id) => request(`/api/forms/${id}/top-image`, { method: "DELETE" });
+export const formLinkFor = (id, email) => request(`/api/forms/${id}/link?email=${encodeURIComponent(email)}`);
+export const formClearTests = (id) => request(`/api/forms/${id}/test-responses`, { method: "DELETE" });
+export const formDelete = (id) => request(`/api/forms/${id}`, { method: "DELETE" });
+export async function formLinksExcel(id) {
+  const { blob, name } = await request(`/api/forms/${id}/links.xlsx`, { blob: true });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+export const jcFormLinks = () => request("/api/forms/jc-links");
+
+// Responses (Super Admin, Saheb, JC — a JC sees only their own Jamaats). Forms are addressed by their code.
+const rq = (p) => new URLSearchParams(Object.entries(p || {}).filter(([, v]) => v != null && v !== "")).toString();
+export const resultsList = () => request("/api/form-results");
+export const resultsGet = (code, p) => request(`/api/form-results/${encodeURIComponent(code)}?${rq(p)}`);
+export async function resultsExcel(code, p) {
+  let tz = "UTC";
+  try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { /* old browser */ }
+  const { blob, name } = await request(`/api/form-results/${encodeURIComponent(code)}/excel?${rq({ ...p, tz })}`, { blob: true });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+export const resultsStatus = (code, p) => request(`/api/form-results/${encodeURIComponent(code)}/status?${rq(p)}`);
+export const remindInfo = (code, p) => request(`/api/form-results/${encodeURIComponent(code)}/remind?${rq(p)}`);
+export const remindSend = (code, body) => request(`/api/form-results/${encodeURIComponent(code)}/remind`, { method: "POST", body });
+export async function resultsStatusExcel(code, p) {
+  let tz = "UTC";
+  try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { /* old browser */ }
+  const { blob, name } = await request(`/api/form-results/${encodeURIComponent(code)}/status/excel?${rq({ ...p, tz })}`, { blob: true });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+export const myForms = () => request("/api/forms/mine");
+// Jamaat Coordinator portal (only their own data).
+export const coordResponses = () => request("/api/coordinator/responses");
+export const coordNotifications = () => request("/api/coordinator/notifications");
+export const coordUnread = () => request("/api/coordinator/unread");
+export const coordMarkRead = (id) => request("/api/coordinator/notifications/read", { method: "POST", body: id ? { id } : {} });
+export const coordProfile = () => request("/api/coordinator/profile");
+
+// Filling (works signed in or not; `t` = personal link token, editKey = this browser's key for "anyone" forms).
+// `forJ` = a JC filling for one of their Jamaats (sealed Jamaat, on behalf of its Coordinator).
+const tq = (t, forJ) => [t ? `t=${encodeURIComponent(t)}` : "", forJ ? `for=${encodeURIComponent(forJ)}` : ""].filter(Boolean).join("&");
+export const fillGet = (id, t, editKey, forJ) => raw(`/api/f/${id}${tq(t, forJ) ? `?${tq(t, forJ)}` : ""}`, { headers: editKey ? { "X-Edit-Key": editKey } : undefined });
+export const fillUpload = (id, field, t, file, onProgress, forJ) =>
+  raw(`/api/f/${id}/upload?field=${encodeURIComponent(field)}${tq(t, forJ) ? `&${tq(t, forJ)}` : ""}`, { method: "POST", file, onProgress });
+export const fillSubmit = (id, body) => raw(`/api/f/${id}/submit`, { method: "POST", body });
+
+// ---- "Send email" (Super Admin, Saheb) + the email provider (Super Admin) ----
+export const emailPeople = () => raw("/api/emails/people");
+export const emailPreview = (to) => raw("/api/emails/preview", { method: "POST", body: { to } });
+export const emailAttach = (file, onProgress) =>
+  raw("/api/emails/files", { method: "POST", file, onProgress, headers: { "X-File-Type": file.type || "application/octet-stream" } });
+export const emailDropFile = (id) => raw(`/api/emails/files/${id}`, { method: "DELETE" });
+export const emailSend = (body) => raw("/api/emails", { method: "POST", body });
+export const emailList = (kind) => raw(`/api/emails${kind ? `?kind=${encodeURIComponent(kind)}` : ""}`);
+export const emailGet = (id) => raw(`/api/emails/${id}`);
+export const emailCancel = (id) => raw(`/api/emails/${id}/cancel`, { method: "POST" });
+export const emailRetry = (id) => raw(`/api/emails/${id}/retry`, { method: "POST" });
+export const emailProviders = () => raw("/api/emails/settings/providers");
+export const emailSetProvider = (provider) => raw("/api/emails/settings/providers", { method: "PUT", body: { provider } });
+// Image storage (Super Admin): where new uploads are saved.
+export const storageSettings = () => raw("/api/storage/settings");
+export const storageSet = (provider) => raw("/api/storage/settings", { method: "PUT", body: { provider } });
+export const storageTest = (provider) => raw("/api/storage/test", { method: "POST", body: { provider } });
+export const emailTest = (provider) => raw("/api/emails/settings/test", { method: "POST", body: { provider } });
+
+// Email templates, variables, images / documents inside emails, preview
+export const emailVariables = () => raw("/api/emails/variables");
+export const emailForms = () => raw("/api/emails/forms");
+export const emailPublic = (file, onProgress) =>
+  raw("/api/emails/public", { method: "POST", file, onProgress, headers: { "X-File-Type": file.type || "application/octet-stream" } });
+export const emailRender = (body) => raw("/api/emails/render", { method: "POST", body });
+export const templateList = (deleted) => raw(`/api/emails/templates${deleted ? "?deleted=1" : ""}`);
+export const templateGet = (id) => raw(`/api/emails/templates/${id}`);
+export const templateCreate = (body) => raw("/api/emails/templates", { method: "POST", body });
+export const templateSave = (id, body) => raw(`/api/emails/templates/${id}`, { method: "PUT", body });
+export const templateDelete = (id) => raw(`/api/emails/templates/${id}`, { method: "DELETE" });
+
+// Reports: formats (Super Admin), Media's photo choice, generating (Super Admin, Saheb, JC, Media).
+async function saveBlob(path) {
+  const { blob, name } = await request(path, { blob: true });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+const enc = encodeURIComponent;
+export const reportFormats = () => request("/api/reports/formats");
+export const reportFormatAdd = (name, file, onProgress) => request(`/api/reports/formats?name=${enc(name)}`, { method: "POST", file, onProgress });
+export const reportFormatSave = (id, body) => request(`/api/reports/formats/${enc(id)}`, { method: "PUT", body });
+export const reportFormatReplace = (id, file, onProgress) => request(`/api/reports/formats/${enc(id)}/file`, { method: "PUT", file, onProgress });
+export const reportFormatDelete = (id) => request(`/api/reports/formats/${enc(id)}`, { method: "DELETE" });
+export const reportFormatFile = (id) => saveBlob(`/api/reports/formats/${enc(id)}/file`);
+export const reportFormatSample = (id, w, h) => saveBlob(`/api/reports/formats/${enc(id)}/sample?w=${enc(w || "")}&h=${enc(h || "")}`);
+export const reportForms = () => request("/api/reports/forms");
+export const reportPhotos = (code) => request(`/api/reports/forms/${enc(code)}/photos`);
+export const reportSetCount = (code, count) => request(`/api/reports/forms/${enc(code)}/count`, { method: "PUT", body: { count } });
+export const reportHeading = (code, heading) => request(`/api/reports/forms/${enc(code)}/heading`, { method: "PUT", body: heading });
+export const reportDescription = (code, jamaat, text, lang) => request(`/api/reports/forms/${enc(code)}/description`, { method: "PUT", body: { jamaat, text, lang } });
+export const reportPhotoAdd = (code, jamaat, file, onProgress) => request(`/api/reports/forms/${enc(code)}/photos?jamaat=${enc(jamaat)}`, { method: "POST", file, onProgress });
+export const reportPhotoDelete = (code, id) => request(`/api/reports/forms/${enc(code)}/photos/${enc(id)}`, { method: "DELETE" });
+export const reportPick = (code, jamaat, photos) => request(`/api/reports/forms/${enc(code)}/picks`, { method: "PUT", body: { jamaat, photos } });
+export const reportPhotoFile = (id) => saveBlob(`/api/reports/photos/${enc(id)}/file`);
+export const reportGenerate = (form, format, name) => request("/api/reports/generate", { method: "POST", body: { form, format, name } });
+export const reportJob = (id) => request(`/api/reports/jobs/${enc(id)}`);
+export const reportJobFile = (id, which) => saveBlob(`/api/reports/jobs/${enc(id)}/${which}`);
+export const reportHistory = () => request("/api/reports/history");

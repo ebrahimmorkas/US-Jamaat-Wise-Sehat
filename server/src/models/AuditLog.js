@@ -36,6 +36,36 @@ const ACTIONS = [
   "stats_uploaded",       // the Super Admin uploaded a Stats image
   "stats_deleted",        // the Super Admin removed a Stats image
   "jc_rated",             // the Super Admin set / changed / cleared a JC's star rating
+  "form_created",         // the Super Admin created a form
+  "form_updated",         // ... changed its settings / questions / top image
+  "form_status_changed",  // Draft / Testing / Published / Closed
+  "form_deleted",         // status "D" (kept, restorable)
+  "form_restored",
+  "form_links_downloaded",// the Excel of personal links
+  "form_test_cleared",    // responses filled while testing were removed
+  "form_submitted",       // someone filled a form
+  "form_responses_exported", // downloaded a form's responses (Excel)
+  "form_announced", // emailed the form link to every Jamaat Coordinator
+  "email_sent",           // "Send email": an email sent / scheduled (or sent again to those it failed for)
+  "email_cancelled",      // ... a scheduled email cancelled
+  "email_settings_changed", // the email provider switched (Nodemailer / SendGrid)
+  "storage_settings_changed", // the image storage switched (ImageKit / Local / S3 / Cloudinary)
+  "storage_tested", // the Super Admin tested an image storage (a small test file saved, read back, removed)
+  "email_template_saved",   // an email template added / changed
+  "email_template_deleted",
+  "email_template_restored",
+  "reminder_sent", // "Send reminder" on a form's Jamaat status page
+  "report_format_saved",    // a report format (PDF) added / changed
+  "report_format_deleted",
+  "report_photos_chosen",   // Media chose a Jamaat's photos / the number of photos per Jamaat
+  "report_generated",       // a report (PDF) was made
+  "report_photo_downloaded",
+  "report_heading_saved",     // the report's title / date typed on Choose photos
+  "report_description_saved", // a Jamaat's description for the report
+  "report_photo_added",       // Media added a photo for a Jamaat (Choose photos)
+  "report_photo_deleted",     // Media removed a photo from Choose photos and reports
+  "email_file_published",   // an image / document put inside an email (public link)
+  "form_response_edited", // ... and changed their response
   // data changes (audit trail)
   "user_created",
   "user_updated",

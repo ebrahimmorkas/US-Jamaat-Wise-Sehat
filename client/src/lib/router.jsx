@@ -1,7 +1,8 @@
 // Tiny path router: "/" dashboard, "/masters" masters (admin), "/jc-portal" JC form.
 import { useEffect, useState } from "react";
 
-const clean = (p) => (p.replace(/\/+$/, "") || "/").toLowerCase();
+// Addresses are case-insensitive, except a form's code (/f/<code>), which is mixed-case.
+const clean = (p) => { const s = p.replace(/\/+$/, "") || "/"; return /^\/f\//i.test(s) ? `/f/${s.slice(3)}` : s.toLowerCase(); };
 
 export function usePath() {
   const [path, setPath] = useState(() => clean(window.location.pathname));

@@ -4,19 +4,29 @@ import Users from "./Users";
 import Masters from "./Masters";
 import PortalFields from "./PortalFields";
 import Logs from "./Logs";
+import FormsAdmin from "./FormsAdmin";
+import FormResponses from "./FormResponses";
+import Emails from "./Emails";
+import Reports from "./Reports";
 import DataAdmin from "./DataAdmin";
+import StorageSettings from "./StorageSettings";
 import JcMetricsPanel from "./components/JcMetricsPanel";
 import StatsView from "./components/StatsView";
-import { BriefcaseIcon, ImageIcon, FormIcon, HistoryIcon, ListIcon, TableIcon, UsersIcon } from "./components/Icons";
+import { BriefcaseIcon, GearIcon, ImageIcon, ReportIcon, SendIcon, FormIcon, HistoryIcon, ListIcon, PencilIcon, TableIcon, UsersIcon } from "./components/Icons";
 
 const NAV = [
   { to: "/admin/users", label: "Users", icon: <UsersIcon /> },
   { to: "/admin/masters", label: "Masters", icon: <ListIcon /> },
   { to: "/admin/fields", label: "Portal Fields", icon: <FormIcon /> },
+  { to: "/admin/forms", label: "Forms", icon: <PencilIcon /> },
+  { to: "/admin/responses", label: "Responses", icon: <ListIcon /> },
+  { to: "/admin/emails", label: "Send email", icon: <SendIcon /> },
+  { to: "/admin/reports", label: "Reports", icon: <ReportIcon /> },
   { to: "/admin/data", label: "Data", icon: <TableIcon /> },
   { to: "/admin/metrics", label: "Metrics & Ratings", icon: <BriefcaseIcon /> },
   { to: "/admin/stats", label: "Stats", icon: <ImageIcon /> },
   { to: "/admin/logs", label: "Logs", icon: <HistoryIcon /> },
+  { to: "/admin/settings", label: "Settings", icon: <GearIcon /> },
 ];
 
 // Super Admin portal: users, Jamiat/Jamaat masters, portal fields (JC form questions).
@@ -37,6 +47,10 @@ export default function AdminPortal({ path, user, onSignOut, onAuthExpired, them
         {page === "/admin/users" && <Users onAuthExpired={onAuthExpired} />}
         {page === "/admin/masters" && <Masters onAuthExpired={onAuthExpired} />}
         {page === "/admin/fields" && <PortalFields onAuthExpired={onAuthExpired} />}
+        {page === "/admin/forms" && <FormsAdmin onAuthExpired={onAuthExpired} />}
+        {page === "/admin/responses" && <FormResponses embedded onAuthExpired={onAuthExpired} />}
+        {page === "/admin/emails" && <Emails embedded user={user} onAuthExpired={onAuthExpired} />}
+        {page === "/admin/reports" && <Reports embedded user={user} onAuthExpired={onAuthExpired} />}
         {page === "/admin/data" && <DataAdmin onAuthExpired={onAuthExpired} />}
         {page === "/admin/stats" && (
           <>
@@ -53,6 +67,7 @@ export default function AdminPortal({ path, user, onSignOut, onAuthExpired, them
           </>
         )}
         {page === "/admin/logs" && <Logs onAuthExpired={onAuthExpired} />}
+        {page === "/admin/settings" && <StorageSettings onAuthExpired={onAuthExpired} />}
       </main>
     </>
   );

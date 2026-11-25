@@ -4,7 +4,7 @@ const express = require("express");
 const { rateLimit } = require("express-rate-limit");
 const config = require("../config");
 const { isDbReady } = require("../db");
-const { requireAuth } = require("../middleware/auth");
+const { requireAuth, requireRole } = require("../middleware/auth");
 const { audit } = require("../services/audit");
 const { readQuestion, cleanHistory } = require("../services/chat/intent");
 const { runIntent } = require("../services/chat/engine");
@@ -18,11 +18,14 @@ const askLimiter = rateLimit({
   message: { error: "You've asked a lot of questions in a short time. Please wait a few minutes and try again." },
 });
 
-router.get("/status", requireAuth, (req, res) => {
+// Jamaat Coordinators only fill forms: no assistant.
+const chatRoles = requireRole("saheb", "superadmin", "jc");
+
+router.get("/status", requireAuth, chatRoles, (req, res) => {
   res.json({ ai: !!config.groqApiKey });
 });
 
-router.post("/", requireAuth, askLimiter, async (req, res, next) => {
+router.post("/", requireAuth, chatRoles, askLimiter, async (req, res, next) => {
   try {
     if (!isDbReady()) return res.status(503).json({ error: "Database is starting, please try again in a moment." });
     const body = req.body || {};

@@ -7,7 +7,14 @@ import JcData from "./JcData";
 import JcMetrics from "./JcMetrics";
 import SahebMetrics from "./SahebMetrics";
 import SahebStats from "./SahebStats";
+import FormResponses from "./FormResponses";
+import Emails from "./Emails";
+import Reports, { MEDIA_NAV } from "./Reports";
+import { SAHEB_NAV } from "./Dashboard";
+import { JC_NAV } from "./JcDashboard";
 import JcStats from "./JcStats";
+import CoordinatorPortal, { COORD_HOME, isCoordPage } from "./CoordinatorPortal";
+import FormFillPage from "./FormFillPage";
 import ErrorPage from "./ErrorPage";
 import AccessDenied from "./AccessDenied";
 import LoginPage from "./components/LoginPage";
@@ -21,13 +28,18 @@ import { reportClientError } from "./lib/api";
 
 // Everyone signs in with Google; each role has its own home:
 //   Saheb -> "/" (dashboard)   Super Admin -> "/admin/..."   JC -> "/jc-portal" (their dashboard) + "/jc-portal/form"
-const homeOf = (role) => ({ superadmin: "/admin/users", jc: "/jc-portal/stats" }[role] || "/"); // JC: Stats first
+//   Jamaat Coordinator -> "/coordinator" (Home, My forms, My responses, Notifications, Profile)
+//   Media -> "/media/photos" (choose the photos for reports) + "/media/reports" + "/media/formats"
+const homeOf = (role) => ({ superadmin: "/admin/users", jc: "/jc-portal/stats", jamaat_coordinator: COORD_HOME, media: "/media/photos" }[role] || "/"); // JC: Stats first
 const isJcPage = (path) => path === "/jc-portal" || path.startsWith("/jc-portal/");
+const isMediaPage = (path) => MEDIA_NAV.some((n) => n.to === path);
 const belongsTo = (role, path) =>
-  role === "superadmin" ? path.startsWith("/admin/") : role === "jc" ? isJcPage(path) : !path.startsWith("/admin") && !isJcPage(path);
+  role === "superadmin" ? path.startsWith("/admin/") : role === "jc" ? isJcPage(path) : role === "jamaat_coordinator" ? isCoordPage(path)
+    : role === "media" ? isMediaPage(path)
+    : !path.startsWith("/admin") && !isJcPage(path) && !path.startsWith("/coordinator") && !path.startsWith("/media");
 // Pages that belong to a role. Opening one with another role shows "Access denied" (and is logged);
 // any other address (e.g. "/") just takes the user to their own home.
-const isRestrictedPage = (path) => path.startsWith("/admin") || isJcPage(path);
+const isRestrictedPage = (path) => path.startsWith("/admin") || isJcPage(path) || path.startsWith("/coordinator") || path.startsWith("/media");
 
 // Errors we don't control (browser extensions, Google's script) must not take the user to the Error page.
 const ourError = (e) => {
@@ -68,7 +80,9 @@ export default function App() {
   return (
     <>
       <ErrorBoundary resetKey={path} onError={showError} fallback={<ErrorPage theme={theme} onToggleTheme={toggle} />}>
-        {path === "/error" ? <ErrorPage theme={theme} onToggleTheme={toggle} /> : <Main path={path} theme={theme} onToggleTheme={toggle} />}
+        {path === "/error" ? <ErrorPage theme={theme} onToggleTheme={toggle} />
+          : /^\/f\/[A-Za-z0-9]{8,16}$/.test(path) ? <FormFillPage id={path.slice(3)} theme={theme} onToggleTheme={toggle} /> // a form: sign-in depends on the form
+          : <Main path={path} theme={theme} onToggleTheme={toggle} />}
       </ErrorBoundary>
       <ConfirmHost />
     </>
@@ -127,15 +141,25 @@ function Main({ path, theme, onToggleTheme }) {
       : path === "/jc-portal/data" ? <JcData key={auth.user.id} {...common} />
       : path === "/jc-portal/metrics" ? <JcMetrics key={auth.user.id} {...common} />
       : path === "/jc-portal/stats" ? <JcStats key={auth.user.id} {...common} />
+      : path === "/jc-portal/responses" ? <FormResponses key={auth.user.id} {...common} nav={JC_NAV} page="/jc-portal/responses" />
+      : path === "/jc-portal/reports" ? <Reports key={auth.user.id} {...common} nav={JC_NAV} page="/jc-portal/reports" />
       : <JcDashboard key={auth.user.id} {...common} />;
-  } else page = path === "/jc-metrics" ? <SahebMetrics key={auth.user.id} {...common} />
+  } else if (role === "jamaat_coordinator") page = <CoordinatorPortal key={auth.user.id} {...common} path={path} />;
+  else if (role === "media") {
+    const at = isMediaPage(path) ? path : homeOf(role);
+    page = <Reports key={`${auth.user.id}${at}`} {...common} nav={MEDIA_NAV} page={at} only={at === "/media/photos" ? "photos" : at === "/media/formats" ? "formats" : "generate"} />;
+  }
+  else page = path === "/jc-metrics" ? <SahebMetrics key={auth.user.id} {...common} />
     : path === "/stats" ? <SahebStats key={auth.user.id} {...common} />
+    : path === "/responses" ? <FormResponses key={auth.user.id} {...common} nav={SAHEB_NAV} page="/responses" />
+    : path === "/emails" ? <Emails key={auth.user.id} {...common} nav={SAHEB_NAV} page="/emails" />
+    : path === "/reports" ? <Reports key={auth.user.id} {...common} nav={SAHEB_NAV} page="/reports" />
     : <Dashboard key={auth.user.id} {...common} />;
   return (
     <>
       {page}
-      {/* The assistant, on every portal (answers limited to what this role may see). */}
-      <ChatWidget key={`chat-${auth.user.id}`} user={auth.user} onAuthExpired={auth.expire} raised={path === "/jc-portal/form"} />
+      {/* The assistant, on every portal except the Jamaat Coordinator's and Media's (answers limited to what this role may see). */}
+      {role !== "jamaat_coordinator" && role !== "media" && <ChatWidget key={`chat-${auth.user.id}`} user={auth.user} onAuthExpired={auth.expire} raised={path === "/jc-portal/form"} />}
     </>
   );
 }

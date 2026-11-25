@@ -20,7 +20,7 @@ const { audit, diff } = require("../services/audit");
 const { answerUsage, invalidate, activityKey, savedKeysOf } = require("../services/fields");
 const { isMonth, currentMonth, addMonths, monthInfo, monthLabel, portalMonths } = require("../lib/month");
 const { InputError, isId, sendError } = require("../lib/validate");
-const { DELETED, notDeleted, isDeleted, markDeleted, markRestored, deletedInfo, statusChange } = require("../lib/softDelete");
+const { DELETED, notDeleted, isDeleted, markDeleted, deletedInfo, statusChange } = require("../lib/softDelete");
 
 const router = express.Router();
 router.use(requireAuth, requireRole("superadmin"), (req, res, next) => {
@@ -68,21 +68,17 @@ function cleanMeaning(m) {
   return m;
 }
 
-// Question names are unique, deleted questions included (restore one instead of adding it again).
+// Question names are unique (a deleted question's name can be used again).
 async function uniqueLabel(label, exceptId) {
-  const all = await PortalField.find(exceptId ? { _id: { $ne: exceptId } } : {}).select("label status").lean();
-  const hit = all.find((f) => norm(f.label) === norm(label));
-  if (!hit) return;
-  throw new InputError(isDeleted(hit)
-    ? `A deleted question called "${hit.label}" exists. Click “Show deleted” and restore it instead.`
-    : `A question called "${label}" already exists.`, 409);
+  const all = await PortalField.find({ ...notDeleted(), ...(exceptId ? { _id: { $ne: exceptId } } : {}) }).select("label").lean();
+  if (all.some((f) => norm(f.label) === norm(label))) throw new InputError(`A question called "${label}" already exists.`, 409);
 }
 
-// A question that isn't deleted (deleted ones can only be restored).
+// A question that isn't deleted.
 async function loadField(id, { allowDeleted = false } = {}) {
   const f = isId(id) ? await PortalField.findById(id) : null;
   if (!f) throw new InputError("Question not found. Reload the page.", 404);
-  if (!allowDeleted && isDeleted(f)) throw new InputError(`"${f.label}" is deleted. Restore it first to change it.`, 409);
+  if (!allowDeleted && isDeleted(f)) throw new InputError(`"${f.label}" is deleted.`, 409);
   return f;
 }
 // Answers belong to dropdown questions only.
@@ -94,17 +90,13 @@ async function loadDropdown(id) {
 function findOption(field, id, { allowDeleted = false } = {}) {
   const o = isId(id) ? field.options.id(id) : null;
   if (!o) throw new InputError("Answer not found. Reload the page.", 404);
-  if (!allowDeleted && isDeleted(o)) throw new InputError(`"${o.value}" is deleted. Restore it first to change it.`, 409);
+  if (!allowDeleted && isDeleted(o)) throw new InputError(`"${o.value}" is deleted.`, 409);
   return o;
 }
 const liveOptions = (f) => f.options.filter((o) => !isDeleted(o));
-// Answers are unique inside a question, removed ones included (restore one instead of adding it again).
+// Answers are unique inside a question (a deleted answer can be added again).
 function checkAnswerFree(f, value, exceptId) {
-  const hit = f.options.find((x) => String(x._id) !== String(exceptId || "") && norm(x.value) === norm(value));
-  if (!hit) return;
-  throw new InputError(isDeleted(hit)
-    ? `"${hit.value}" was deleted from this question earlier. Click “Show deleted” and restore it instead.`
-    : `"${value}" is already an answer of this question.`, 409);
+  if (f.options.some((x) => !isDeleted(x) && String(x._id) !== String(exceptId || "") && norm(x.value) === norm(value))) throw new InputError(`"${value}" is already an answer of this question.`, 409);
 }
 
 async function payload() {
@@ -229,22 +221,6 @@ router.delete("/:id", async (req, res, next) => {
   }
 });
 
-// ---------- POST /api/fields/:id/restore ----------
-router.post("/:id/restore", async (req, res, next) => {
-  try {
-    const f = await loadField(req.params.id, { allowDeleted: true });
-    if (!isDeleted(f)) throw new InputError(`"${f.label}" is not deleted.`, 409);
-    await uniqueLabel(f.label, f._id);
-    const before = { isActive: f.isActive };
-    markRestored(f);
-    await f.save();
-    audit(req, "field_restored", { target: fieldTarget(f), changes: [statusChange(DELETED, "A"), ...diff(before, f, [["isActive", "Active"]])] });
-    res.json(await payload());
-  } catch (err) {
-    sendError(err, res, next);
-  }
-});
-
 // ---------- PUT /api/fields/order  { ids } ----------  (questions that aren't deleted)
 router.put("/order", async (req, res, next) => {
   try {
@@ -326,21 +302,6 @@ router.delete("/:id/options/:oid", async (req, res, next) => {
   }
 });
 
-router.post("/:id/options/:oid/restore", async (req, res, next) => {
-  try {
-    const f = await loadDropdown(req.params.id);
-    const o = findOption(f, req.params.oid, { allowDeleted: true });
-    if (!isDeleted(o)) throw new InputError(`"${o.value}" is not deleted.`, 409);
-    checkAnswerFree(f, o.value, o._id);
-    markRestored(o);
-    await f.save();
-    audit(req, "field_updated", { target: fieldTarget(f), changes: [{ field: "options", label: "Answer restored", from: null, to: answerText(o) }] });
-    res.json(await payload());
-  } catch (err) {
-    sendError(err, res, next);
-  }
-});
-
 // Order of the answers that aren't deleted (deleted ones stay at the end).
 router.put("/:id/options/order", async (req, res, next) => {
   try {
@@ -382,17 +343,13 @@ async function loadActivityField(id) {
 async function loadActivity(f, aid, { allowDeleted = false } = {}) {
   const a = isId(aid) ? await Activity.findOne({ _id: aid, field: f.key }) : null;
   if (!a) throw new InputError("Activity not found. Reload the page.", 404);
-  if (!allowDeleted && isDeleted(a)) throw new InputError(`"${a.name}" is deleted. Restore it first to change it.`, 409);
+  if (!allowDeleted && isDeleted(a)) throw new InputError(`"${a.name}" is deleted.`, 409);
   return a;
 }
-// Activity names are unique inside a question + month, deleted ones included.
+// Activity names are unique inside a question + month (a deleted activity can be added again).
 async function checkActivityFree(f, month, name, exceptId) {
-  const all = await Activity.find({ field: f.key, month, ...(exceptId ? { _id: { $ne: exceptId } } : {}) }).select("name status").lean();
-  const hit = all.find((a) => norm(a.name) === norm(name));
-  if (!hit) return;
-  throw new InputError(isDeleted(hit)
-    ? `"${hit.name}" was deleted from this month earlier. Click “Show deleted” and restore it instead.`
-    : `"${name}" is already an activity of this month.`, 409);
+  const all = await Activity.find({ field: f.key, month, ...notDeleted(), ...(exceptId ? { _id: { $ne: exceptId } } : {}) }).select("name").lean();
+  if (all.some((a) => norm(a.name) === norm(name))) throw new InputError(`"${name}" is already an activity of this month.`, 409);
 }
 const activityTarget = (f, a) => ({ type: "activity", id: String(a._id), label: `${f.label} · ${monthLabel(a.month)} · ${a.name}` });
 
@@ -510,22 +467,6 @@ router.delete("/:id/activities/:aid", async (req, res, next) => {
     markDeleted(a, req.user.email);
     await a.save();
     audit(req, "field_updated", { target: activityTarget(f, a), changes: [{ field: "activities", label: `Activity deleted (status D, ${monthLabel(a.month)})`, from: a.name, to: null }] });
-    res.json(await activityPayload(f, a.month));
-  } catch (err) {
-    sendError(err, res, next);
-  }
-});
-
-// ---------- POST /api/fields/:id/activities/:aid/restore ----------
-router.post("/:id/activities/:aid/restore", async (req, res, next) => {
-  try {
-    const f = await loadActivityField(req.params.id);
-    const a = await loadActivity(f, req.params.aid, { allowDeleted: true });
-    if (!isDeleted(a)) throw new InputError(`"${a.name}" is not deleted.`, 409);
-    await checkActivityFree(f, a.month, a.name, a._id);
-    markRestored(a);
-    await a.save();
-    audit(req, "field_updated", { target: activityTarget(f, a), changes: [{ field: "activities", label: `Activity restored (${monthLabel(a.month)})`, from: null, to: a.name }] });
     res.json(await activityPayload(f, a.month));
   } catch (err) {
     sendError(err, res, next);

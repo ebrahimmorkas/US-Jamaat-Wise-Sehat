@@ -1,7 +1,7 @@
 import { Link, navigate } from "../lib/router";
 import { LogoutIcon, MoonIcon, RefreshIcon, SunIcon } from "./Icons";
 
-const ROLE_LABELS = { saheb: "Saheb", superadmin: "Super Admin", jc: "JC" };
+const ROLE_LABELS = { saheb: "Saheb", superadmin: "Super Admin", jc: "JC", jamaat_coordinator: "Jamaat Coordinator", media: "Media" };
 
 // Top bar. `nav` = [{ to, label }] page tabs (current one = `page`).
 // `canLeave()` = optional check before switching tab (e.g. unsaved answers); true / false or a Promise of it.

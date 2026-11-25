@@ -8,6 +8,8 @@ const num = (v, fallback) => {
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 };
 
+const list = (v, fallback) => String(v || fallback).split(",").map((s) => s.trim().toLowerCase().replace(/^\./, "")).filter(Boolean);
+
 const config = {
   port: num(process.env.PORT, 5000),
   isProduction: process.env.NODE_ENV === "production",
@@ -82,6 +84,103 @@ const config = {
     publicKey: (process.env.IMAGEKIT_PUBLIC_KEY || "").trim(),
     urlEndpoint: (process.env.IMAGEKIT_URL_ENDPOINT || "").trim().replace(/\/+$/, ""),
     folder: (process.env.IMAGEKIT_FOLDER || "/umoor-sehhat/stats").trim(),
+  },
+
+  // ---- Where uploaded images / files are kept (switchable, see services/storage) ----
+  // STORAGE_PROVIDER = imagekit (default) | local | s3 | cloudinary. The Super Admin switches in the portal
+  // (Settings → Image storage); ImageKit is always the backup. Each file remembers where it was saved,
+  // so switching never breaks older files. Keys only here (Render), never in the database.
+  storage: {
+    provider: (process.env.STORAGE_PROVIDER || "").trim().toLowerCase(),
+    // Signs the links of files kept on this server (empty = derived from JWT_ACCESS_SECRET).
+    linkSecret: (process.env.STORAGE_LINK_SECRET || "").trim(),
+    local: {
+      dir: (process.env.LOCAL_UPLOAD_DIR || "").trim(), // empty = server/uploads
+      // Must be switched on in production (LOCAL_UPLOADS=true): on Render, files on the server are lost at every
+      // restart / deploy unless a Render Disk is attached (LOCAL_UPLOAD_DIR = its mount path). On by default when testing.
+      on: process.env.LOCAL_UPLOADS != null ? /^(1|true|yes)$/i.test(String(process.env.LOCAL_UPLOADS).trim()) : process.env.NODE_ENV !== "production",
+    },
+    s3: {
+      bucket: (process.env.S3_BUCKET || "").trim(),
+      region: (process.env.S3_REGION || "").trim(),
+      accessKeyId: (process.env.S3_ACCESS_KEY_ID || "").trim(),
+      secretAccessKey: (process.env.S3_SECRET_ACCESS_KEY || "").trim(),
+      endpoint: (process.env.S3_ENDPOINT || "").trim().replace(/\/+$/, ""), // empty = AWS; or R2 / Wasabi / MinIO …
+      publicUrl: (process.env.S3_PUBLIC_URL || "").trim().replace(/\/+$/, ""), // where public files open (email images)
+    },
+    cloudinary: (() => {
+      // CLOUDINARY_URL=cloudinary://<key>:<secret>@<cloud name>, or the three values separately.
+      const m = /^cloudinary:\/\/([^:]+):([^@]+)@(.+)$/.exec((process.env.CLOUDINARY_URL || "").trim());
+      return {
+        cloudName: (process.env.CLOUDINARY_CLOUD_NAME || (m && m[3]) || "").trim(),
+        apiKey: (process.env.CLOUDINARY_API_KEY || (m && m[1]) || "").trim(),
+        apiSecret: (process.env.CLOUDINARY_API_SECRET || (m && m[2]) || "").trim(),
+      };
+    })(),
+  },
+
+  // ---- Contact details used in email templates ({{Contact …}} variables). Change them on Render any time. ----
+  contact: {
+    name: (process.env.CONTACT_NAME || "Umoor Sehhat").trim(),
+    email: (process.env.CONTACT_EMAIL || "").trim(),
+    phone: (process.env.CONTACT_PHONE || "").trim(),
+    whatsapp: (process.env.CONTACT_WHATSAPP || "").trim(),
+    address: (process.env.CONTACT_ADDRESS || "").trim(),
+    website: (process.env.CONTACT_WEBSITE || "").trim(),
+  },
+
+  // ---- Email (switchable providers, see services/email.js) ----
+  // EMAIL_PROVIDER = nodemailer (default) | sendgrid | log (testing: prints, sends nothing).
+  // The Super Admin can switch between nodemailer and sendgrid in the portal; nodemailer is always the backup.
+  email: {
+    provider: (process.env.EMAIL_PROVIDER || "").trim().toLowerCase(),
+    sendgrid: {
+      apiKey: (process.env.SENDGRID_API_KEY || "").trim(),
+      from: (process.env.SENDGRID_FROM || "").trim(), // a sender verified in SendGrid (empty = EMAIL_FROM)
+      perMinute: num(process.env.SENDGRID_PER_MINUTE, 300) || 300,
+    },
+    from: (process.env.EMAIL_FROM || "").trim(), // e.g. "Umoor Sehhat <umoor.sehhat@gmail.com>"
+    replyTo: (process.env.EMAIL_REPLY_TO || "").trim(),
+    smtp: {
+      host: (process.env.SMTP_HOST || "smtp.gmail.com").trim(),
+      port: num(process.env.SMTP_PORT, 465) || 465,
+      user: (process.env.SMTP_USER || "").trim(),
+      pass: (process.env.SMTP_PASS || "").trim(),
+    },
+    // At most this many emails a minute (Gmail allows about 500 a day on a normal account, 2000 on Workspace).
+    perMinute: num(process.env.EMAIL_PER_MINUTE, 30) || 30,
+    // "Send email": all attachments of one email together (Gmail takes up to 25 MB; keep it lower).
+    maxAttachMb: num(process.env.EMAIL_MAX_ATTACH_MB, 10) || 10,
+    folder: (process.env.IMAGEKIT_EMAIL_FOLDER || "/umoor-sehhat/emails").trim(),
+    // Times written inside emails (the website shows each person's own time).
+    timeZone: (process.env.EMAIL_TIME_ZONE || "Asia/Kolkata").trim(),
+    timeZoneLabel: (process.env.EMAIL_TIME_ZONE_LABEL || "India time").trim(),
+    // Images put inside emails / templates must be public (email apps can't open signed links).
+    imageFolder: (process.env.IMAGEKIT_EMAIL_IMAGE_FOLDER || "/umoor-sehhat/email-images").trim(),
+    maxImageMb: num(process.env.EMAIL_MAX_IMAGE_MB, 4) || 4,
+  },
+
+  // ---- Forms (built by the Super Admin, filled by Jamaat Coordinators) ----
+  forms: {
+    // Signs the personal links (the Gmail inside a link can't be changed). Empty = derived from
+    // JWT_ACCESS_SECRET (so changing that also invalidates old personal links).
+    linkSecret: (process.env.FORMS_LINK_SECRET || "").trim(),
+    // Website address used to build form links, e.g. https://your-site.vercel.app (empty = the first CORS_ORIGIN).
+    publicUrl: (process.env.FORMS_PUBLIC_URL || "").trim().replace(/\/+$/, ""),
+    folder: (process.env.IMAGEKIT_FORMS_FOLDER || "/umoor-sehhat/forms").trim(),
+    // Upper limits for uploads (the Super Admin can set lower limits on each field, never higher).
+    // The server holds each upload in memory while sending it to ImageKit: keep these modest on small servers.
+    maxMb: {
+      image: num(process.env.FORMS_MAX_IMAGE_MB, 10) || 10,
+      video: num(process.env.FORMS_MAX_VIDEO_MB, 50) || 50,
+      file: num(process.env.FORMS_MAX_FILE_MB, 10) || 10,
+    },
+    // Extensions that may be allowed at all (the Super Admin picks from these per field).
+    extensions: {
+      image: list(process.env.FORMS_IMAGE_EXTENSIONS, "jpg,jpeg,png,webp,gif,heic"),
+      video: list(process.env.FORMS_VIDEO_EXTENSIONS, "mp4,mov,webm,m4v,3gp"),
+      file: list(process.env.FORMS_FILE_EXTENSIONS, "pdf,doc,docx,xls,xlsx,csv,ppt,pptx,txt"),
+    },
   },
 };
 

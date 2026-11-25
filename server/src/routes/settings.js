@@ -11,7 +11,7 @@ const Jamaat = require("../models/Jamaat");
 const { audit } = require("../services/audit");
 const listTarget = (key) => ({ type: "list", id: key, label: (form.lists[key] || {}).label || key });
 const { invalidate } = require("../services/lists");
-const { isDeleted, markDeleted, markRestored, deletedInfo } = require("../lib/softDelete");
+const { isDeleted, markDeleted, deletedInfo } = require("../lib/softDelete");
 const { cleanName } = require("../lib/names");
 const { InputError, isId, sendError } = require("../lib/validate");
 
@@ -53,17 +53,13 @@ async function loadDoc(key) {
 function findValue(doc, id, { allowDeleted = false } = {}) {
   const v = isId(id) ? doc.values.id(id) : null;
   if (!v) throw new InputError("Value not found. Reload the page.", 404);
-  if (!allowDeleted && isDeleted(v)) throw new InputError(`"${v.value}" is deleted. Restore it first to change it.`, 409);
+  if (!allowDeleted && isDeleted(v)) throw new InputError(`"${v.value}" is deleted.`, 409);
   return v;
 }
 const liveValues = (doc) => doc.values.filter((v) => !isDeleted(v));
-// Values are unique in a list, deleted ones included (restore one instead of adding it again).
+// Values are unique in a list (a deleted value can be added again).
 function checkValueFree(doc, value, exceptId) {
-  const hit = doc.values.find((v) => String(v._id) !== String(exceptId || "") && norm(v.value) === norm(value));
-  if (!hit) return;
-  throw new InputError(isDeleted(hit)
-    ? `"${hit.value}" was deleted from this list earlier. Click “Show deleted” and restore it instead.`
-    : `"${value}" is already in this list.`, 409);
+  if (doc.values.some((v) => !isDeleted(v) && String(v._id) !== String(exceptId || "") && norm(v.value) === norm(value))) throw new InputError(`"${value}" is already in this list.`, 409);
 }
 
 // Every value with its usage; deleted ones (status "D") flagged so the screen can offer Restore.
@@ -137,22 +133,6 @@ router.delete("/lists/:key/values/:id", async (req, res, next) => {
     markDeleted(item, req.user.email); // status "D": hidden from the dropdowns, kept
     await doc.save();
     audit(req, "dropdown_updated", { target: listTarget(req.params.key), changes: [{ field: "values", label: "Value deleted (status D)", from: item.value, to: null }] });
-    res.json(await listsPayload());
-  } catch (err) {
-    sendError(err, res, next);
-  }
-});
-
-// ---------- POST /api/settings/lists/:key/values/:id/restore ----------
-router.post("/lists/:key/values/:id/restore", async (req, res, next) => {
-  try {
-    const doc = await loadDoc(req.params.key);
-    const item = findValue(doc, req.params.id, { allowDeleted: true });
-    if (!isDeleted(item)) throw new InputError(`"${item.value}" is not deleted.`, 409);
-    checkValueFree(doc, item.value, item._id);
-    markRestored(item);
-    await doc.save();
-    audit(req, "dropdown_updated", { target: listTarget(req.params.key), changes: [{ field: "values", label: "Value restored", from: null, to: item.value }] });
     res.json(await listsPayload());
   } catch (err) {
     sendError(err, res, next);
