@@ -15,4 +15,4 @@ jobs:
       - name: Ping /api/health
         run: |
           curl --silent --show-error --fail --retry 5 --retry-delay 15 --retry-all-errors \
-            --max-time 90 https://us-jamaat-wise-sehat-api.onrender.com/api/health
+            --max-time 90 https://us-jamaat-wise-sehat.onrender.com/api/health
